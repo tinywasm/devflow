@@ -1,4 +1,4 @@
-package git
+package gitgo
 
 import (
 	"os/exec"

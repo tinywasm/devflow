@@ -1,3 +1,3 @@
-module github.com/cdvelop/git
+module github.com/cdvelop/gitgo
 
 go 1.20
