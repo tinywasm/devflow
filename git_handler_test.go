@@ -3,11 +3,11 @@ package gitgo
 import (
 	"os"
 	"os/exec"
-    "strings"
+	"strings"
 	"testing"
 )
 
-func TestGitHasChanges(t *testing.T) {
+func TestGitHandler_HasChanges(t *testing.T) {
 	dir, cleanup := testCreateGitRepo()
 	defer cleanup()
 
@@ -15,14 +15,16 @@ func TestGitHasChanges(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldDir)
 
+	h := NewGitHandler()
+
 	// Create file
 	os.WriteFile("test.txt", []byte("test"), 0644)
 
 	// Add
-	GitAdd()
+	h.Add()
 
 	// Should have changes
-	hasChanges, err := GitHasChanges()
+	hasChanges, err := h.HasChanges()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +34,7 @@ func TestGitHasChanges(t *testing.T) {
 	}
 }
 
-func TestGitGenerateNextTag(t *testing.T) {
+func TestGitHandler_GenerateNextTag(t *testing.T) {
 	dir, cleanup := testCreateGitRepo()
 	defer cleanup()
 
@@ -40,13 +42,15 @@ func TestGitGenerateNextTag(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldDir)
 
+	h := NewGitHandler()
+
 	// Initial commit
 	os.WriteFile("test.txt", []byte("test"), 0644)
 	exec.Command("git", "add", ".").Run()
 	exec.Command("git", "commit", "-m", "init").Run()
 
 	// Without tags should return v0.0.1
-	tag, err := GitGenerateNextTag()
+	tag, err := h.GenerateNextTag()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,10 +60,10 @@ func TestGitGenerateNextTag(t *testing.T) {
 	}
 
 	// Create tag
-	GitCreateTag("v0.0.1")
+	h.CreateTag("v0.0.1")
 
 	// Next should be v0.0.2
-	tag, err = GitGenerateNextTag()
+	tag, err = h.GenerateNextTag()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +73,7 @@ func TestGitGenerateNextTag(t *testing.T) {
 	}
 }
 
-func TestGitCommit(t *testing.T) {
+func TestGitHandler_Commit(t *testing.T) {
 	dir, cleanup := testCreateGitRepo()
 	defer cleanup()
 
@@ -77,36 +81,28 @@ func TestGitCommit(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldDir)
 
+	h := NewGitHandler()
+
 	// Without changes should not fail
-	err := GitCommit("test")
+	err := h.Commit("test")
 	if err != nil {
 		t.Error("Commit without changes should not fail")
 	}
 
 	// With changes
 	os.WriteFile("test.txt", []byte("test changes"), 0644)
-	GitAdd()
+	h.Add()
 
-    // Check for changes
-    has, _ := GitHasChanges()
-    if !has {
-        t.Fatal("Should have changes before commit")
-    }
-
-	// Wait a bit to ensure git timestamp update? No, that's usually for racy tests.
-	// But let's check why it fails.
-
-	err = GitCommit("test commit")
+	err = h.Commit("test commit")
 	if err != nil {
-        t.Logf("Error content: %v", err)
 		t.Fatalf("GitCommit failed: %v", err)
 	}
-    // Verify commit happened
-    out, err := exec.Command("git", "log", "-1", "--pretty=%B").Output()
-    if err != nil {
-        t.Fatal(err)
-    }
-    if strings.TrimSpace(string(out)) != "test commit" {
-        t.Errorf("Expected 'test commit', got '%s'", strings.TrimSpace(string(out)))
-    }
+	// Verify commit happened
+	out, err := exec.Command("git", "log", "-1", "--pretty=%B").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(out)) != "test commit" {
+		t.Errorf("Expected 'test commit', got '%s'", strings.TrimSpace(string(out)))
+	}
 }

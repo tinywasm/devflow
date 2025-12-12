@@ -4,72 +4,67 @@ import (
 	"fmt"
 )
 
-// WorkflowGoPU executes the complete workflow for Go projects
-// Equivalent to the complete logic of gopu.sh
-//
-// Parameters:
-//   message: Commit message
-//   tag: Optional tag
-//   skipTests: If true, skips tests
-//   skipRace: If true, skips race tests
-//   searchPath: Path to search for dependent modules (default: "..")
-func WorkflowGoPU(message, tag string, skipTests, skipRace bool, searchPath string) error {
-	// Default values
+// WorkflowGoPush executes the Go module update workflow
+func WorkflowGoPush(message string, modulePath string, searchPath string) error {
+    defer PrintSummary()
+
+	git := NewGitHandler()
+	goHandler := NewGoHandler()
+
+    // 1. Verify & Test (Before any changes)
+    if err := goHandler.Tidy(); err != nil {
+		return fmt.Errorf("tidy failed: %w", err)
+	}
+    if err := goHandler.Verify(); err != nil {
+        return fmt.Errorf("verify failed: %w", err)
+    }
+    // We run tests to ensure safety
+    if err := goHandler.Test(); err != nil {
+        return fmt.Errorf("tests failed: %w", err)
+    }
+
 	if message == "" {
-		message = "auto update Go package"
+		message = "update go module"
 	}
 
-	if searchPath == "" {
-		searchPath = ".."
+    if modulePath == "" {
+        path, err := goHandler.GetModulePath()
+        if err != nil {
+             return fmt.Errorf("failed to detect module path: %w", err)
+        }
+        modulePath = path
+        log("Detected module path:", modulePath)
+    }
+
+	// 2. Add & Commit
+	if err := git.Add(); err != nil {
+		return fmt.Errorf("add failed: %w", err)
 	}
 
-	// 1. Verify go.mod
-	log("Verifying Go module...")
-	if err := GoModVerify(); err != nil {
-		return fmt.Errorf("go mod verify failed: %w", err)
+	if err := git.Commit(message); err != nil {
+		return fmt.Errorf("commit failed: %w", err)
 	}
 
-	// 2. Run tests (if not skipped)
-	if !skipTests {
-		if err := GoTest(); err != nil {
-			return fmt.Errorf("tests failed: %w", err)
-		}
-	}
-
-	// 3. Run race tests (if not skipped)
-	if !skipRace && !skipTests {
-		if err := GoTestRace(); err != nil {
-			return fmt.Errorf("race tests failed: %w", err)
-		}
-	}
-
-	// 4. Execute push workflow
-	log("Executing push workflow...")
-	if err := WorkflowPush(message, tag); err != nil {
-		return fmt.Errorf("push workflow failed: %w", err)
-	}
-
-	// 5. Get created tag
-	latestTag, err := GitGetLatestTag()
+	// 3. Tag
+	tag, err := git.GenerateNextTag()
 	if err != nil {
-		log("Warning: could not get latest tag:", err)
-		return nil // Not fatal error
+		return fmt.Errorf("tag generation failed: %w", err)
+	}
+	if err := git.CreateTag(tag); err != nil {
+		log("Warning: tag creation:", err)
 	}
 
-	// 6. Get module name
-	modulePath, err := GoGetModulePath()
-	if err != nil {
-		log("Warning: could not get module path:", err)
-		return nil
+	// 4. Push
+	if err := git.Push(tag); err != nil {
+		return fmt.Errorf("push failed: %w", err)
 	}
 
-	// 7. Update dependent modules
-	log("Updating dependent modules...")
-	if err := GoUpdateDependents(modulePath, latestTag, searchPath); err != nil {
-		log("Warning: failed to update dependents:", err)
-		// Not fatal error
-	}
+	// 5. Update Dependents
+    if modulePath != "" {
+        if err := goHandler.UpdateDependents(modulePath, tag, searchPath); err != nil {
+            return fmt.Errorf("update dependents failed: %w", err)
+        }
+    }
 
-	log("GoPU completed:", latestTag)
 	return nil
 }
