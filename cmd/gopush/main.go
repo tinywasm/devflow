@@ -27,7 +27,7 @@ func main() {
 	message := *messageFlag
 	tag := *tagFlag
 	args := fs.Args()
-	
+
 	// If no -m flag, try to get message from positional arguments
 	if message == "" && len(args) > 0 {
 		message = args[0]
