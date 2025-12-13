@@ -181,7 +181,7 @@ func TestExample(t *testing.T) {}
 	if !strings.Contains(summary, "Pushed to remote") {
 		t.Errorf("Expected summary to contain 'Pushed to remote', got: %s", summary)
 	}
-	if !strings.Contains(summary, "vet passed") {
-		t.Errorf("Expected summary to contain 'vet passed', got: %s", summary)
+	if !strings.Contains(summary, "vet ok") {
+		t.Errorf("Expected summary to contain 'vet ok', got: %s", summary)
 	}
 }

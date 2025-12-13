@@ -63,11 +63,11 @@ func (g *Go) Test(verbose bool) (string, error) {
 			addMsg(false, "vet issues found")
 		} else {
 			vetStatus = "OK"
-			addMsg(true, "vet passed")
+			addMsg(true, "vet ok")
 		}
 	} else {
 		vetStatus = "OK"
-		addMsg(true, "vet passed")
+		addMsg(true, "vet ok")
 	}
 
 	// Check for test files
@@ -138,7 +138,7 @@ func (g *Go) Test(verbose bool) (string, error) {
 			}
 		} else {
 			testStatus = "Passing"
-			addMsg(true, "tests stdlib passed")
+			addMsg(true, "tests stdlib ok")
 			stdTestsRan = true
 		}
 
@@ -177,13 +177,11 @@ func (g *Go) Test(verbose bool) (string, error) {
 				}
 			} else {
 				raceStatus = "Clean"
-				addMsg(true, "race detection passed")
+				addMsg(true, "race detection ok")
 			}
 		} else {
 			raceStatus = "Clean"
-		}
-
-		// Coverage
+		} // Coverage
 		if stdTestsRan {
 			if !quiet {
 				g.log("Calculating coverage...")
@@ -244,7 +242,7 @@ func (g *Go) Test(verbose bool) (string, error) {
 					addMsg(false, "tests wasm failed")
 					testStatus = "Failed"
 				} else {
-					addMsg(true, "tests wasm passed")
+					addMsg(true, "tests wasm ok")
 					if testStatus != "Failed" {
 						testStatus = "Passing"
 					}
