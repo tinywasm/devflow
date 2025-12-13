@@ -42,28 +42,34 @@ func (g *Go) Test(verbose bool) (string, error) {
 	// Go Vet
 	vetOutput, err := RunCommand("go", "vet", "./...")
 	if err != nil {
-		vetStatus = "Issues"
-		// Filter unsafe.Pointer warnings
-		lines := strings.Split(vetOutput, "\n")
-		var filteredLines []string
-		for _, line := range lines {
-			if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") { // Ignore comments/empty
-				continue
-			}
-			if !strings.Contains(line, "possible misuse of unsafe.Pointer") {
-				filteredLines = append(filteredLines, line)
-			}
-		}
-
-		if len(filteredLines) > 0 {
-			fmt.Println("go vet failed:")
-			for _, l := range filteredLines {
-				fmt.Println(l)
-			}
-			addMsg(false, "vet issues found")
-		} else {
+		// Check if it's just "no packages" error (WASM-only projects)
+		if strings.Contains(vetOutput, "matched no packages") || strings.Contains(vetOutput, "no packages to vet") {
 			vetStatus = "OK"
 			addMsg(true, "vet ok")
+		} else {
+			vetStatus = "Issues"
+			// Filter unsafe.Pointer warnings
+			lines := strings.Split(vetOutput, "\n")
+			var filteredLines []string
+			for _, line := range lines {
+				if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") { // Ignore comments/empty
+					continue
+				}
+				if !strings.Contains(line, "possible misuse of unsafe.Pointer") {
+					filteredLines = append(filteredLines, line)
+				}
+			}
+
+			if len(filteredLines) > 0 {
+				fmt.Println("go vet failed:")
+				for _, l := range filteredLines {
+					fmt.Println(l)
+				}
+				addMsg(false, "vet issues found")
+			} else {
+				vetStatus = "OK"
+				addMsg(true, "vet ok")
+			}
 		}
 	} else {
 		vetStatus = "OK"
