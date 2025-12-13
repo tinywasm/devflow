@@ -23,6 +23,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get message from flag or positional argument
+	message := *messageFlag
+	tag := *tagFlag
+	args := fs.Args()
+	
+	// If no -m flag, try to get message from positional arguments
+	if message == "" && len(args) > 0 {
+		message = args[0]
+		// If tag not set via -t flag, try second positional argument
+		if tag == "" && len(args) > 1 {
+			tag = args[1]
+		}
+	}
+
 	git := devflow.NewGit()
 	goHandler := devflow.NewGo(git)
 
@@ -36,7 +50,7 @@ func main() {
 		})
 	}
 
-	summary, err := goHandler.Push(*messageFlag, *tagFlag, *skipTestsFlag, *skipRaceFlag, *searchPathFlag)
+	summary, err := goHandler.Push(message, tag, *skipTestsFlag, *skipRaceFlag, *searchPathFlag)
 	if err != nil {
 		fmt.Println("Push failed:", err)
 		os.Exit(1)
