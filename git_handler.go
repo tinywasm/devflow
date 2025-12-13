@@ -9,11 +9,19 @@ import (
 // Git handler for Git operations
 type Git struct {
 	// We can add configuration fields here if needed
+	log func(...any)
 }
 
 // NewGit creates a new Git handler
 func NewGit() *Git {
-	return &Git{}
+	return &Git{
+		log: func(...any) {}, // default no-op
+	}
+}
+
+// SetLog sets the logger function
+func (g *Git) SetLog(fn func(...any)) {
+	g.log = fn
 }
 
 // Push executes the complete push workflow (add, commit, tag, push)
@@ -38,7 +46,7 @@ func (g *Git) Push(message, tag string) (string, error) {
 		return "", fmt.Errorf("git commit failed: %w", err)
 	}
 	if committed {
-		summary = append(summary, fmt.Sprintf("Committed: %s", message))
+		summary = append(summary, "Committed")
 	} else {
 		summary = append(summary, "No changes to commit")
 	}
@@ -62,9 +70,9 @@ func (g *Git) Push(message, tag string) (string, error) {
 		// We will note it in summary.
 		summary = append(summary, fmt.Sprintf("Tag warning: %v", err))
 	} else if created {
-		summary = append(summary, fmt.Sprintf("Tag created: %s", finalTag))
+		summary = append(summary, fmt.Sprintf("Tag: %s", finalTag))
 	} else {
-		summary = append(summary, fmt.Sprintf("Tag exists: %s", finalTag))
+		summary = append(summary, fmt.Sprintf("Tag: %s", finalTag))
 	}
 
 	// 5. Push commits and tag

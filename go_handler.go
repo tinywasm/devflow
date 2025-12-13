@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -12,13 +11,20 @@ import (
 // Go handler for Go operations
 type Go struct {
 	git *Git
+	log func(...any)
 }
 
 // NewGo creates a new Go handler
 func NewGo(gitHandler *Git) *Go {
 	return &Go{
 		git: gitHandler,
+		log: func(...any) {}, // default no-op
 	}
+}
+
+// SetLog sets the logger function
+func (g *Go) SetLog(fn func(...any)) {
+	g.log = fn
 }
 
 // Push executes the complete workflow for Go projects
@@ -49,46 +55,37 @@ func (g *Go) Push(message, tag string, skipTests, skipRace bool, searchPath stri
 
 	// 2. Run tests (if not skipped)
 	if !skipTests {
-		if err := g.test(); err != nil {
+		testSummary, err := g.Test(false) // quiet mode
+		if err != nil {
 			return "", fmt.Errorf("tests failed: %w", err)
 		}
-		summary = append(summary, "Tests passed")
+		summary = append(summary, testSummary)
 	} else {
 		summary = append(summary, "Tests skipped")
 	}
 
-	// 3. Run race tests (if not skipped)
-	if !skipRace && !skipTests {
-		if err := g.testRace(); err != nil {
-			return "", fmt.Errorf("race tests failed: %w", err)
-		}
-		summary = append(summary, "Race tests passed")
-	} else if skipRace && !skipTests {
-		summary = append(summary, "Race tests skipped")
-	}
-
-	// 4. Execute push workflow
+	// 3. Execute git push workflow
 	pushSummary, err := g.git.Push(message, tag)
 	if err != nil {
 		return "", fmt.Errorf("push workflow failed: %w", err)
 	}
-	summary = append(summary, fmt.Sprintf("Git Push [%s]", pushSummary))
+	summary = append(summary, pushSummary)
 
-	// 5. Get created tag (from Git handler or just get latest)
+	// 4. Get created tag
 	latestTag, err := g.git.GetLatestTag()
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: could not get latest tag: %v", err))
 		// Not fatal error
 	}
 
-	// 6. Get module name
+	// 5. Get module name
 	modulePath, err := g.getModulePath()
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: could not get module path: %v", err))
 		return strings.Join(summary, ", "), nil
 	}
 
-	// 7. Update dependent modules
+	// 6. Update dependent modules
 	updated, err := g.updateDependents(modulePath, latestTag, searchPath)
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: failed to update dependents: %v", err))
@@ -106,18 +103,6 @@ func (g *Go) verify() error {
 	}
 
 	_, err := RunCommand("go", "mod", "verify")
-	return err
-}
-
-// test runs tests
-func (g *Go) test() error {
-	_, err := RunCommand("go", "test", "./...")
-	return err
-}
-
-// testRace runs tests with race detector
-func (g *Go) testRace() error {
-	_, err := RunCommand("go", "test", "-race", "./...")
 	return err
 }
 
@@ -243,13 +228,13 @@ func (g *Go) updateModule(moduleDir, dependency, version string) error {
 	}
 
 	target := fmt.Sprintf("%s@%s", dependency, version)
-	cmd := exec.Command("go", "get", "-u", target)
-	if err := cmd.Run(); err != nil {
+	_, err = RunCommand("go", "get", "-u", target)
+	if err != nil {
 		return fmt.Errorf("go get failed: %w", err)
 	}
 
-	cmd = exec.Command("go", "mod", "tidy")
-	if err := cmd.Run(); err != nil {
+	_, err = RunCommand("go", "mod", "tidy")
+	if err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
