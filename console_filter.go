@@ -48,6 +48,14 @@ func (cf *ConsoleFilter) addLine(line string) {
 	if strings.Contains(line, "no packages to test") {
 		return
 	}
+	// Skip "[no test files]" messages
+	if strings.Contains(line, "[no test files]") {
+		return
+	}
+	// Skip "?" lines (package status without tests)
+	if strings.HasPrefix(line, "?") && strings.Contains(line, "[no test files]") {
+		return
+	}
 	// Skip wasmbrowsertest success messages (we have our own summary)
 	if strings.Contains(line, "✅ All tests passed!") || strings.Contains(line, "All tests passed!") {
 		return
