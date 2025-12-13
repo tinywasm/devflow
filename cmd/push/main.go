@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	// Parse flags (keep simple like bash)
+	// Parse flags
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `push - Automated Git workflow
 
@@ -37,7 +37,6 @@ Workflow:
 `)
 	}
 
-	// Flag -h or --help
 	helpFlag := flag.Bool("h", false, "Show help")
 	flag.BoolVar(helpFlag, "help", false, "Show help")
 	flag.Parse()
@@ -47,7 +46,6 @@ Workflow:
 		os.Exit(0)
 	}
 
-	// Positional arguments (like original bash)
 	args := flag.Args()
 
 	var message, tag string
@@ -61,7 +59,14 @@ Workflow:
 	}
 
 	// Execute workflow
-	if err := gitgo.WorkflowPush(message, tag); err != nil {
+	git := gitgo.NewGit()
+	summary, err := git.Push(message, tag)
+
+	if summary != "" {
+		fmt.Println(summary)
+	}
+
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

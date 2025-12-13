@@ -60,7 +60,6 @@ Workflow:
 		os.Exit(0)
 	}
 
-	// Positional arguments
 	args := flag.Args()
 
 	var message, tag string
@@ -81,13 +80,20 @@ Workflow:
 	}
 
 	// Execute workflow
-	err := gitgo.WorkflowGoPU(
+	git := gitgo.NewGit()
+	goHandler := gitgo.NewGo(git)
+
+	summary, err := goHandler.Push(
 		message,
 		tag,
 		*skipTestsFlag,
 		*skipRaceFlag,
 		searchPath,
 	)
+
+	if summary != "" {
+		fmt.Println(summary)
+	}
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

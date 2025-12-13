@@ -7,35 +7,24 @@ import (
 )
 
 // RunCommand executes a shell command
-// It logs the command, runs it, and returns the output (trimmed)
-// If the command fails, it returns an error with the output included
+// It returns the output (trimmed) and an error if the command fails
 func RunCommand(name string, args ...string) (string, error) {
-	// Log command
-	cmdStr := name + " " + strings.Join(args, " ")
-	log(cmdStr)
-
 	// Execute
 	cmd := exec.Command(name, args...)
 	outputBytes, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(outputBytes))
 
 	if err != nil {
+		cmdStr := name + " " + strings.Join(args, " ")
 		return output, fmt.Errorf("command failed: %s\nError: %w\nOutput: %s", cmdStr, err, output)
 	}
 
 	return output, nil
 }
 
-// RunCommandSilent executes a command without logging it (unless it fails)
-// Useful for internal checks like "git diff-index"
+// RunCommandSilent executes a command (alias for RunCommand now, as RunCommand is also silent on success)
+// kept for backward compatibility if needed, or we can remove it.
+// The previous implementation was identical except for logging.
 func RunCommandSilent(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	outputBytes, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(outputBytes))
-
-	if err != nil {
-		return output, fmt.Errorf("command failed: %s %s\nError: %w", name, strings.Join(args, " "), err)
-	}
-
-	return output, nil
+	return RunCommand(name, args...)
 }
