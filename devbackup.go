@@ -63,18 +63,10 @@ func (d *DevBackup) Run() (string, error) {
 		return "", nil
 	}
 
-	// Execute asynchronously (fire and forget)
-	go d.executeAsync(command)
+	// Execute asynchronously at OS level
+	if err := RunShellCommandAsync(command); err != nil {
+		return "", fmt.Errorf("failed to start backup: %w", err)
+	}
 
 	return "✅ Backup started", nil
-}
-
-// executeAsync runs the backup command in background
-func (d *DevBackup) executeAsync(command string) {
-	_, err := RunShellCommand(command)
-
-	if err != nil {
-		// Show error if command failed
-		fmt.Printf("❌ Backup failed: %v\n", err)
-	}
 }

@@ -41,3 +41,18 @@ func RunShellCommand(command string) (string, error) {
 		return RunCommand("sh", "-c", command)
 	}
 }
+
+// RunShellCommandAsync starts a shell command asynchronously (non-blocking)
+// Returns immediately after starting, does not wait for completion
+func RunShellCommandAsync(command string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd.exe", "/C", command)
+	default: // linux, darwin, etc.
+		cmd = exec.Command("sh", "-c", command)
+	}
+
+	return cmd.Start()
+}

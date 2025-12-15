@@ -27,10 +27,10 @@ go install github.com/tinywasm/devflow/cmd/devbackup@latest
 # Test your project
 gotest
 
-# Push changes
+# Push changes + backup
 push "fix: bug correction"
 
-# Test + push + update dependents
+# Test + push + update dependents 
 gopush "feat: new feature"
 ```
 
