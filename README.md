@@ -12,6 +12,7 @@ Automated Git and Go workflows with minimal output.
 - **[push](docs/PUSH.md)** - Git add, commit, tag, and push
 - **[gopush](docs/GOPUSH.md)** - Complete workflow: test + push + update dependents
 - **[devbackup](docs/DEVBACKUP.md)** - Configure and execute automated backups
+- **[badges](docs/BADGES.md)** - Generate SVG badges for README (test status, coverage, etc.)
 
 ## Installation
 
@@ -21,6 +22,7 @@ go install github.com/tinywasm/devflow/cmd/gotest@latest
 go install github.com/tinywasm/devflow/cmd/push@latest
 go install github.com/tinywasm/devflow/cmd/gopush@latest
 go install github.com/tinywasm/devflow/cmd/devbackup@latest
+go install github.com/tinywasm/devflow/cmd/badges@latest
 ```
 
 ## Quick Start
@@ -34,6 +36,10 @@ push "fix: bug correction"
 
 # Test + push + update dependents 
 gopush "feat: new feature"
+
+# Generate badges
+badges
+
 ```
 
 ## Library Usage

@@ -2,6 +2,8 @@ package devflow
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 )
 
@@ -10,6 +12,23 @@ type Go struct {
 	git    *Git
 	log    func(...any)
 	backup *DevBackup
+}
+
+// GoVersion reads the Go version from the go.mod file in the current directory.
+// It returns the version string (e.g., "1.18") or an empty string if not found.
+func (g *Go) GoVersion() (string, error) {
+	data, err := os.ReadFile("go.mod")
+	if err != nil {
+		return "", err
+	}
+
+	re := regexp.MustCompile(`^go\s+(\d+\.\d+)`)
+	matches := re.FindStringSubmatch(string(data))
+	if len(matches) > 1 {
+		return matches[1], nil
+	}
+
+	return "", nil
 }
 
 // NewGo creates a new Go handler and verifies Go installation
