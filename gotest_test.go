@@ -27,7 +27,7 @@ func TestGo_NewGo(t *testing.T) {
 	g := NewGo(git)
 
 	if g == nil {
-		t.Error("Expected NewGo to return non-nil")
+		t.Fatal("Expected NewGo to return non-nil")
 	}
 
 	if g.git != git {

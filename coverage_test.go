@@ -159,13 +159,13 @@ func TestExample(t *testing.T) {}
 `
 	os.WriteFile("main_test.go", []byte(testContent), 0644)
 
-	summary, err = goHandler.Push("msg", "v0.0.2", false, true, "")
+	_, err = goHandler.Push("msg", "v0.0.2", false, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 3. Run Tests, Run Race
-	summary, err = goHandler.Push("msg", "v0.0.3", false, false, "")
+	_, err = goHandler.Push("msg", "v0.0.3", false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
