@@ -28,12 +28,12 @@ devbackup -s ""
 
 **Linux/Debian:**
 ```bash
-devbackup -s '$(command -v FreeFileSync || command -v freefilesync) "$HOME/Own/Sync/SyncSettings.ffs_batch"'
+devbackup -s '$(command -v FreeFileSync || command -v freefilesync) $HOME/Own/Sync/SyncSettings.ffs_batch'
 ```
 
 **Windows:**
 ```bash
-devbackup -s '"/c/Program Files/FreeFileSync/FreeFileSync.exe" "/c/Users/$(whoami)/SyncWin/SyncSettings.ffs_batch"'
+devbackup -s '"/c/Program Files/FreeFileSync/FreeFileSync.exe" /c/Users/$(whoami)/SyncWin/SyncSettings.ffs_batch'
 ```
 
 ## Configuration
@@ -42,7 +42,7 @@ The backup command is stored in `~/.bashrc` with markers and escaped quotes:
 
 ```bash
 # START_DEVFLOW:DEV_BACKUP
-export DEV_BACKUP="$(command -v FreeFileSync || command -v freefilesync) \"$HOME/Own/Sync/SyncSettings.ffs_batch\""
+export DEV_BACKUP="$(command -v FreeFileSync || command -v freefilesync) $HOME/Own/Sync/SyncSettings.ffs_batch"
 # END_DEVFLOW:DEV_BACKUP
 ```
 
@@ -77,3 +77,5 @@ Output: error details
 - Command runs via `sh -c` (Linux/macOS) or `cmd.exe /C` (Windows)
 - User is responsible for proper command formatting
 - Configuration persists across sessions and is available immediately
+- FreeFileSync may show GTK warnings in background execution (this is normal)
+- GUI applications run in background mode - check process/logs if uncertain about execution
