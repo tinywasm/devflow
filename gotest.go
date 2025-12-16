@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Test executes the test suite for the project
@@ -39,9 +40,54 @@ func (g *Go) Test(verbose bool) (string, error) {
 
 	quiet := !verbose
 
-	// Go Vet
-	vetOutput, err := RunCommand("go", "vet", "./...")
-	if err != nil {
+	// Parallel Phase 1: Vet + Test file detection
+	var wg1 sync.WaitGroup
+	var vetOutput string
+	var vetErr error
+	var hasTestFiles bool
+	var enableWasmTests bool
+
+	wg1.Add(3)
+
+	// Go Vet (async)
+	go func() {
+		defer wg1.Done()
+		vetOutput, vetErr = RunCommand("go", "vet", "./...")
+	}()
+
+	// Check for test files (async)
+	go func() {
+		defer wg1.Done()
+		out, _ := RunCommand("find", ".", "-type", "f", "-name", "*_test.go")
+		hasTestFiles = len(out) > 0
+	}()
+
+	// Check for WASM test files or build tags (async)
+	go func() {
+		defer wg1.Done()
+		// Check file names
+		wasmTestOut, _ := RunCommand("sh", "-c", "find . -type f \\( -name '*Wasm*_test.go' -o -name '*wasm*_test.go' \\) 2>/dev/null")
+		if len(wasmTestOut) > 0 {
+			enableWasmTests = true
+			if !quiet {
+				g.log("Detected WASM test files by name...")
+			}
+			return
+		}
+		// Check for wasm build tag in test files
+		buildTagOut, _ := RunCommand("sh", "-c", "grep -l '^//go:build.*wasm' *_test.go 2>/dev/null || true")
+		if len(buildTagOut) > 0 {
+			enableWasmTests = true
+			if !quiet {
+				g.log("Detected WASM build tags...")
+			}
+		}
+	}()
+
+	wg1.Wait()
+
+	// Process vet results
+	if vetErr != nil {
 		// Check if it's just "no packages" error (WASM-only projects)
 		if strings.Contains(vetOutput, "matched no packages") || strings.Contains(vetOutput, "no packages to vet") {
 			vetStatus = "OK"
@@ -76,62 +122,69 @@ func (g *Go) Test(verbose bool) (string, error) {
 		addMsg(true, "vet ok")
 	}
 
-	// Check for test files
-	hasTestFiles := false
-	out, _ := RunCommand("find", ".", "-type", "f", "-name", "*_test.go")
-	if len(out) > 0 {
-		hasTestFiles = true
-	}
-
-	// Check if there are WASM-specific test files (auto-detect)
-	enableWasmTests := false
-	wasmTestOut, _ := RunCommand("find", ".", "-type", "f", "-name", "*Wasm*_test.go", "-o", "-name", "*wasm*_test.go")
-	if len(wasmTestOut) > 0 {
-		enableWasmTests = true
-		if !quiet {
-			g.log("Detected WASM test files, will run WASM tests...")
-		}
-	}
-
 	if hasTestFiles {
 		if !quiet {
-			g.log("Running standard Go tests...")
+			g.log("Running Go tests with race detection and coverage...")
 		}
 
-		testCmd := exec.Command("go", "test", "./...")
+		// Parallel Phase 2: Tests with race + Coverage
+		var wg2 sync.WaitGroup
+		var testErr error
+		var testOutput string
+		var coverageOutput string
+		var coverageErr error
 
-		// Setup ConsoleFilter
-		filter := NewConsoleFilter(quiet, func(s string) {
-			if quiet {
-				fmt.Println(s)
-			} else {
-				fmt.Println(s)
+		wg2.Add(2)
+
+		// Tests with race detection (async)
+		go func() {
+			defer wg2.Done()
+			testCmd := exec.Command("go", "test", "-race", "./...")
+
+			testFilter := NewConsoleFilter(quiet, func(s string) {
+				if quiet {
+					fmt.Println(s)
+				} else {
+					fmt.Println(s)
+				}
+			})
+
+			testBuffer := &bytes.Buffer{}
+
+			testPipe := &paramWriter{
+				write: func(p []byte) (n int, err error) {
+					s := string(p)
+					testBuffer.Write(p)
+					testFilter.Add(s)
+					return len(p), nil
+				},
 			}
-		})
 
-		validTestOutput := &bytes.Buffer{}
+			testCmd.Stdout = testPipe
+			testCmd.Stderr = testPipe
+			testErr = testCmd.Run()
+			testFilter.Flush()
 
-		pipeWriter := &paramWriter{
-			write: func(p []byte) (n int, err error) {
-				s := string(p)
-				validTestOutput.Write(p)
-				filter.Add(s)
-				return len(p), nil
-			},
-		}
+			testOutput = testBuffer.String()
+		}()
 
-		testCmd.Stdout = pipeWriter
-		testCmd.Stderr = pipeWriter
+		// Coverage (async)
+		go func() {
+			defer wg2.Done()
+			if !quiet {
+				g.log("Calculating coverage...")
+			}
+			coverageOutput, coverageErr = RunCommand("go", "test", "-cover", "./...")
+		}()
 
-		err := testCmd.Run()
-		filter.Flush()
+		wg2.Wait()
 
-		output := validTestOutput.String()
-
+		// Process test results
 		stdTestsRan := false
-		if err != nil {
-			if strings.Contains(output, "matched no packages") {
+		if testErr != nil {
+			if strings.Contains(testOutput, "matched no packages") {
 				testStatus = "Passing"
+				raceStatus = "Clean"
 				if !enableWasmTests {
 					enableWasmTests = true
 					if !quiet {
@@ -140,65 +193,26 @@ func (g *Go) Test(verbose bool) (string, error) {
 				}
 			} else {
 				addMsg(false, fmt.Sprintf("Test errors found in %s", moduleName))
+				testStatus = "Failed"
+				raceStatus = "Detected"
 				stdTestsRan = true
 			}
 		} else {
 			testStatus = "Passing"
+			raceStatus = "Clean"
 			addMsg(true, "tests stdlib ok")
+			addMsg(true, "race detection ok")
 			stdTestsRan = true
 		}
 
-		// Race Detection
+		// Process coverage results
 		if stdTestsRan {
-			if !quiet {
-				g.log("Running race detection...")
-			}
-			raceCmd := exec.Command("go", "test", "-race", "./...")
-
-			raceBuffer := &bytes.Buffer{}
-			raceFilter := NewConsoleFilter(quiet, nil)
-
-			racePipe := &paramWriter{
-				write: func(p []byte) (n int, err error) {
-					s := string(p)
-					raceBuffer.Write(p)
-					raceFilter.Add(s)
-					return len(p), nil
-				},
-			}
-
-			raceCmd.Stdout = racePipe
-			raceCmd.Stderr = racePipe
-			err = raceCmd.Run()
-			raceFilter.Flush()
-
-			rOutput := raceBuffer.String()
-
-			if err != nil {
-				if strings.Contains(rOutput, "matched no packages") {
-					raceStatus = "Clean"
-				} else {
-					raceStatus = "Detected"
-					addMsg(false, fmt.Sprintf("Race condition tests failed in %s", moduleName))
-				}
-			} else {
-				raceStatus = "Clean"
-				addMsg(true, "race detection ok")
-			}
-		} else {
-			raceStatus = "Clean"
-		} // Coverage
-		if stdTestsRan {
-			if !quiet {
-				g.log("Calculating coverage...")
-			}
-			out, err := RunCommand("go", "test", "-cover", "./...")
-			if err == nil {
-				coveragePercent = calculateAverageCoverage(out)
+			if coverageErr == nil {
+				coveragePercent = calculateAverageCoverage(coverageOutput)
 				if coveragePercent != "0" {
 					addMsg(true, "coverage: "+coveragePercent+"%")
 				}
-			} else if strings.Contains(out, "matched no packages") {
+			} else if strings.Contains(coverageOutput, "matched no packages") {
 				// ignore
 			} else {
 				addMsg(false, "Failed to calculate coverage")
