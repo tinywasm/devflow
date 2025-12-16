@@ -24,6 +24,15 @@ go install github.com/tinywasm/devflow/cmd/gopush@latest
 go install github.com/tinywasm/devflow/cmd/devbackup@latest
 go install github.com/tinywasm/devflow/cmd/badges@latest
 ```
+or, if you have the source code:
+```bash
+go install ./cmd/gonew
+go install ./cmd/gotest
+go install ./cmd/push
+go install ./cmd/gopush
+go install ./cmd/devbackup
+go install ./cmd/badges
+```
 
 ## Quick Start
 
