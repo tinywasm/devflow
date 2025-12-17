@@ -139,11 +139,13 @@ func (g *Go) Test(verbose bool) (string, error) {
 		testFilter := NewConsoleFilter(quiet, testFilterCallback)
 
 		testBuffer := &bytes.Buffer{}
+		testBufferUnfiltered := &bytes.Buffer{} // Capture unfiltered output for error reporting
 
 		testPipe := &paramWriter{
 			write: func(p []byte) (n int, err error) {
 				s := string(p)
 				testBuffer.Write(p)
+				testBufferUnfiltered.Write(p) // Always capture complete output
 				testFilter.Add(s)
 				return len(p), nil
 			},
@@ -154,21 +156,38 @@ func (g *Go) Test(verbose bool) (string, error) {
 		testErr = testCmd.Run()
 		testFilter.Flush()
 
-		testOutput = testBuffer.String()
+		testOutput = testBufferUnfiltered.String() // Use unfiltered output for error detection
 
 		// Process test results
 		stdTestsRan := false
 		if testErr != nil {
-			if strings.Contains(testOutput, "matched no packages") {
+			// Check if it's a WASM-only package (build constraints exclude all files)
+			if strings.Contains(testOutput, "matched no packages") ||
+				strings.Contains(testOutput, "build constraints exclude all Go files") {
 				testStatus = "Passing"
 				raceStatus = "Clean"
-				if !enableWasmTests {
-					enableWasmTests = true
-					if !quiet {
-						g.log("No standard tests found, auto-enabling WASM tests...")
-					}
+				// Ensure WASM tests are enabled for WASM-only packages
+				enableWasmTests = true
+				if !quiet {
+					g.log("WASM-only package detected, skipping stdlib tests...")
 				}
 			} else {
+				// Real test failure - show only error lines in quiet mode
+				if quiet {
+					// Extract and show FAIL lines and error messages
+					lines := strings.Split(testOutput, "\n")
+					for _, line := range lines {
+						trimmed := strings.TrimSpace(line)
+						// Show FAIL lines, error messages, and test file references
+						if strings.HasPrefix(trimmed, "FAIL") ||
+							strings.HasPrefix(trimmed, "--- FAIL:") ||
+							strings.Contains(line, "_test.go:") ||
+							strings.Contains(trimmed, "Error:") ||
+							strings.Contains(trimmed, "panic:") {
+							fmt.Println(line)
+						}
+					}
+				}
 				addMsg(false, fmt.Sprintf("Test errors found in %s", moduleName))
 				testStatus = "Failed"
 				raceStatus = "Detected"
@@ -214,6 +233,7 @@ func (g *Go) Test(verbose bool) (string, error) {
 				wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
 				var wasmOut bytes.Buffer
+				var wasmOutUnfiltered bytes.Buffer // Capture unfiltered output for error reporting
 
 				var wasmFilterCallback func(string)
 				if !quiet {
@@ -226,6 +246,7 @@ func (g *Go) Test(verbose bool) (string, error) {
 					write: func(p []byte) (n int, err error) {
 						s := string(p)
 						wasmOut.Write(p)
+						wasmOutUnfiltered.Write(p) // Always capture complete output
 						wasmFilter.Add(s)
 						return len(p), nil
 					},
@@ -237,9 +258,24 @@ func (g *Go) Test(verbose bool) (string, error) {
 				err := wasmCmd.Run()
 				wasmFilter.Flush()
 
-				wOutput := wasmOut.String()
+				wOutput := wasmOutUnfiltered.String() // Use unfiltered output
 
 				if err != nil {
+					// WASM test failure - show only error lines in quiet mode
+					if quiet {
+						lines := strings.Split(wOutput, "\n")
+						for _, line := range lines {
+							trimmed := strings.TrimSpace(line)
+							// Show FAIL lines, error messages, and test file references
+							if strings.HasPrefix(trimmed, "FAIL") ||
+								strings.HasPrefix(trimmed, "--- FAIL:") ||
+								strings.Contains(line, "_test.go:") ||
+								strings.Contains(trimmed, "Error:") ||
+								strings.Contains(trimmed, "panic:") {
+								fmt.Println(line)
+							}
+						}
+					}
 					addMsg(false, "tests wasm failed")
 					testStatus = "Failed"
 				} else {
