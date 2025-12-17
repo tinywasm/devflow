@@ -123,57 +123,38 @@ func (g *Go) Test(verbose bool) (string, error) {
 			g.log("Running Go tests with race detection and coverage...")
 		}
 
-		// Parallel Phase 2: Tests with race + Coverage
-		var wg2 sync.WaitGroup
+		// Run tests with race detection AND coverage in a single command
+		// Running them in parallel causes cache conflicts
 		var testErr error
 		var testOutput string
-		var coverageOutput string
-		var coverageErr error
 
-		wg2.Add(2)
+		testCmd := exec.Command("go", "test", "-race", "-cover", ".")
 
-		// Tests with race detection (async)
-		go func() {
-			defer wg2.Done()
-			testCmd := exec.Command("go", "test", "-race", ".")
-
-			var testFilterCallback func(string)
-			if !quiet {
-				testFilterCallback = func(s string) {
-					fmt.Println(s)
-				}
+		var testFilterCallback func(string)
+		if !quiet {
+			testFilterCallback = func(s string) {
+				fmt.Println(s)
 			}
-			testFilter := NewConsoleFilter(quiet, testFilterCallback)
+		}
+		testFilter := NewConsoleFilter(quiet, testFilterCallback)
 
-			testBuffer := &bytes.Buffer{}
+		testBuffer := &bytes.Buffer{}
 
-			testPipe := &paramWriter{
-				write: func(p []byte) (n int, err error) {
-					s := string(p)
-					testBuffer.Write(p)
-					testFilter.Add(s)
-					return len(p), nil
-				},
-			}
+		testPipe := &paramWriter{
+			write: func(p []byte) (n int, err error) {
+				s := string(p)
+				testBuffer.Write(p)
+				testFilter.Add(s)
+				return len(p), nil
+			},
+		}
 
-			testCmd.Stdout = testPipe
-			testCmd.Stderr = testPipe
-			testErr = testCmd.Run()
-			testFilter.Flush()
+		testCmd.Stdout = testPipe
+		testCmd.Stderr = testPipe
+		testErr = testCmd.Run()
+		testFilter.Flush()
 
-			testOutput = testBuffer.String()
-		}()
-
-		// Coverage (async)
-		go func() {
-			defer wg2.Done()
-			if !quiet {
-				g.log("Calculating coverage...")
-			}
-			coverageOutput, coverageErr = RunCommand("go", "test", "-cover", ".")
-		}()
-
-		wg2.Wait()
+		testOutput = testBuffer.String()
 
 		// Process test results
 		stdTestsRan := false
@@ -201,17 +182,11 @@ func (g *Go) Test(verbose bool) (string, error) {
 			stdTestsRan = true
 		}
 
-		// Process coverage results
+		// Process coverage results (from the same test run)
 		if stdTestsRan {
-			if coverageErr == nil {
-				coveragePercent = calculateAverageCoverage(coverageOutput)
-				if coveragePercent != "0" {
-					addMsg(true, "coverage: "+coveragePercent+"%")
-				}
-			} else if strings.Contains(coverageOutput, "matched no packages") {
-				// ignore
-			} else {
-				addMsg(false, "Failed to calculate coverage")
+			coveragePercent = calculateAverageCoverage(testOutput)
+			if coveragePercent != "0" {
+				addMsg(true, "coverage: "+coveragePercent+"%")
 			}
 		}
 

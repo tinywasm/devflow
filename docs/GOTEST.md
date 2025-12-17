@@ -2,6 +2,12 @@
 
 Automated Go testing with minimal output.
 
+## Installation
+
+```bash
+go install github.com/tinywasm/devflow/cmd/gotest@latest
+```
+
 ## Usage
 
 ```bash
