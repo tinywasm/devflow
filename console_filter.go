@@ -7,19 +7,16 @@ import (
 
 // ConsoleFilter buffers console output and filters out passing tests when in quiet mode.
 type ConsoleFilter struct {
-	buffer []string
-	quiet  bool
-	output func(string) // callback to write output
+	buffer       []string
+	quiet        bool
+	output       func(string) // callback to write output
+	hasDataRace  bool
+	shownRaceMsg bool
 }
 
 func NewConsoleFilter(quiet bool, output func(string)) *ConsoleFilter {
 	if output == nil {
-		// In quiet mode with nil callback, use a no-op function
-		if quiet {
-			output = func(s string) {}
-		} else {
-			output = func(s string) { fmt.Printf("%s\n", s) }
-		}
+		output = func(s string) { fmt.Println(s) }
 	}
 	return &ConsoleFilter{
 		quiet:  quiet,
@@ -44,80 +41,100 @@ func (cf *ConsoleFilter) addLine(line string) {
 		return
 	}
 
-	// In quiet mode, filter out noise
-	// Skip "go: warning" messages about matched no packages
-	if strings.HasPrefix(line, "go: warning:") {
+	// Detect data races
+	if strings.Contains(line, "WARNING: DATA RACE") {
+		cf.hasDataRace = true
+		return // Skip individual warnings
+	}
+
+	// Skip noise
+	if strings.HasPrefix(line, "go: warning:") ||
+		strings.HasPrefix(line, "#") ||
+		strings.HasPrefix(line, "package ") ||
+		strings.HasPrefix(line, "ok\t") ||
+		strings.HasPrefix(line, "ok  \t") ||
+		strings.Contains(line, "build constraints exclude all Go files") ||
+		strings.Contains(line, "[setup failed]") ||
+		strings.Contains(line, "no packages to test") ||
+		strings.Contains(line, "[no test files]") ||
+		strings.Contains(line, "(cached)") ||
+		strings.Contains(line, "✅ All tests passed!") ||
+		strings.Contains(line, "All tests passed!") ||
+		strings.Contains(line, "❌ WASM tests failed") ||
+		strings.Contains(line, "WASM tests failed") ||
+		strings.Contains(line, "Badges saved to") ||
+		strings.Contains(line, "tests passed") ||
+		(strings.HasPrefix(line, "coverage:") && !strings.HasPrefix(line, "✅ coverage:")) ||
+		line == "FAIL" ||
+		line == "PASS" ||
+		strings.HasPrefix(line, "exit with status") ||
+		strings.HasPrefix(line, "exit status") ||
+		// Data race details
+		strings.HasPrefix(line, "Read at ") ||
+		strings.HasPrefix(line, "Write at ") ||
+		strings.HasPrefix(line, "Previous write at ") ||
+		strings.HasPrefix(line, "Previous read at ") ||
+		strings.Contains(line, "by goroutine") ||
+		// Panic/crash details
+		strings.HasPrefix(line, "[signal ") ||
+		strings.HasPrefix(line, "goroutine ") ||
+		strings.HasPrefix(line, "created by ") {
 		return
 	}
-	// Skip "no packages to test" messages
-	if strings.Contains(line, "no packages to test") {
-		return
-	}
-	// Skip "[no test files]" messages
-	if strings.Contains(line, "[no test files]") {
-		return
-	}
-	// Skip "?" lines (package status without tests)
-	if strings.HasPrefix(line, "?") && strings.Contains(line, "[no test files]") {
-		return
-	}
-	// Skip wasmbrowsertest success messages (we have our own summary)
-	if strings.Contains(line, "✅ All tests passed!") || strings.Contains(line, "All tests passed!") {
-		return
-	}
-	// Skip wasmbrowsertest failure messages (we have our own summary)
-	if strings.Contains(line, "❌ WASM tests failed") || strings.Contains(line, "WASM tests failed") {
-		return
-	}
-	// Skip "Badges saved to" messages in quiet mode
-	if strings.Contains(line, "Badges saved to") {
-		return
-	}
-	// Skip t.Log messages from passing tests (e.g., "FormatDate tests passed")
-	if strings.Contains(line, "tests passed") {
-		return
-	}
-	// Skip t.Log messages that are just informational (contain .go: but not error/fail keywords)
+
 	trimmed := strings.TrimSpace(line)
+
+	// Skip stack traces from stdlib (/usr/local/go, /usr/lib/go)
+	if strings.HasPrefix(trimmed, "/usr/") {
+		return
+	}
+
+	// Keep first project file reference, skip subsequent ones
+	// Format: /path/to/project/file.go:line +0xhex
+	if strings.HasPrefix(trimmed, "/") && strings.Contains(trimmed, ".go:") {
+		// Extract just filename:line from full path
+		parts := strings.Split(trimmed, "/")
+		if len(parts) > 0 {
+			lastPart := parts[len(parts)-1]
+			// Remove hex offset like +0x38
+			if idx := strings.Index(lastPart, " +0x"); idx != -1 {
+				lastPart = lastPart[:idx]
+			}
+			// Add shortened reference and continue filtering
+			cf.buffer = append(cf.buffer, "    "+lastPart)
+		}
+		return
+	}
+
+	// Skip informational t.Log messages (indented .go: without error keywords)
 	if trimmed != line && strings.Contains(trimmed, ".go:") {
-		// This is an indented line with file:line format (t.Log output)
-		// Only keep it if it contains error/failure keywords
-		lower := strings.ToLower(trimmed)
+		lower := strings.ToLower(line) // Use full line, not trimmed
 		if !strings.Contains(lower, "fail") &&
 			!strings.Contains(lower, "error") &&
-			!strings.Contains(lower, "panic") {
-			// This is just informational log, skip it in quiet mode
+			!strings.Contains(lower, "panic") &&
+			!strings.Contains(lower, "race") {
 			return
 		}
 	}
 
-	// Always print global markers immediately and flush buffer
-	// FAIL (global), PASS (global), ok, coverage, etc.
-	// These usually appear at the very end of the test suite.
-	if strings.HasPrefix(line, "FAIL") ||
-		strings.HasPrefix(line, "PASS") ||
-		strings.HasPrefix(line, "coverage:") ||
-		strings.HasPrefix(line, "pkg:") ||
-		strings.HasPrefix(line, "ok") ||
-		strings.HasPrefix(line, "panic:") ||
-		strings.HasPrefix(line, "exit status") {
-		cf.Flush()
-
-		// In quiet mode, suppress purely global summary lines "PASS" and "FAIL"
-		// because gotest.go handles its own summary.
+	// Skip function calls with memory addresses like TestNilPointer(0xc0000a6b60)
+	if strings.Contains(line, "(0x") && !strings.Contains(line, ".go:") {
 		return
 	}
 
-	// NOTE: We do NOT flush on individual "--- FAIL:" lines.
-	// We buffer them. This allows us to keep the context (logs) of the failing test.
-	// Since passing tests are removed from the buffer, the buffer will primarily contain
-	// failing tests' logs (and currently running tests' logs).
-	// We flush at the end (triggered by global markers).
+	// Global markers - flush buffer and skip the marker itself
+	if strings.HasPrefix(line, "FAIL\t") ||
+		strings.HasPrefix(line, "ok\t") ||
+		strings.HasPrefix(line, "coverage:") ||
+		strings.HasPrefix(line, "pkg:") {
+		cf.Flush()
+		return
+	}
 
+	// Keep error lines
 	cf.buffer = append(cf.buffer, line)
 
-	// If a test passed, remove its logs from buffer.
-	// "--- PASS: TestName (0.00s)"
+	// Remove passing test logs
 	if strings.Contains(line, "--- PASS:") {
 		cf.removePassingTestLogs(line)
 	}
@@ -186,6 +203,12 @@ func (cf *ConsoleFilter) removePassingTestLogs(passLine string) {
 }
 
 func (cf *ConsoleFilter) Flush() {
+	// Show data race warning once at the start
+	if cf.hasDataRace && !cf.shownRaceMsg {
+		cf.output("⚠️  WARNING: DATA RACE detected")
+		cf.shownRaceMsg = true
+	}
+
 	for _, line := range cf.buffer {
 		cf.output(line)
 	}
