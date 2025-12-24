@@ -64,7 +64,7 @@ func (cf *ConsoleFilter) addLine(line string) {
 		strings.Contains(line, "WASM tests failed") ||
 		strings.Contains(line, "Badges saved to") ||
 		strings.Contains(line, "tests passed") ||
-		(strings.HasPrefix(line, "coverage:") && !strings.HasPrefix(line, "✅ coverage:")) ||
+		(strings.Contains(line, "coverage:") && strings.Contains(line, "% of statements")) ||
 		line == "FAIL" ||
 		line == "PASS" ||
 		strings.HasPrefix(line, "exit with status") ||

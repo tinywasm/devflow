@@ -252,8 +252,9 @@ func (g *Go) Test(verbose bool) (string, error) {
 					}
 					wCov := calculateAverageCoverage(wOutput)
 					if wCov != "0" {
-						coveragePercent = wCov
-						if !stdTestsRan {
+						// Prefer WASM coverage if stdlib had 0% (common in WASM-only packages)
+						if coveragePercent == "0" {
+							coveragePercent = wCov
 							addMsg(true, "coverage: "+coveragePercent+"%")
 						}
 					}
