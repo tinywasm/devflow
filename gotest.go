@@ -135,7 +135,7 @@ func (g *Go) Test(verbose bool) (string, error) {
 		var testFilterCallback func(string)
 		if !quiet {
 			testFilterCallback = func(s string) {
-				fmt.Println(s)
+				g.log(s)
 			}
 		}
 		testFilter := NewConsoleFilter(quiet, testFilterCallback)
@@ -220,7 +220,7 @@ func (g *Go) Test(verbose bool) (string, error) {
 				var wasmFilterCallback func(string)
 				if !quiet {
 					wasmFilterCallback = func(s string) {
-						fmt.Println(s)
+						g.log(s)
 					}
 				}
 				wasmFilter := NewConsoleFilter(quiet, wasmFilterCallback)
@@ -278,7 +278,9 @@ func (g *Go) Test(verbose bool) (string, error) {
 	}
 	goVer := getGoVersion()
 
-	if err := updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, quiet); err != nil {
+	bh := NewBadges()
+	bh.SetLog(g.log)
+	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, quiet); err != nil {
 		if !quiet {
 			g.log("Error updating badges:", err)
 		}

@@ -11,27 +11,32 @@ type GitHub struct {
 }
 
 // NewGitHub creates handler and verifies gh CLI availability
+// If not authenticated, it initiates OAuth Device Flow automatically
 func NewGitHub() (*GitHub, error) {
+	gh := &GitHub{
+		log: func(...any) {},
+	}
+
 	// Verify gh installation
 	if _, err := RunCommandSilent("gh", "--version"); err != nil {
 		return nil, fmt.Errorf("gh cli is not installed or not in PATH: %w", err)
 	}
 
-	// Verify authentication (optional but good practice)
-	// We can skip this here and check it when needed, or check it now.
-	// The spec says: "Returns error if gh not installed or not authenticated"
-	if _, err := RunCommandSilent("gh", "auth", "status"); err != nil {
-		return nil, fmt.Errorf("gh cli is not authenticated: %w", err)
+	// Ensure authentication - this will initiate Device Flow if needed
+	auth := NewGitHubAuth()
+	auth.SetLog(gh.log)
+	if err := auth.EnsureGitHubAuth(); err != nil {
+		return nil, fmt.Errorf("github authentication failed: %w", err)
 	}
 
-	return &GitHub{
-		log: func(...any) {},
-	}, nil
+	return gh, nil
 }
 
 // SetLog sets the logger function
 func (gh *GitHub) SetLog(fn func(...any)) {
-	gh.log = fn
+	if fn != nil {
+		gh.log = fn
+	}
 }
 
 // GetCurrentUser gets the current authenticated user
@@ -48,21 +53,20 @@ func (gh *GitHub) RepoExists(owner, name string) (bool, error) {
 	// gh repo view owner/name
 	_, err := RunCommandSilent("gh", "repo", "view", fmt.Sprintf("%s/%s", owner, name))
 	if err != nil {
-		// If error contains "Could not resolve", it doesn't exist.
-		// If it's another error (network), we should probably return error.
-		// However, RunCommandSilent just returns error if exit code != 0.
-		// We can assume if it fails, it might not exist or we can't access it.
-		// For now, let's treat any failure as "doesn't exist or not accessible"
-		// But better to check the error message if we could.
-		// Given our executor, we might just return false.
 		return false, nil
 	}
 	return true, nil
 }
 
-// CreateRepo creates a new repository on GitHub
-func (gh *GitHub) CreateRepo(name, description, visibility string) error {
-	args := []string{"repo", "create", name, "--source=.", "--push", "--description", description}
+// CreateRepo creates a new empty repository on GitHub
+// If owner is provided, creates repo under that organization
+func (gh *GitHub) CreateRepo(owner, name, description, visibility string) error {
+	repoName := name
+	if owner != "" {
+		repoName = fmt.Sprintf("%s/%s", owner, name)
+	}
+	// Create empty repo without --source or --push (will add remote and push manually)
+	args := []string{"repo", "create", repoName, "--description", description}
 
 	if visibility == "private" {
 		args = append(args, "--private")
@@ -81,9 +85,9 @@ func (gh *GitHub) IsNetworkError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "dial tcp") ||
-		   strings.Contains(msg, "connection refused") ||
-		   strings.Contains(msg, "no such host") ||
-		   strings.Contains(msg, "timeout")
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "timeout")
 }
 
 // GetHelpfulErrorMessage returns a helpful message for common errors

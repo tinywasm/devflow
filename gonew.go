@@ -38,7 +38,18 @@ func NewGoNew(git *Git, github *GitHub, goHandler *Go) *GoNew {
 
 // SetLog sets the logger function
 func (gn *GoNew) SetLog(fn func(...any)) {
-	gn.log = fn
+	if fn != nil {
+		gn.log = fn
+		if gn.git != nil {
+			gn.git.SetLog(fn)
+		}
+		if gn.github != nil {
+			gn.github.SetLog(fn)
+		}
+		if gn.goH != nil {
+			gn.goH.SetLog(fn)
+		}
+	}
 }
 
 // Create executes full workflow with remote (or local-only fallback)
@@ -115,6 +126,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 	}
 
 	// 4. Create remote (if not local-only)
+	// We'll create the empty repo first, then add remote after local setup
 	if !opts.LocalOnly {
 		// Check if repo exists on GitHub
 		var err error
@@ -134,8 +146,8 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 				gn.log("GitHub check failed:", err)
 				resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - gh unavailable", opts.Name)
 			} else {
-				// Create remote
-				if err := gn.github.CreateRepo(opts.Name, opts.Description, opts.Visibility); err != nil {
+				// Create empty remote repo
+				if err := gn.github.CreateRepo(ghUser, opts.Name, opts.Description, opts.Visibility); err != nil {
 					gn.log("Failed to create remote:", err)
 					resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - failed to create remote", opts.Name)
 				} else {
@@ -148,30 +160,17 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - run 'gonew add-remote' when ready", opts.Name)
 	}
 
-	// 4. Initialize local
+	// 5. Initialize local directory
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if isRemote {
-		// Clone
-		ghUser, err := gn.github.GetCurrentUser()
-		if err != nil {
-			// Should not happen if isRemote is true
-			return "", err
-		}
-		repoURL := fmt.Sprintf("https://github.com/%s/%s.git", ghUser, opts.Name)
-		if _, err := RunCommand("git", "clone", repoURL, targetDir); err != nil {
-			return "", fmt.Errorf("failed to clone: %w", err)
-		}
-	} else {
-		// Init local
-		if err := gn.git.InitRepo(targetDir); err != nil {
-			return "", fmt.Errorf("failed to init repo: %w", err)
-		}
+	// Always init local (don't clone, we'll add remote later)
+	if err := gn.git.InitRepo(targetDir); err != nil {
+		return "", fmt.Errorf("failed to init repo: %w", err)
 	}
 
-	// 5. Generate files
+	// 6. Generate files
 	if err := GenerateREADME(opts.Name, opts.Description, targetDir); err != nil {
 		return "", err
 	}
@@ -186,7 +185,6 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 	}
 
 	// Go Mod Init
-	// Use previously determined ghUser
 	modulePath := fmt.Sprintf("github.com/%s/%s", ghUser, opts.Name)
 
 	if err := gn.goH.ModInit(modulePath, targetDir); err != nil {
@@ -203,7 +201,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		return "", err
 	}
 
-	// 6. Initial commit
+	// 7. Initial commit
 	if err := gn.git.add(); err != nil {
 		return "", err
 	}
@@ -211,16 +209,19 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		return "", err
 	}
 
-	// 7. Tag creation
-	// Use GenerateNextTag (returns v0.0.1 for new repos)
-	// Or just force create v0.0.1
+	// 8. Tag creation
 	if _, err := gn.git.createTag("v0.0.1"); err != nil {
 		return "", err
 	}
 
-	// 8. Push
+	// 9. Add remote and push (if remote was created)
 	if isRemote {
-		if err := gn.git.pushWithTags("v0.0.1"); err != nil {
+		// Add remote origin
+		repoURL := fmt.Sprintf("https://github.com/%s/%s.git", ghUser, opts.Name)
+		if _, err := RunCommand("git", "remote", "add", "origin", repoURL); err != nil {
+			gn.log("Failed to add remote:", err)
+			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - failed to add remote", opts.Name)
+		} else if err := gn.git.pushWithTags("v0.0.1"); err != nil {
 			// If push fails, warn but don't fail the whole process
 			gn.log("Push failed:", err)
 			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - push failed", opts.Name)
@@ -317,7 +318,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 	if visibility == "" {
 		visibility = "public"
 	}
-	if err := gn.github.CreateRepo(repoName, description, visibility); err != nil {
+	if err := gn.github.CreateRepo(ghUser, repoName, description, visibility); err != nil {
 		return "", fmt.Errorf("failed to create remote: %w", err)
 	}
 

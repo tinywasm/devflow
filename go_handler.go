@@ -47,7 +47,15 @@ func NewGo(gitHandler *Git) (*Go, error) {
 
 // SetLog sets the logger function
 func (g *Go) SetLog(fn func(...any)) {
-	g.log = fn
+	if fn != nil {
+		g.log = fn
+		if g.git != nil {
+			g.git.SetLog(fn)
+		}
+		if g.backup != nil {
+			g.backup.SetLog(fn)
+		}
+	}
 }
 
 // Push executes the complete workflow for Go projects

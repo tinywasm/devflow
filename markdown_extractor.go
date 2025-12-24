@@ -37,9 +37,7 @@ func (m *MarkDown) Extract(outputFile string) error {
 		return fmt.Errorf("writing output file: %v", err)
 	}
 
-	if m.logger != nil {
-		m.logger("Extracted", codeType, "code to", outputPath)
-	}
+	m.log("Extracted", codeType, "code to", outputPath)
 
 	return nil
 }

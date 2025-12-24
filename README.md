@@ -14,6 +14,10 @@ Complete Go development automation: project init, testing, versioning, updates, 
 - **[devbackup](docs/DEVBACKUP.md)** - Configure and execute automated backups
 - **[badges](docs/BADGES.md)** - Generate SVG badges for README (test status, coverage, etc.)
 
+## Configuration
+
+- **[GitHub Auth](docs/GITHUB.md)** - Configure GitHub authentication (OAuth, tokens, multi-account)
+
 ## Installation
 
 ```bash

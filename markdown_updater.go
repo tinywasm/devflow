@@ -35,7 +35,7 @@ func (m *MarkDown) UpdateSection(sectionID, content string, afterLine ...string)
 	}
 
 	if !changed {
-		m.logger("Section", sectionID, "already up to date")
+		m.log("Section", sectionID, "already up to date")
 		return nil
 	}
 
@@ -43,7 +43,7 @@ func (m *MarkDown) UpdateSection(sectionID, content string, afterLine ...string)
 		return fmt.Errorf("error writing file: %v", err)
 	}
 
-	m.logger("Updated section", sectionID, "successfully")
+	m.log("Updated section", sectionID, "successfully")
 	return nil
 }
 

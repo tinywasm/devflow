@@ -12,12 +12,21 @@ const (
 // DevBackup handles backup operations
 type DevBackup struct {
 	bashrc *Bashrc
+	log    func(...any)
 }
 
 // NewDevBackup creates a new DevBackup instance
 func NewDevBackup() *DevBackup {
 	return &DevBackup{
 		bashrc: NewBashrc(),
+		log:    func(...any) {},
+	}
+}
+
+// SetLog sets the logger function
+func (d *DevBackup) SetLog(fn func(...any)) {
+	if fn != nil {
+		d.log = fn
 	}
 }
 

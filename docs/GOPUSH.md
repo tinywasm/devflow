@@ -32,6 +32,23 @@ gopush -m "commit message" -t "v1.0.0"     # Flags for both
 6. Finds dependent modules in search path
 7. Updates dependents: `go get -u module@tag && go mod tidy`
 
+```mermaid
+graph TD
+    A[Start gopush] --> B{Verify go.mod}
+    B --> C[Run gotest]
+    C --> D{Tests Pass?}
+    D -- No --> E[❌ Terminate]
+    D -- Yes --> F[Git Add .]
+    F --> G[Git Commit]
+    G --> H[Generate/Increment Tag]
+    H --> I[Git Push & Push Tags]
+    I --> J[Scan for Dependents]
+    J --> K{Dependents found?}
+    K -- Yes --> L[Update each: go get @tag]
+    L --> M[✅ Done]
+    K -- No --> M
+```
+
 ## Output
 
 **Success:**

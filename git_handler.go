@@ -27,7 +27,9 @@ func NewGit() (*Git, error) {
 
 // SetLog sets the logger function
 func (g *Git) SetLog(fn func(...any)) {
-	g.log = fn
+	if fn != nil {
+		g.log = fn
+	}
 }
 
 // Push executes the complete push workflow (add, commit, tag, push)

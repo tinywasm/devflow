@@ -11,6 +11,28 @@ Initialize new Go projects with standard devflow structure.
 - Template file generation (README, LICENSE, .gitignore, etc.)
 - Initial commit and tagging
 
+```mermaid
+graph TD
+    A[Start gonew] --> B{Local binary checks}
+    B --> C{Remote requested?}
+    C -- Yes --> D[Check/Create GitHub Repo]
+    C -- No --> E[Local Only Mode]
+    D --> F{Success?}
+    F -- No --> E
+    F -- Yes --> G[Local+Remote Mode]
+    E --> H[Create Directory]
+    G --> H
+    H --> I[Git Init]
+    I --> J[Generate README/LICENSE/etc]
+    J --> K[Go Mod Init]
+    K --> L[Initial Commit]
+    L --> M[Create Tag v0.0.1]
+    M --> N{Is Remote?}
+    N -- Yes --> O[Add Remote & Push]
+    N -- No --> P[✅ Done]
+    O --> P
+```
+
 ## Usage
 
 ```bash

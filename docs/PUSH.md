@@ -17,6 +17,23 @@ push "commit message" "v1.0.0"     # Specific tag
 4. `git push` and `git push origin <tag>`
 5. Sets upstream if needed
 
+```mermaid
+graph TD
+    A[Start push] --> B[Git Add .]
+    B --> C{Changes found?}
+    C -- No --> D[Check Latest Tag]
+    C -- Yes --> E[Git Commit]
+    E --> F[Generate Next Tag]
+    D --> F
+    F --> G[Create Tag]
+    G --> H{Tag Exists?}
+    H -- Yes --> I[Increment Tag & Retry]
+    I --> G
+    H -- No --> J[Git Push]
+    J --> K[Git Push Tag]
+    K --> L[✅ Done]
+```
+
 ## Output
 
 ```

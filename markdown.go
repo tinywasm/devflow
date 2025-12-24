@@ -12,7 +12,7 @@ type MarkDown struct {
 
 	readFile  func(name string) ([]byte, error)
 	writeFile func(name string, data []byte) error
-	logger    func(...any)
+	log       func(...any)
 }
 
 // NewMarkDown creates a new MarkDown instance with the root directory.
@@ -23,14 +23,15 @@ func NewMarkDown(rootDir, destination string, writerFile func(name string, data 
 		destination: destination,
 		readFile:    func(name string) ([]byte, error) { return nil, errors.New("not configure reader func") },
 		writeFile:   writerFile,
-		logger:      func(...any) {},
+		log:         func(...any) {},
 	}
 }
 
-// SetLogger sets a custom logger function
-func (m *MarkDown) SetLogger(logger func(...any)) *MarkDown {
-	m.logger = logger
-	return m
+// SetLog sets a custom logger function
+func (m *MarkDown) SetLog(fn func(...any)) {
+	if fn != nil {
+		m.log = fn
+	}
 }
 
 // InputPath sets the input as a file path (relative to rootDir)
