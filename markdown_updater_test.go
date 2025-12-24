@@ -140,6 +140,44 @@ two
 			t.Error("Content not updated")
 		}
 	})
+
+	t.Run("RelocateMisplacedSection", func(t *testing.T) {
+		// Section exists at bottom but should be after line 1 (title)
+		initial := `# Title
+Some content
+Footer
+<!-- START_SECTION:BADGES_SECTION -->
+Old badges
+<!-- END_SECTION:BADGES_SECTION -->`
+		writeFile(tmpFile, initial)
+
+		m := newMarkDown()
+		// afterLine="1" means insert after line 1 (the title)
+		err := m.UpdateSection("BADGES_SECTION", "New badges", "1")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		data, _ := os.ReadFile(tmpFile)
+		lines := strings.Split(string(data), "\n")
+
+		// Line 0 should be "# Title"
+		if lines[0] != "# Title" {
+			t.Errorf("Title moved: got %q", lines[0])
+		}
+		// Line 1 should be the section start (after title)
+		if !strings.Contains(lines[1], "START_SECTION:BADGES_SECTION") {
+			t.Errorf("Section not relocated to after title: line 1 = %q", lines[1])
+		}
+		// Verify old position is empty (section was moved, not duplicated)
+		str := string(data)
+		if strings.Count(str, "START_SECTION:BADGES_SECTION") != 1 {
+			t.Error("Section duplicated instead of relocated")
+		}
+		if !strings.Contains(str, "New badges") {
+			t.Error("Content not updated")
+		}
+	})
 }
 
 func fmtSection(id, content string) string {

@@ -359,8 +359,9 @@ func updateBadges(readmeFile, licenseType, goVer, testStatus, coveragePercent, r
 
 	// Update README using mdgo
 	if len(sectionArgs) >= 4 {
-		// sectionArgs: sectionID, afterLine(unused), content, readmeFile
+		// sectionArgs: sectionID, afterLine, content, readmeFile
 		sectionID := sectionArgs[0]
+		afterLine := sectionArgs[1]
 		content := sectionArgs[2]
 		readmeFile := sectionArgs[3]
 
@@ -372,7 +373,7 @@ func updateBadges(readmeFile, licenseType, goVer, testStatus, coveragePercent, r
 			return os.ReadFile(name)
 		})
 
-		if err := m.UpdateSection(sectionID, content); err != nil {
+		if err := m.UpdateSection(sectionID, content, afterLine); err != nil {
 			return fmt.Errorf("error updating README with markdown handler: %w", err)
 		}
 
