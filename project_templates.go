@@ -88,6 +88,7 @@ coverage.html
 # vendor/
 
 # Go workspace file
+*.code-workspace
 go.work
 `
 	return os.WriteFile(filepath.Join(targetDir, ".gitignore"), []byte(content), 0644)
