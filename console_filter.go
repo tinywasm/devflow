@@ -5,21 +5,18 @@ import (
 	"strings"
 )
 
-// ConsoleFilter buffers console output and filters out passing tests when in quiet mode.
 type ConsoleFilter struct {
 	buffer       []string
-	quiet        bool
 	output       func(string) // callback to write output
 	hasDataRace  bool
 	shownRaceMsg bool
 }
 
-func NewConsoleFilter(quiet bool, output func(string)) *ConsoleFilter {
+func NewConsoleFilter(output func(string)) *ConsoleFilter {
 	if output == nil {
 		output = func(s string) { fmt.Println(s) }
 	}
 	return &ConsoleFilter{
-		quiet:  quiet,
 		output: output,
 	}
 }
@@ -36,7 +33,8 @@ func (cf *ConsoleFilter) Add(input string) {
 }
 
 func (cf *ConsoleFilter) addLine(line string) {
-	if !cf.quiet {
+	// ALWAYS show DEBUG messages
+	if strings.Contains(line, "DEBUG") {
 		cf.output(line)
 		return
 	}

@@ -34,8 +34,6 @@ func (g *Go) Test() (string, error) {
 		msgs = append(msgs, fmt.Sprintf("%s %s", symbol, msg))
 	}
 
-	quiet := true
-
 	// Parallel Phase 1: Vet + Test file detection
 	var wg1 sync.WaitGroup
 	var vetOutput string
@@ -115,7 +113,7 @@ func (g *Go) Test() (string, error) {
 
 		testBuffer := &bytes.Buffer{}
 
-		testFilter := NewConsoleFilter(quiet, nil)
+		testFilter := NewConsoleFilter(nil)
 
 		testPipe := &paramWriter{
 			write: func(p []byte) (n int, err error) {
@@ -143,9 +141,9 @@ func (g *Go) Test() (string, error) {
 				raceStatus = "Clean"
 				// Ensure WASM tests are enabled for WASM-only packages
 				enableWasmTests = true
-				if !quiet {
-					g.log("WASM-only package detected, skipping stdlib tests...")
-				}
+				// Ensure WASM tests are enabled for WASM-only packages
+				enableWasmTests = true
+				g.log("WASM-only package detected, skipping stdlib tests...")
 			} else {
 				// Real test failure - ConsoleFilter already filtered the output in quiet mode
 				addMsg(false, fmt.Sprintf("Test errors found in %s", moduleName))
@@ -189,7 +187,7 @@ func (g *Go) Test() (string, error) {
 
 				var wasmFilterCallback func(string)
 
-				wasmFilter := NewConsoleFilter(quiet, wasmFilterCallback)
+				wasmFilter := NewConsoleFilter(wasmFilterCallback)
 				wasmPipe := &paramWriter{
 					write: func(p []byte) (n int, err error) {
 						s := string(p)
@@ -244,7 +242,7 @@ func (g *Go) Test() (string, error) {
 
 	bh := NewBadges()
 	bh.SetLog(g.log)
-	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, quiet); err != nil {
+	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, true); err != nil {
 
 	}
 

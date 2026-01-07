@@ -197,7 +197,7 @@ FAIL`,
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var output []string
-			filter := NewConsoleFilter(true, func(s string) {
+			filter := NewConsoleFilter(func(s string) {
 				output = append(output, s)
 			})
 

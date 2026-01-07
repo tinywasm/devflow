@@ -11,7 +11,7 @@ func TestConsoleFilter_Quiet(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(true, record)
+	cf := NewConsoleFilter(record)
 
 	// Case 1: Passing test
 	cf.Add("=== RUN   TestPass")
@@ -99,29 +99,13 @@ func TestConsoleFilter_Quiet(t *testing.T) {
 	}
 }
 
-func TestConsoleFilter_Verbose(t *testing.T) {
-	var output []string
-	record := func(s string) {
-		output = append(output, s)
-	}
-
-	cf := NewConsoleFilter(false, record)
-	cf.Add("=== RUN   TestPass")
-	cf.Add("log")
-	cf.Add("--- PASS: TestPass")
-
-	if len(output) != 3 {
-		t.Errorf("Expected 3 lines in verbose mode, got %d", len(output))
-	}
-}
-
 func TestConsoleFilter_FilterNoise(t *testing.T) {
 	var output []string
 	record := func(s string) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(true, record)
+	cf := NewConsoleFilter(record)
 
 	// Test filtering of various noise messages
 	cf.Add("go: warning: \"./...\" matched no packages")
@@ -153,7 +137,7 @@ func TestConsoleFilter_ErrorMessageWithoutKeywords(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(true, record)
+	cf := NewConsoleFilter(record)
 
 	// Error message WITHOUT keywords like "fail", "error", "panic", "race"
 	cf.Add("=== RUN   TestFormatTimeWithNumericString")
@@ -174,5 +158,32 @@ func TestConsoleFilter_ErrorMessageWithoutKeywords(t *testing.T) {
 
 	if !foundError {
 		t.Errorf("BUG REPRODUCED: Error message without keywords is filtered out, got: %v", output)
+	}
+}
+
+func TestConsoleFilter_AlwaysShowDebug(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := NewConsoleFilter(record)
+
+	// DEBUG message should NOT be filtered even if the test passes
+	cf.Add("=== RUN   TestDebug")
+	cf.Add("DEBUG: connecting to database")
+	cf.Add("--- PASS: TestDebug (0.01s)")
+	cf.Flush()
+
+	foundDebug := false
+	for _, line := range output {
+		if strings.Contains(line, "DEBUG:") {
+			foundDebug = true
+			break
+		}
+	}
+
+	if !foundDebug {
+		t.Errorf("Expected DEBUG message to be shown, but it was filtered out. Output: %v", output)
 	}
 }
