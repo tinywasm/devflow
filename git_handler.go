@@ -9,8 +9,9 @@ import (
 
 // Git handler for Git operations
 type Git struct {
-	// We can add configuration fields here if needed
-	log func(...any)
+	rootDir     string
+	shouldWrite func() bool
+	log         func(...any)
 }
 
 // NewGit creates a new Git handler and verifies git is available
@@ -21,8 +22,21 @@ func NewGit() (*Git, error) {
 	}
 
 	return &Git{
-		log: func(...any) {}, // default no-op
+		rootDir:     ".",
+		shouldWrite: func() bool { return false },
+		log:         func(...any) {}, // default no-op
 	}, nil
+}
+
+// SetRootDir sets the root directory for git operations
+func (g *Git) SetRootDir(path string) {
+	g.rootDir = path
+}
+
+// SetShouldWrite sets a function that determines if Git write operations
+// (like updating .gitignore) should be allowed.
+func (g *Git) SetShouldWrite(f func() bool) {
+	g.shouldWrite = f
 }
 
 // SetLog sets the logger function
