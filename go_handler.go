@@ -9,9 +9,10 @@ import (
 
 // Go handler for Go operations
 type Go struct {
-	git    *Git
-	log    func(...any)
-	backup *DevBackup
+	rootDir string
+	git     *Git
+	log     func(...any)
+	backup  *DevBackup
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.
@@ -39,10 +40,16 @@ func NewGo(gitHandler *Git) (*Go, error) {
 	}
 
 	return &Go{
-		git:    gitHandler,
-		backup: NewDevBackup(),
-		log:    func(...any) {}, // default no-op
+		rootDir: ".",
+		git:     gitHandler,
+		backup:  NewDevBackup(),
+		log:     func(...any) {}, // default no-op
 	}, nil
+}
+
+// SetRootDir sets the root directory for Go operations
+func (g *Go) SetRootDir(path string) {
+	g.rootDir = path
 }
 
 // SetLog sets the logger function

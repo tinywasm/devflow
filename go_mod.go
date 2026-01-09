@@ -30,8 +30,23 @@ func (g *Go) getModulePath() (string, error) {
 
 // modExists checks if go.mod exists
 func (g *Go) modExists() bool {
-	_, err := os.Stat("go.mod")
+	_, err := os.Stat(filepath.Join(g.rootDir, "go.mod"))
 	return err == nil
+}
+
+// ModExistsInCurrentOrParent checks if go.mod exists in the rootDir or one directory up.
+func (g *Go) ModExistsInCurrentOrParent() bool {
+	// Check in rootDir
+	if g.modExists() {
+		return true
+	}
+	// Check in parent
+	parentDir := filepath.Dir(g.rootDir)
+	if parentDir != g.rootDir { // Avoid infinite loop at system root
+		_, err := os.Stat(filepath.Join(parentDir, "go.mod"))
+		return err == nil
+	}
+	return false
 }
 
 // verify verifies go.mod integrity
