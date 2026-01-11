@@ -5,20 +5,17 @@ Complete Go project workflow: test + git push + update dependents.
 ## Usage
 
 ```bash
-gopush "commit message"                    # Auto-generated tag
-gopush "commit message" "v1.0.0"           # Specific tag
-gopush -m "commit message"                 # Flag syntax
-gopush -m "commit message" -t "v1.0.0"     # Flags for both
+gopush 'commit message' [tag] [options]
 ```
 
 ## Options
 
-```
--m              Commit message
--t              Tag (optional, auto-generated if not provided)
+```bash
+-m              Commit message (required)
+-t              Tag (optional, auto-generated)
 --skip-tests    Skip all tests
---skip-race     Skip race detection
---search-path   Path to search for dependent modules (default: "..")
+--skip-race     Skip race tests
+--search-path   Path to search for dependents (default: "..")
 -v              Verbose output
 ```
 
@@ -65,19 +62,19 @@ graph TD
 
 ```bash
 # Simple push
-gopush "feat: new feature"
+gopush 'feat: new feature'
 
 # With specific tag
-gopush "fix: critical bug" "v2.1.3"
+gopush 'fix: critical bug' 'v2.1.3'
 
 # Skip race detection (faster)
-gopush "docs: update readme" --skip-race
+gopush 'docs: update readme' --skip-race
 
 # Skip all tests
-gopush "chore: update deps" --skip-tests
+gopush 'chore: update deps' --skip-tests
 
 # Custom search path for dependents
-gopush "refactor: api" --search-path "../projects"
+gopush 'refactor: api' --search-path '../projects'
 ```
 
 ## Exit codes

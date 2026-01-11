@@ -14,7 +14,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, `push - Automated Git workflow
 
 Usage:
-    push "commit message" [tag]
+    push 'commit message' [tag]
     push [options]
 
 Arguments:
@@ -25,8 +25,8 @@ Options:
     -h, --help     Show this help message
 
 Examples:
-    push "feat: new feature"
-    push "fix: bug correction" "v1.2.3"
+    push 'feat: new feature'
+    push 'fix: bug correction' 'v1.2.3'
 
 Workflow:
     1. git add .
@@ -56,6 +56,12 @@ Workflow:
 
 	if len(args) > 1 {
 		tag = args[1]
+	}
+
+	if message == "" {
+		fmt.Fprintln(os.Stderr, "Error: commit message is required")
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	// Execute workflow

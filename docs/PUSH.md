@@ -5,8 +5,8 @@ Git workflow automation: add, commit, tag, push.
 ## Usage
 
 ```bash
-push "commit message"              # Auto-generated tag
-push "commit message" "v1.0.0"     # Specific tag
+push 'commit message'              # Specific message (required)
+push 'commit message' 'v1.0.0'     # Specific message and tag
 ```
 
 ## What it does

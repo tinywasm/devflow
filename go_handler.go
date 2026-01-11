@@ -74,10 +74,11 @@ func (g *Go) SetLog(fn func(...any)) {
 //	skipRace: If true, skips race tests
 //	searchPath: Path to search for dependent modules (default: "..")
 func (g *Go) Push(message, tag string, skipTests, skipRace bool, searchPath string) (string, error) {
-	// Default values
-	if message == "" {
-		message = "auto update Go package"
+	// Validate message
+	if err := ValidateCommitMessage(message); err != nil {
+		return "", err
 	}
+	message = FormatCommitMessage(message)
 
 	if searchPath == "" {
 		searchPath = ".."
@@ -122,7 +123,6 @@ func (g *Go) Push(message, tag string, skipTests, skipRace bool, searchPath stri
 		return strings.Join(summary, ", "), nil
 	}
 
-	// 6. Update dependent modules
 	// 6. Update dependent modules
 	updateResults, err := g.updateDependents(modulePath, latestTag, searchPath)
 	if err != nil {

@@ -17,10 +17,46 @@ func main() {
 	searchPathFlag := fs.String("search-path", "..", "Path to search for dependent modules")
 	verboseFlag := fs.Bool("v", false, "Enable verbose output")
 
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, `gopush - Complete Go project workflow: test + git push + update dependents
+
+Usage:
+    gopush 'commit message' [tag] [options]
+    gopush -m 'commit message' [options]
+
+Arguments:
+    message    Commit message (required)
+    tag        Tag name (optional, auto-generated if not provided)
+
+Options:
+    -m              Commit message
+    -t              Tag
+    --skip-tests    Skip all tests
+    --skip-race     Skip race tests
+    --search-path   Path to search for dependent modules (default: "..")
+    -v              Enable verbose output
+    -h, --help      Show this help message
+
+Examples:
+    gopush 'feat: new feature'
+    gopush 'fix: bug' 'v1.2.3'
+    gopush -m 'chore: docs' --skip-tests
+
+`)
+	}
+
 	err := fs.Parse(os.Args[1:])
 	if err != nil {
-		fmt.Println("Error parsing flags:", err)
+		// flag.ExitOnError will handle this, but just in case
 		os.Exit(1)
+	}
+
+	// Check for help flag
+	for _, arg := range os.Args[1:] {
+		if arg == "-h" || arg == "--help" {
+			fs.Usage()
+			os.Exit(0)
+		}
 	}
 
 	// Get message from flag or positional argument
@@ -35,6 +71,12 @@ func main() {
 		if tag == "" && len(args) > 1 {
 			tag = args[1]
 		}
+	}
+
+	if message == "" {
+		fmt.Fprintln(os.Stderr, "Error: commit message is required")
+		fs.Usage()
+		os.Exit(1)
 	}
 
 	git, err := devflow.NewGit()

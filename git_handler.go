@@ -50,9 +50,10 @@ func (g *Git) SetLog(fn func(...any)) {
 // Returns a summary of operations and error if any.
 func (g *Git) Push(message, tag string) (string, error) {
 	// Validate message
-	if message == "" {
-		message = "auto update package"
+	if err := ValidateCommitMessage(message); err != nil {
+		return "", err
 	}
+	message = FormatCommitMessage(message)
 
 	summary := []string{}
 
