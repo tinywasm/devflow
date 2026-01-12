@@ -5,19 +5,13 @@ Complete Go project workflow: test + git push + update dependents.
 ## Usage
 
 ```bash
-gopush 'commit message' [tag] [options]
+gopush 'commit message' [tag]
 ```
 
-## Options
+## Arguments
 
-```bash
--m              Commit message (required)
--t              Tag (optional, auto-generated)
---skip-tests    Skip all tests
---skip-race     Skip race tests
---search-path   Path to search for dependents (default: "..")
--v              Verbose output
-```
+- **commit message**: Required. The message for the git commit.
+- **tag**: Optional. The tag to create. If not provided, it will be auto-generated.
 
 ## What it does
 
@@ -66,15 +60,6 @@ gopush 'feat: new feature'
 
 # With specific tag
 gopush 'fix: critical bug' 'v2.1.3'
-
-# Skip race detection (faster)
-gopush 'docs: update readme' --skip-race
-
-# Skip all tests
-gopush 'chore: update deps' --skip-tests
-
-# Custom search path for dependents
-gopush 'refactor: api' --search-path '../projects'
 ```
 
 ## Exit codes

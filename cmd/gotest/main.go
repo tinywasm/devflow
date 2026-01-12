@@ -13,15 +13,15 @@ func main() {
 	fs := flag.NewFlagSet("gotest", flag.ContinueOnError)
 	fs.SetOutput(io.Discard) // Silence default flag errors
 
-	showHelp := func() {
+	usage := func() {
 		fmt.Println("Usage: gotest")
-		fmt.Println("Automated flow. No arguments needed.")
+		fmt.Println("Runs: vet, tests, race detection, coverage, and wasm tests.")
 	}
 
 	err := fs.Parse(os.Args[1:])
 	if err != nil {
 		if err == flag.ErrHelp {
-			showHelp()
+			usage()
 			os.Exit(0)
 		}
 		// Minimal error for flags like -v
@@ -33,7 +33,7 @@ func main() {
 	if len(fs.Args()) > 0 {
 		arg := fs.Args()[0]
 		if arg == "?" || arg == "help" {
-			showHelp()
+			usage()
 			os.Exit(0)
 		}
 		fmt.Printf("gotest: unexpected %q. No arguments needed.\n", arg)

@@ -1,6 +1,6 @@
 # gotest
 
-Automated Go testing with minimal output.
+Automated Go testing: runs vet, stdlib tests, race detection, coverage, and WASM tests.
 
 ## Installation
 
