@@ -10,6 +10,6 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/tinywasm/context v0.0.9
 	github.com/tinywasm/fmt v0.14.0 // indirect
-	github.com/tinywasm/wizard v0.0.8
+	github.com/tinywasm/wizard v0.0.10
 	golang.org/x/sys v0.26.0 // indirect
 )

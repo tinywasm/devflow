@@ -60,12 +60,14 @@ func (gn *GoNew) GetSteps() []*wizard.Step {
 					License:     "MIT",
 				}
 
+				gn.log("[...", "Creating project")
 				summary, err := gn.Create(opts)
 				if err != nil {
+					gn.log("...]", "Error: "+err.Error())
 					return false, err
 				}
 
-				gn.log(summary)
+				gn.log("...]", summary)
 				err = ctx.Set("creation_summary", summary)
 				return true, err
 			},
