@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/tinywasm/context"
 	"github.com/tinywasm/wizard"
@@ -39,20 +40,95 @@ func (gn *GoNew) GetSteps() []*wizard.Step {
 			},
 		},
 
-		// Step 3: Create Execution
+		// Step 3: Project Owner
+		{
+			LabelText: "Project Owner",
+			DefaultFn: func(ctx *context.Context) string {
+				// Try GitHub first
+				if gn.github != nil {
+					if res, err := gn.github.Get(); err == nil {
+						if gh, ok := res.(*GitHub); ok {
+							if user, err := gh.GetCurrentUser(); err == nil && user != "" {
+								return user
+							}
+						}
+					}
+				}
+				// Fallback to Git config
+				if gn.git != nil {
+					if user, err := gn.git.GetConfigUserName(); err == nil && user != "" {
+						return strings.ReplaceAll(strings.ToLower(user), " ", "")
+					}
+				}
+				return ""
+			},
+			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
+				if in == "" {
+					return false, nil
+				}
+				err := ctx.Set("project_owner", in)
+				return true, err
+			},
+		},
+
+		// Step 4: Description
+		{
+			LabelText: "Description",
+			DefaultFn: func(ctx *context.Context) string { return "Created via TinyWasm Wizard" },
+			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
+				if in == "" {
+					return false, nil
+				}
+				err := ctx.Set("project_desc", in)
+				return true, err
+			},
+		},
+
+		// Step 5: Visibility
+		{
+			LabelText: "Visibility (public/private)",
+			DefaultFn: func(ctx *context.Context) string { return "public" },
+			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
+				if in == "" {
+					return false, nil
+				}
+				err := ctx.Set("project_vis", in)
+				return true, err
+			},
+		},
+
+		// Step 6: License
+		{
+			LabelText: "License",
+			DefaultFn: func(ctx *context.Context) string { return "MIT" },
+			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
+				if in == "" {
+					return false, nil
+				}
+				err := ctx.Set("project_lic", in)
+				return true, err
+			},
+		},
+
+		// Step 7: Create Execution
 		{
 			LabelText: "Create Project",
 			DefaultFn: func(ctx *context.Context) string { return "Press Enter to Create" },
 			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
 				name := ctx.Value("project_name")
 				dir := ctx.Value("project_dir")
+				owner := ctx.Value("project_owner")
+				desc := ctx.Value("project_desc")
+				vis := ctx.Value("project_vis")
+				lic := ctx.Value("project_lic")
 
 				opts := NewProjectOptions{
 					Name:        name,
 					Directory:   dir,
-					Description: "Created via TinyWasm Wizard",
-					Visibility:  "public",
-					License:     "MIT",
+					Owner:       owner,
+					Description: desc,
+					Visibility:  vis,
+					License:     lic,
 					LocalOnly:   gn.github == nil, // Skip remote if no GitHub handler
 				}
 
