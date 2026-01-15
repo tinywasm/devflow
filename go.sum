@@ -18,8 +18,8 @@ github.com/tinywasm/context v0.0.10 h1:4/hunwOIzaeM2Jx0011XGzYEtrYmQeBZfFaAp/1m8
 github.com/tinywasm/context v0.0.10/go.mod h1:yhyr/hWK9ZCZH6cifj1nRX6zVqGmyWdy+ljzxkTshBo=
 github.com/tinywasm/fmt v0.14.0 h1:Z3mudKuoxRPB97VEisk9pkV2tdvt2YxgJygPJEcPeo4=
 github.com/tinywasm/fmt v0.14.0/go.mod h1:L2GCAi6asgytPV6TVvGrRq5Ml+DkUt1Ijo5i/2J1jOY=
-github.com/tinywasm/wizard v0.0.12 h1:UIQJhGOMlQg+av+yucrl5iX+Q517c06HazIVTwTy8Lo=
-github.com/tinywasm/wizard v0.0.12/go.mod h1:IRg5UqU2YD1x5ZVs33YPXBWFO7kQn8RFB6AGyhSWQlM=
+github.com/tinywasm/wizard v0.0.13 h1:c4ey5sarZYmE4nD6r4zxlDR3tFvmA5O4lIqQndpqqC8=
+github.com/tinywasm/wizard v0.0.13/go.mod h1:IRg5UqU2YD1x5ZVs33YPXBWFO7kQn8RFB6AGyhSWQlM=
 github.com/zalando/go-keyring v0.2.6 h1:r7Yc3+H+Ux0+M72zacZoItR3UDxeWfKTcabvkI8ua9s=
 github.com/zalando/go-keyring v0.2.6/go.mod h1:2TCrxYrbUNYfNS/Kgy/LSrkSQzZ5UPVH85RwfczwvcI=
 golang.org/x/sys v0.26.0 h1:KHjCJyddX0LoSTb3J+vWpupP9p0oznkqVk/IfjymZbo=

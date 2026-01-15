@@ -7,21 +7,11 @@ import (
 	"github.com/tinywasm/wizard"
 )
 
-// Module returns the wizard module implementation
-func (gn *GoNew) Module() wizard.Module {
-	return gn
-}
-
-// Name returns module identifier
-func (gn *GoNew) Name() string {
-	return "GoNew"
-}
-
 // GetSteps returns the sequence of steps to create a new Go project
-func (gn *GoNew) GetSteps() []any {
-	return []any{
+func (gn *GoNew) GetSteps() []*wizard.Step {
+	return []*wizard.Step{
 		// Step 1: Project Name
-		&wizard.Step{
+		{
 			LabelText: "Project Name",
 			DefaultFn: func(ctx *context.Context) string { return "" },
 			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
@@ -34,7 +24,7 @@ func (gn *GoNew) GetSteps() []any {
 		},
 
 		// Step 2: Project Location
-		&wizard.Step{
+		{
 			LabelText: "Project Location",
 			DefaultFn: func(ctx *context.Context) string {
 				abs, _ := filepath.Abs(".")
@@ -50,7 +40,7 @@ func (gn *GoNew) GetSteps() []any {
 		},
 
 		// Step 3: Create Execution
-		&wizard.Step{
+		{
 			LabelText: "Create Project",
 			DefaultFn: func(ctx *context.Context) string { return "Press Enter to Create" },
 			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
