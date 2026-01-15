@@ -63,6 +63,7 @@ func (gn *GoNew) GetSteps() []any {
 					Description: "Created via TinyWasm Wizard",
 					Visibility:  "public",
 					License:     "MIT",
+					LocalOnly:   gn.github == nil, // Skip remote if no GitHub handler
 				}
 
 				gn.log("[...", "Creating project")
