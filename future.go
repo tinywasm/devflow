@@ -19,6 +19,17 @@ func NewFuture(initFn func() (any, error)) *Future {
 	return f
 }
 
+// NewResolvedFuture creates a Future that is already resolved with the given value.
+// Useful for tests or when the value is already available synchronously.
+func NewResolvedFuture(value any) *Future {
+	f := &Future{
+		result: value,
+		done:   make(chan bool),
+	}
+	close(f.done) // Already done
+	return f
+}
+
 // Get blocks until initialization completes and returns the result.
 func (f *Future) Get() (any, error) {
 	<-f.done
