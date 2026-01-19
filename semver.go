@@ -26,12 +26,16 @@ func CompareVersions(v1, v2 string) int {
 			// Parse logic that handles suffixes like "-beta" if needed,
 			// but for this task basic numeric comparison is prioritized.
 			// We split by non-numeric to get the main number.
-			numericPart := strings.FieldsFunc(parts1[i], isNotDigit)[0]
-			n1, _ = strconv.Atoi(numericPart)
+			fields := strings.FieldsFunc(parts1[i], isNotDigit)
+			if len(fields) > 0 {
+				n1, _ = strconv.Atoi(fields[0])
+			}
 		}
 		if i < len(parts2) {
-			numericPart := strings.FieldsFunc(parts2[i], isNotDigit)[0]
-			n2, _ = strconv.Atoi(numericPart)
+			fields := strings.FieldsFunc(parts2[i], isNotDigit)
+			if len(fields) > 0 {
+				n2, _ = strconv.Atoi(fields[0])
+			}
 		}
 
 		if n1 < n2 {
