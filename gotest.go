@@ -372,16 +372,40 @@ func evaluateTestResults(err error, output, moduleName string, msgs []string) (t
 
 	// It failed (exit code != 0). Is it a real test failure or just build constraints?
 	// Check for real test failures: "--- FAIL"
-	hasRealFailures := strings.Contains(output, "--- FAIL") || strings.Contains(output, "\nFAIL\t")
+	// Also check for "FAIL\t" but EXCLUDE "[setup failed]" if we have valid tests passing elsewhere
+	hasRealFailures := strings.Contains(output, "--- FAIL")
+
+	if !hasRealFailures {
+		// Look for FAIL lines that are NOT setup failures
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			if (strings.Contains(line, "FAIL\t") || strings.Contains(line, "FAIL  ")) &&
+				!strings.Contains(line, "[setup failed]") {
+				hasRealFailures = true
+				break
+			}
+		}
+	}
 
 	// Check for build failures: "[build failed]" or similar
 	hasBuildFailures := strings.Contains(output, "[build failed]")
 
-	// Check for exclusion errors
+	// Check for exclusion errors (can be explicit or part of setup failed)
 	isExclusionError := strings.Contains(output, "matched no packages") ||
 		strings.Contains(output, "build constraints exclude all Go files")
 
-	if !hasRealFailures && !hasBuildFailures && isExclusionError {
+	// Special case: Setup failed due to build constraints but other tests PASSED
+	if !hasRealFailures && !hasBuildFailures {
+		if strings.Contains(output, "[setup failed]") && isExclusionError && hasStdOk {
+			// This is the "Partial Success" scenario (client)
+			// Treat as success
+		} else if strings.Contains(output, "[setup failed]") {
+			// Setup failed for other reasons (and no other success confirmed logic override)
+			hasRealFailures = true
+		}
+	}
+
+	if !hasRealFailures && !hasBuildFailures && (isExclusionError || hasStdOk) {
 		// It's a "Partial Success" or "Exclusion Only"
 		testStatus = "Passing"
 		raceStatus = "Clean"

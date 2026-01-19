@@ -300,9 +300,18 @@ func TestEvaluateTestResults(t *testing.T) {
 			expectedRan: false,
 		},
 		{
-			name:        "Client Scenario: Partial Success (Native ok, subpackages tag-excluded)",
-			err:         fmt.Errorf("exit 1"),
-			output:      "ok  github.com/client 1.0s\n# benchmark/shared\nbuild constraints exclude all Go files",
+			name: "Client Scenario: Partial Success (Native ok, subpackages tag-excluded)",
+			err:  fmt.Errorf("exit 1"),
+			output: "# github.com/tinywasm/client/benchmark/shared\n" +
+				"package github.com/tinywasm/client/benchmark/shared\n" +
+				"        imports syscall/js: build constraints exclude all Go files in /usr/local/go/src/syscall/js\n" +
+				"FAIL\tgithub.com/tinywasm/client/benchmark/shared [setup failed]\n" +
+				"# github.com/tinywasm/client/test\n" +
+				"package github.com/tinywasm/client/benchmark/shared\n" +
+				"        imports syscall/js: build constraints exclude all Go files in /usr/local/go/src/syscall/js\n" +
+				"FAIL\tgithub.com/tinywasm/client/test [setup failed]\n" +
+				"ok  \tgithub.com/tinywasm/client      4.417s\n" +
+				"FAIL",
 			expected:    "Passing",
 			expectedRan: true,
 		},
