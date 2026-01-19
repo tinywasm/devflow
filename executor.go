@@ -78,6 +78,40 @@ func RunCommandWithRetry(name string, args []string, maxRetries int, delay time.
 		// Wait before retrying
 		time.Sleep(delay)
 	}
-
 	return output, fmt.Errorf("command %s failed after %d attempts: %w", name, maxRetries, err)
+}
+
+// RunCommandInDir executes a command in a specific directory
+func RunCommandInDir(dir, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	outputBytes, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(outputBytes))
+
+	if err != nil {
+		cmdStr := name + " " + strings.Join(args, " ")
+		return output, fmt.Errorf("command failed in %s: %s\nError: %w\nOutput: %s", dir, cmdStr, err, output)
+	}
+
+	return output, nil
+}
+
+// RunCommandWithRetryInDir executes a command in a specific directory with retries
+func RunCommandWithRetryInDir(dir, name string, args []string, maxRetries int, delay time.Duration) (string, error) {
+	var output string
+	var err error
+
+	for i := 0; i < maxRetries; i++ {
+		output, err = RunCommandInDir(dir, name, args...)
+		if err == nil {
+			return output, nil
+		}
+
+		if i == maxRetries-1 {
+			break
+		}
+		time.Sleep(delay)
+	}
+
+	return output, fmt.Errorf("command %s failed in %s after %d attempts: %w", name, dir, maxRetries, err)
 }
