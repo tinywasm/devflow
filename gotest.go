@@ -133,9 +133,6 @@ func (g *Go) Test() (string, error) {
 	var stdTestsRan bool
 	testStatus, raceStatus, stdTestsRan, msgs = evaluateTestResults(testErr, testOutput, moduleName, msgs)
 
-	// DEBUG: Print stdTestsRan status
-	fmt.Printf("DEBUG: stdTestsRan=%v\n", stdTestsRan)
-
 	// If no stdlib tests ran but we see exclusions, consider enabling WASM (if not already enabled)
 	if !stdTestsRan {
 		isExclusionError := strings.Contains(testOutput, "matched no packages") ||
@@ -413,7 +410,7 @@ func evaluateTestResults(err error, output, moduleName string, msgs []string) (t
 		testStatus = "Passing"
 		raceStatus = "Clean"
 		if stdTestsRan {
-			addMsg(true, "tests stdlib ok (some subpackages excluded)")
+			addMsg(true, "tests stdlib ok")
 			addMsg(true, "race detection ok")
 		}
 	} else {
