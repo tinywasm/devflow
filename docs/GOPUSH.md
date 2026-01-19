@@ -34,15 +34,23 @@ graph TD
     B --> C[Run gotest]
     C --> D{Tests Pass?}
     D -- No --> E[❌ Terminate]
-    D -- Yes --> F[Git Add .]
-    F --> G[Git Commit]
-    G --> H[Generate/Increment Tag]
-    H --> I[Git Push & Push Tags]
-    I --> J[Scan for Dependents]
-    J --> K{Dependents found?}
-    K -- Yes --> L[Update each: go get @tag]
-    L --> M[✅ Done]
-    K -- No --> M
+    D -- Yes --> F[Git Add/Commit/Tag]
+    F --> G[Git Push]
+    G --> H{Recursive Call?}
+    H -- Yes --> M[✅ Done]
+    H -- No --> I[Scan for Dependents]
+    I --> J{Dependents found?}
+    J -- Yes --> K[For each Dependent:]
+    K --> K1[Remove replace directive]
+    K1 --> K2[go get & go mod tidy]
+    K2 --> K3{Other replaces exist?}
+    K3 -- No --> K4[Recursive gopush]
+    K3 -- Yes --> K5[Skip auto-push]
+    K4 --> Z[Next Dependent]
+    K5 --> Z
+    Z --> J
+    J -- No --> L[Execute Backup]
+    L --> M
 ```
 
 ## Output
