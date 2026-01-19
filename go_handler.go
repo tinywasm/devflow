@@ -1,6 +1,7 @@
 package devflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -179,11 +180,22 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 		return "", fmt.Errorf("failed to save go.mod: %w", err)
 	}
 
-	// 4. Run go get with retry (3 attempts, 5s delay)
-	// This helps when the module version is not yet available in the proxy
+	// 4. Smart Update Logic
+	// Check current version first to avoid unnecessary updates and network calls
+	currentVer, err := g.GetCurrentVersion(depDir, modulePath)
+	if err == nil {
+		// If current version is greater or equal to target, skip
+		if CompareVersions(currentVer, version) >= 0 {
+			return fmt.Sprintf("already up-to-date (%s)", currentVer), nil
+		}
+	}
+
+	// Run go get WITHOUT -u to avoid breaking transitive dependencies like goflare
+	// We only want to update the specific module we strictly require.
 	target := fmt.Sprintf("%s@%s", modulePath, version)
 	retryDelay := 5 * time.Second
-	if _, err := RunCommandWithRetry("go", []string{"get", "-u", target}, 3, retryDelay); err != nil {
+	// Note: Removed "-u" flag here
+	if _, err := RunCommandWithRetry("go", []string{"get", target}, 3, retryDelay); err != nil {
 		return "", fmt.Errorf("go get failed after retries: %w", err)
 	}
 
@@ -219,4 +231,32 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 
 	return fmt.Sprintf("pushed (%s)", summary), nil
+}
+
+// GetCurrentVersion returns the current version of a dependency in a module
+func (g *Go) GetCurrentVersion(moduleDir, dependencyPath string) (string, error) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	defer os.Chdir(originalDir)
+
+	if err := os.Chdir(moduleDir); err != nil {
+		return "", err
+	}
+
+	// Use go list -m -json dependencyPath
+	output, err := RunCommand("go", "list", "-m", "-json", dependencyPath)
+	if err != nil {
+		return "", err
+	}
+
+	var mod struct {
+		Version string `json:"Version"`
+	}
+	if err := json.Unmarshal([]byte(output), &mod); err != nil {
+		return "", err
+	}
+
+	return mod.Version, nil
 }
