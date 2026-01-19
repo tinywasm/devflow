@@ -21,7 +21,12 @@ gopush 'commit message' [tag]
 4. Creates/uses tag
 5. Pushes to remote
 6. Finds dependent modules in search path
-7. Updates dependents: `go get -u module@tag && go mod tidy`
+7. For each dependent:
+   - Removes replace directive for published module
+   - Runs `go get module@tag` and `go mod tidy`
+   - If no other replaces exist: auto-push with `deps: update X to vY`
+   - If other replaces exist: skip push (manual required)
+8. Executes backup (asynchronous)
 
 ```mermaid
 graph TD

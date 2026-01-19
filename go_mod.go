@@ -9,6 +9,119 @@ import (
 	"strings"
 )
 
+// GoModFile represents a parsed go.mod file for efficient operations
+type GoModFile struct {
+	path     string   // absolute path to go.mod
+	lines    []string // all lines of the file
+	modified bool     // track if changes were made
+}
+
+// NewGoModFile reads and parses a go.mod file
+func NewGoModFile(gomodPath string) (*GoModFile, error) {
+	content, err := os.ReadFile(gomodPath)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	return &GoModFile{
+		path:  gomodPath,
+		lines: lines,
+	}, nil
+}
+
+// RemoveReplace removes a replace directive for the given module
+// Returns true if a replace was found and removed
+func (m *GoModFile) RemoveReplace(modulePath string) bool {
+	originalCount := len(m.lines)
+	var newLines []string
+	inReplaceBlock := false
+	removed := false
+
+	for _, line := range m.lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Detect start/end of replace block
+		if strings.HasPrefix(trimmed, "replace (") {
+			inReplaceBlock = true
+			newLines = append(newLines, line)
+			continue
+		}
+		if inReplaceBlock && trimmed == ")" {
+			inReplaceBlock = false
+			// Check if we just emptied the block (last line was "replace (")
+			if len(newLines) > 0 && strings.HasPrefix(strings.TrimSpace(newLines[len(newLines)-1]), "replace (") {
+				newLines = newLines[:len(newLines)-1] // remove "replace ("
+				removed = true
+				continue
+			}
+			newLines = append(newLines, line)
+			continue
+		}
+
+		// Check for the module in replace
+		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && strings.Contains(trimmed, modulePath) {
+			removed = true
+			continue // skip this line
+		}
+
+		newLines = append(newLines, line)
+	}
+
+	if removed || len(newLines) != originalCount {
+		m.lines = newLines
+		m.modified = true
+		return true
+	}
+
+	return false
+}
+
+// HasOtherReplaces returns true if there are replace directives
+// other than the specified module
+func (m *GoModFile) HasOtherReplaces(exceptModule string) bool {
+	inReplaceBlock := false
+	for _, line := range m.lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "replace (") {
+			inReplaceBlock = true
+			continue
+		}
+		if inReplaceBlock && trimmed == ")" {
+			inReplaceBlock = false
+			continue
+		}
+
+		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && trimmed != "" {
+			if exceptModule != "" && strings.Contains(trimmed, exceptModule) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// Save writes changes back to the file if modified
+func (m *GoModFile) Save() error {
+	if !m.modified {
+		return nil
+	}
+
+	content := strings.Join(m.lines, "\n")
+	return os.WriteFile(m.path, []byte(content), 0644)
+}
+
+// RunTidy executes 'go mod tidy' in the directory of the go.mod file
+func (m *GoModFile) RunTidy() error {
+	dir := filepath.Dir(m.path)
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = dir
+	_, err := cmd.CombinedOutput()
+	return err
+}
+
 // getModulePath gets full module path
 func (g *Go) getModulePath() (string, error) {
 	file, err := os.Open("go.mod")
@@ -79,11 +192,12 @@ func (g *Go) updateDependents(modulePath, version, searchPath string) ([]string,
 	var results []string
 	for _, depDir := range dependents {
 		depName := filepath.Base(depDir)
-		if err := g.updateModule(depDir, modulePath, version); err != nil {
-			results = append(results, fmt.Sprintf("❌ Failed to update %s: %v", depName, err))
+		result, err := g.UpdateDependentModule(depDir, modulePath, version)
+		if err != nil {
+			results = append(results, fmt.Sprintf("❌ %s: %v", depName, err))
 			continue
 		}
-		results = append(results, fmt.Sprintf("✅ Updated %s", depName))
+		results = append(results, fmt.Sprintf("✅ %s: %s", depName, result))
 	}
 
 	return results, nil

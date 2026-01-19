@@ -72,8 +72,10 @@ func (g *Go) SetLog(fn func(...any)) {
 //	tag: Optional tag
 //	skipTests: If true, skips tests
 //	skipRace: If true, skips race tests
+//	skipDependents: If true, skips updating dependent modules
+//	skipBackup: If true, skips backup
 //	searchPath: Path to search for dependent modules (default: "..")
-func (g *Go) Push(message, tag string, skipTests, skipRace bool, searchPath string) (string, error) {
+func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup bool, searchPath string) (string, error) {
 	// Validate message
 	if err := ValidateCommitMessage(message); err != nil {
 		return "", err
@@ -124,21 +126,90 @@ func (g *Go) Push(message, tag string, skipTests, skipRace bool, searchPath stri
 	}
 
 	// 6. Update dependent modules
-	updateResults, err := g.updateDependents(modulePath, latestTag, searchPath)
-	if err != nil {
-		summary = append(summary, fmt.Sprintf("Warning: failed to scan dependents: %v", err))
-		// Not fatal error
-	}
-	if len(updateResults) > 0 {
-		summary = append(summary, updateResults...)
+	if !skipDependents {
+		updateResults, err := g.updateDependents(modulePath, latestTag, searchPath)
+		if err != nil {
+			summary = append(summary, fmt.Sprintf("Warning: failed to scan dependents: %v", err))
+		}
+		if len(updateResults) > 0 {
+			summary = append(summary, updateResults...)
+		}
 	}
 
 	// 7. Execute backup (asynchronous, non-blocking)
-	if backupMsg, err := g.backup.Run(); err != nil {
-		summary = append(summary, fmt.Sprintf("❌ backup failed to start: %v", err))
-	} else if backupMsg != "" {
-		summary = append(summary, backupMsg)
+	if !skipBackup {
+		if backupMsg, err := g.backup.Run(); err != nil {
+			summary = append(summary, fmt.Sprintf("❌ backup failed to start: %v", err))
+		} else if backupMsg != "" {
+			summary = append(summary, backupMsg)
+		}
 	}
 
 	return strings.Join(summary, ", "), nil
+}
+
+// UpdateDependentModule updates a dependent module and optionally pushes it
+// This is called for each module that depends on the one we just published
+func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, error) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	defer os.Chdir(originalDir)
+
+	if err := os.Chdir(depDir); err != nil {
+		return "", err
+	}
+
+	// 1-2. Load and modify go.mod
+	gomod, err := NewGoModFile("go.mod")
+	if err != nil {
+		return "", fmt.Errorf("failed to load go.mod: %w", err)
+	}
+
+	gomod.RemoveReplace(modulePath)
+
+	// 3. Save changes
+	if err := gomod.Save(); err != nil {
+		return "", fmt.Errorf("failed to save go.mod: %w", err)
+	}
+
+	// 4. Run go get
+	target := fmt.Sprintf("%s@%s", modulePath, version)
+	if _, err := RunCommand("go", "get", "-u", target); err != nil {
+		return "", fmt.Errorf("go get failed: %w", err)
+	}
+
+	// 5. Run go mod tidy
+	if err := gomod.RunTidy(); err != nil {
+		return "", fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	// 6. Check for other replaces
+	if gomod.HasOtherReplaces(modulePath) {
+		return "updated (other replaces exist, manual push required)", nil
+	}
+
+	// 7. Push with skipDependents=true, skipBackup=true
+	git, err := NewGit()
+	if err != nil {
+		return "", fmt.Errorf("git init failed: %w", err)
+	}
+	depHandler, err := NewGo(git)
+	if err != nil {
+		return "", fmt.Errorf("go handler init failed: %w", err)
+	}
+
+	// Extract package name from module path (last segment)
+	parts := strings.Split(modulePath, "/")
+	pkgName := parts[len(parts)-1]
+	message := fmt.Sprintf("deps: update %s to %s", pkgName, version)
+
+	// Recursive call skipping dependents and backup
+	summary, err := depHandler.Push(message, "", false, false, true, true, "")
+	if err != nil {
+		return "", fmt.Errorf("push failed: %w", err)
+	}
+
+	return fmt.Sprintf("pushed (%s)", summary), nil
 }

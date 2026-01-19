@@ -3,6 +3,7 @@ package devflow
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -161,7 +162,7 @@ func TestExample(t *testing.T) {}
 `
 	os.WriteFile("main_test.go", []byte(testContent), 0644)
 
-	summary, err := goHandler.Push("test update", "v0.0.1", false, true, "")
+	summary, err := goHandler.Push("test update", "v0.0.1", false, true, false, false, "")
 	if err != nil {
 		t.Fatalf("Go Push failed: %v", err)
 	}
@@ -175,5 +176,65 @@ func TestExample(t *testing.T) {}
 	}
 	if !strings.Contains(summary, "vet ok") {
 		t.Errorf("Expected summary to contain 'vet ok', got: %s", summary)
+	}
+}
+
+func TestUpdateDependentModule(t *testing.T) {
+	// 1. Setup structure:
+	// /tmp/test-gopush/
+	// ├── mylib/  (module github.com/test/mylib)
+	// └── myapp/  (module github.com/test/myapp, requires mylib, replace ../mylib)
+
+	tmp := t.TempDir()
+	mylibDir := filepath.Join(tmp, "mylib")
+	myappDir := filepath.Join(tmp, "myapp")
+
+	os.MkdirAll(mylibDir, 0755)
+	os.MkdirAll(myappDir, 0755)
+
+	// Create mylib
+	os.WriteFile(filepath.Join(mylibDir, "go.mod"), []byte("module github.com/test/mylib\n\ngo 1.20\n"), 0644)
+	os.WriteFile(filepath.Join(mylibDir, "mylib.go"), []byte("package mylib\n"), 0644)
+
+	// Create myapp
+	os.WriteFile(filepath.Join(myappDir, "go.mod"), []byte("module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nreplace github.com/test/mylib => ../mylib\n"), 0644)
+
+	// Init git in myapp (needed for Push)
+	testChdir(t, myappDir)()
+	exec.Command("git", "init").Run()
+	exec.Command("git", "config", "user.name", "Test").Run()
+	exec.Command("git", "config", "user.email", "test@test.com").Run()
+	exec.Command("git", "add", ".").Run()
+	exec.Command("git", "commit", "-m", "initial").Run()
+
+	// Setup remote for myapp
+	remoteDir, _ := os.MkdirTemp("", "myapp-remote-")
+	defer os.RemoveAll(remoteDir)
+	exec.Command("git", "init", "--bare", remoteDir).Run()
+	exec.Command("git", "remote", "add", "origin", remoteDir).Run()
+
+	testChdir(t, mylibDir)() // back to root of test context or whatever
+
+	git, _ := NewGit()
+	g, _ := NewGo(git)
+
+	// This will fail in real life because "go get github.com/test/mylib@v0.0.1" won't find the module
+	// So we'll mock the RunCommand to accept "go get" and "go mod tidy"
+	// Actually, we can't easily mock RunCommand globally without more effort.
+	// But we can check if it fails exactly where we expect.
+
+	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1")
+
+	// We expect a failure at "go get" because the module doesn't exist in registry
+	if err == nil {
+		t.Errorf("Expected error from go get (module not in registry), got result: %s", result)
+	} else if !strings.Contains(err.Error(), "go get failed") {
+		t.Errorf("Expected error to contain 'go get failed', got: %v", err)
+	}
+
+	// However, we can verify that the replace was removed BEFORE the go get failure
+	gomodContent, _ := os.ReadFile(filepath.Join(myappDir, "go.mod"))
+	if strings.Contains(string(gomodContent), "replace github.com/test/mylib") {
+		t.Error("replace directive should have been removed even if go get failed later")
 	}
 }

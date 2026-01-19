@@ -60,7 +60,7 @@ summary, _ := git.Push("commit message", "v1.0.0")
 
 // Go project workflow
 goHandler := devflow.NewGo(git)
-summary, _ := goHandler.Push("commit message", "", false, false, "..")
+summary, _ := goHandler.Push("commit message", "", false, false, false, false, "..")
 
 // Optional: Enable logging for debugging
 git.SetLog(log.Println)

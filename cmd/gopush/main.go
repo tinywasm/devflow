@@ -58,7 +58,7 @@ Examples:
 	}
 
 	// Always run with defaults
-	summary, err := goHandler.Push(message, tag, false, false, "..")
+	summary, err := goHandler.Push(message, tag, false, false, false, false, "..")
 	if err != nil {
 		fmt.Println("Push failed:", err)
 		os.Exit(1)
