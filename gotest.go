@@ -51,9 +51,10 @@ func (g *Go) Test() (string, error) {
 	// Check for WASM test files by build tags ONLY (async)
 	go func() {
 		defer wg1.Done()
-		// Check for wasm build tag in test files, excluding negated tags (!wasm)
-		// First find files with wasm tag, then exclude those with !wasm
-		buildTagOut, _ := RunShellCommand("grep -l '^//go:build.*wasm' *_test.go 2>/dev/null | while read f; do grep -q '!wasm' \"$f\" || echo \"$f\"; done")
+		// Check for wasm build tag in test files recursively, excluding negated tags (!wasm)
+		// We use grep -r with include pattern for better performance and accuracy
+		cmd := "grep -rl '^//go:build.*wasm' . --include='*_test.go' 2>/dev/null | while read f; do grep -q '!wasm' \"$f\" || echo \"$f\"; done"
+		buildTagOut, _ := RunShellCommand(cmd)
 		if strings.TrimSpace(buildTagOut) != "" {
 			enableWasmTests = true
 		}
@@ -123,22 +124,28 @@ func (g *Go) Test() (string, error) {
 	testOutput = testBuffer.String()
 
 	// Process test results
-	stdTestsRan := false
+	// Determine if any stdlib tests actually ran by looking for ok/FAIL markers in output
+	hasStdOk := strings.Contains(testOutput, "\tok\t") || strings.Contains(testOutput, "ok  \t")
+	hasStdFail := strings.Contains(testOutput, "\tFAIL\t") || strings.Contains(testOutput, "FAIL  \t")
+	stdTestsRan := hasStdOk || hasStdFail
+
 	if testErr != nil {
-		// Check if it's a WASM-only package (build constraints exclude all files)
-		if strings.Contains(testOutput, "matched no packages") ||
-			strings.Contains(testOutput, "build constraints exclude all Go files") {
+		// Check if it's strictly a WASM-only module (no std tests ran AND we see exclusions)
+		isExclusionError := strings.Contains(testOutput, "matched no packages") ||
+			strings.Contains(testOutput, "build constraints exclude all Go files")
+
+		if !stdTestsRan && isExclusionError {
 			testStatus = "Passing"
 			raceStatus = "Clean"
-			// Ensure WASM tests are enabled for WASM-only packages
+			// Ensure WASM tests are enabled if we literally found no std tests due to tags
 			enableWasmTests = true
-			g.log("WASM-only package detected, skipping stdlib tests...")
+			g.log("No stdlib tests matched/run (possibly WASM-only module), skipping stdlib tests...")
 		} else {
-			// Real test failure - ConsoleFilter already filtered the output in quiet mode
+			// Real test failure or partial failure with some tests actually running
 			addMsg(false, fmt.Sprintf("Test errors found in %s", moduleName))
 			testStatus = "Failed"
 			raceStatus = "Detected"
-			stdTestsRan = true
+			// Even if it failed, if some tests ran, coverage is still valid
 		}
 	} else {
 		testStatus = "Passing"
