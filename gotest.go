@@ -229,7 +229,13 @@ func (g *Go) Test() (string, error) {
 
 	}
 
-	return strings.Join(msgs, ", "), nil
+	// Return error if tests or vet failed
+	summary := strings.Join(msgs, ", ")
+	if testStatus == "Failed" || vetStatus == "Issues" {
+		return summary, fmt.Errorf("%s", summary)
+	}
+
+	return summary, nil
 }
 
 type paramWriter struct {

@@ -3,6 +3,7 @@ package devflow
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -160,6 +161,9 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	if err := os.Chdir(depDir); err != nil {
 		return "", err
 	}
+
+	depName := filepath.Base(depDir)
+	fmt.Printf("\n📦 Processing dependent: %s\n", depName)
 
 	// 1-2. Load and modify go.mod
 	gomod, err := NewGoModFile("go.mod")
