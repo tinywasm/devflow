@@ -79,6 +79,13 @@ func TestAsyncUpdateFlow(t *testing.T) {
 				return exec.Command("echo", `{"Version": "v0.0.0"}`)
 			}
 
+			// Mock 'go list -m' (module path detection)
+			// This is CRITICAL because we are running in devflow root (not mocked dir),
+			// so real 'go list -m' returns 'github.com/tinywasm/devflow', breaking dependency lookup.
+			if cmdStr == "list -m" || (strings.Contains(cmdStr, "list") && strings.Contains(cmdStr, "-m") && !strings.Contains(cmdStr, "-json")) {
+				return exec.Command("echo", "github.com/test/main")
+			}
+
 			// If it's attempting to get/tidy our fake test modules, succeed immediately
 			if strings.Contains(cmdStr, "get") || strings.Contains(cmdStr, "tidy") {
 				if strings.Contains(cmdStr, "github.com/test/main") || strings.Contains(cmdStr, "tidy") {
