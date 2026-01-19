@@ -99,22 +99,32 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	}
 
 	// Switch context to main for the Git handler interaction
-	// CRITICAL: Do NOT use os.Chdir as it affects other parallel tests and global state
-	// Instead, ensure handlers use explicit root dirs.
+	// We MUST restore original CWD to avoid breaking subsequent tests when tmp dir is deleted
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(originalWd); err != nil {
+			t.Logf("Failed to restore CWD: %v", err)
+		}
+	}()
+
+	if err := os.Chdir(mainDir); err != nil {
+		t.Fatal(err)
+	}
 
 	git, _ := NewGit()
 	g, err := NewGo(git)
 	if err != nil {
 		t.Fatalf("NewGo failed: %v", err)
 	}
-	g.SetRootDir(mainDir)
 
 	// 5. Execute Push
 	// We skip tests/race/backup for speed.
 	// Important: searchPath is ".." (the tmp root) so it finds dep1 and dep2
-	// But since we are NOT in mainDir, ".." relative to CWD is wrong.
-	// We must pass the absolute path to the TMP dir where dep1/dep2 live.
-	summary, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, tmp)
+	// Since we Chdir'd to mainDir, ".." is indeed the tmp root.
+	summary, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, "..")
 
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)
