@@ -282,8 +282,11 @@ func (g *Go) installWasmBrowserTest() error {
 
 // shouldEnableWasm decides if WASM tests should be run based on go list output differences
 func shouldEnableWasm(nativeOut, wasmOut string) bool {
+	fmt.Printf("DEBUG: shouldEnableWasm check starting\n")
 	nativeFiles := parseGoListFiles(nativeOut)
+	fmt.Printf("DEBUG: shouldEnableWasm - Native files found: %d\n", len(nativeFiles))
 	wasmFiles := parseGoListFiles(wasmOut)
+	fmt.Printf("DEBUG: shouldEnableWasm - WASM files found: %d\n", len(wasmFiles))
 
 	// Activation condition: at least one test file in WASM that is NOT in Native
 	// This means it has a //go:build wasm tag or similar.
@@ -305,7 +308,7 @@ func parseGoListFiles(output string) map[string]bool {
 		if line == "" {
 			continue
 		}
-		// fmt.Printf("DEBUG: parse line: %q\n", line)
+		fmt.Printf("DEBUG: parse line: %q\n", line)
 		// Legitimate go list lines for this template usually contain '['
 		// but we must skip error messages that might start with "package" or involve "syscall/js"
 		if !strings.Contains(line, "[") {
@@ -333,7 +336,7 @@ func parseGoListFiles(output string) map[string]bool {
 			fileMap[pkgPath+"/"+f] = true
 		}
 	}
-	// fmt.Printf("DEBUG: Found %d unique test files\n", len(fileMap))
+	fmt.Printf("DEBUG: Found %d unique test files\n", len(fileMap))
 	return fileMap
 }
 
