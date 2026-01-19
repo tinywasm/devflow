@@ -220,3 +220,52 @@ FAIL`,
 		})
 	}
 }
+
+func TestShouldEnableWasm(t *testing.T) {
+	tests := []struct {
+		name      string
+		nativeOut string
+		wasmOut   string
+		expected  bool
+	}{
+		{
+			name:      "Client - Identical (Purely Native)",
+			nativeOut: "github.com/tinywasm/client [a_test.go]\nbenchmark/err [syscall/js error]",
+			wasmOut:   "github.com/tinywasm/client [a_test.go]",
+			expected:  false,
+		},
+		{
+			name:      "JSValue - WASM only (Native yields nothing functional)",
+			nativeOut: "github.com/tinywasm/jsvalue [] []",
+			wasmOut:   "github.com/tinywasm/jsvalue [jsvalue_test.go] []",
+			expected:  true,
+		},
+		{
+			name:      "Fetch - Dual (Additional WASM test file)",
+			nativeOut: "github.com/tinywasm/fetch [] [stdlib_test.go]",
+			wasmOut:   "github.com/tinywasm/fetch [] [stdlib_test.go wasm_test.go]",
+			expected:  true,
+		},
+		{
+			name:      "Real Client Scenario (with construction noise)",
+			nativeOut: "package github.com/tinywasm/client/benchmark/shared\nimports syscall/js: build constraints exclude all Go files\ngithub.com/tinywasm/client [wasm_exec_test.go tinystring_test.go] []",
+			wasmOut:   "github.com/tinywasm/client [wasm_exec_test.go tinystring_test.go] []",
+			expected:  false,
+		},
+		{
+			name:      "KVDB - Purely Native (no tags)",
+			nativeOut: "github.com/tinywasm/kvdb [methods_test.go] []",
+			wasmOut:   "github.com/tinywasm/kvdb [methods_test.go] []",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldEnableWasm(tt.nativeOut, tt.wasmOut)
+			if result != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}

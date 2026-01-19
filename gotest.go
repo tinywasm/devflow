@@ -52,54 +52,18 @@ func (g *Go) Test() (string, error) {
 	go func() {
 		defer wg1.Done()
 
-		getFiles := func(isWasm bool) map[string]bool {
-			fileMap := make(map[string]bool)
-			cmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
-			if isWasm {
-				cmd.Env = os.Environ()
-				cmd.Env = append(cmd.Env, "GOOS=js", "GOARCH=wasm")
-			}
-			out, _ := cmd.CombinedOutput()
+		// 1. Get native test files
+		nativeCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		nativeOut, _ := nativeCmd.CombinedOutput()
 
-			lines := strings.Split(string(out), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" || !strings.Contains(line, "[") {
-					continue
-				}
-				// Extract package path and file list: "path [a_test.go b_test.go] []"
-				parts := strings.SplitN(line, " ", 2)
-				if len(parts) < 2 {
-					continue
-				}
-				pkgPath := parts[0]
-				fileList := parts[1]
-				// Normalize file list and add to map: pkgPath/file
-				fileList = strings.ReplaceAll(fileList, "[", "")
-				fileList = strings.ReplaceAll(fileList, "]", "")
-				files := strings.Fields(fileList)
-				for _, f := range files {
-					fileMap[pkgPath+"/"+f] = true
-				}
-			}
-			return fileMap
-		}
+		// 2. Get WASM test files
+		wasmCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		wasmCmd.Env = os.Environ()
+		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
+		wasmOut, _ := wasmCmd.CombinedOutput()
 
-		nativeFiles := getFiles(false)
-		wasmFiles := getFiles(true)
-
-		// 3. Activation condition: at least one test file in WASM that is NOT in Native
-		// This means it has a //go:build wasm tag or similar.
-		for f := range wasmFiles {
-			if !nativeFiles[f] {
-				enableWasmTests = true
-				fmt.Printf("WASM test file detected: %s\n", f)
-				break
-			}
-		}
-		if !enableWasmTests {
-			// fmt.Println("No WASM-specific test files found.")
-		}
+		// 3. Decision logic
+		enableWasmTests = shouldEnableWasm(string(nativeOut), string(wasmOut))
 	}()
 
 	wg1.Wait()
@@ -332,4 +296,55 @@ func (g *Go) installWasmBrowserTest() error {
 		return fmt.Errorf("go install failed: %w", err)
 	}
 	return nil
+}
+
+// shouldEnableWasm decides if WASM tests should be run based on go list output differences
+func shouldEnableWasm(nativeOut, wasmOut string) bool {
+	nativeFiles := parseGoListFiles(nativeOut)
+	wasmFiles := parseGoListFiles(wasmOut)
+
+	// Activation condition: at least one test file in WASM that is NOT in Native
+	// This means it has a //go:build wasm tag or similar.
+	for f := range wasmFiles {
+		if !nativeFiles[f] {
+			return true
+		}
+	}
+	return false
+}
+
+// parseGoListFiles converts the output of go list into a map of unique test files
+func parseGoListFiles(output string) map[string]bool {
+	fileMap := make(map[string]bool)
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Legitimate go list lines for this template usually contain '['
+		// but we must skip error messages that might start with "package" or involve "syscall/js"
+		if line == "" || !strings.Contains(line, "[") {
+			continue
+		}
+
+		// Extract package path and file list: "path [a_test.go b_test.go] []"
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		pkgPath := parts[0]
+		fileList := parts[1]
+
+		// Final check: pkgPath shouldn't have spaces if it's a real path from go list
+		if strings.Contains(pkgPath, " ") {
+			continue
+		}
+
+		// Normalize file list and add to map: pkgPath/file
+		fileList = strings.ReplaceAll(fileList, "[", "")
+		fileList = strings.ReplaceAll(fileList, "]", "")
+		files := strings.Fields(fileList)
+		for _, f := range files {
+			fileMap[pkgPath+"/"+f] = true
+		}
+	}
+	return fileMap
 }
