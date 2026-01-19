@@ -292,7 +292,6 @@ func shouldEnableWasm(nativeOut, wasmOut string) bool {
 	// This means it has a //go:build wasm tag or similar.
 	for f := range wasmFiles {
 		if !nativeFiles[f] {
-			fmt.Printf("WASM unique test file: %s\n", f)
 			return true
 		}
 	}
