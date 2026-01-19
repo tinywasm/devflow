@@ -61,22 +61,53 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	runGit(t, dep2Dir, "commit", "-m", "initial")
 
 	// 4. Initialize Handler on Main
-	// We use a safe neutral directory preventing chdir side-effects
-	neutralDir := t.TempDir()
-	defer testChdir(t, neutralDir)()
 
-	// Switch context to main for the Git handler interaction
-	if err := os.Chdir(mainDir); err != nil {
-		t.Fatal(err)
+	// Mock ExecCommand to prevent actual go get network calls that fail with "repository not found"
+	// We restore it at the end of the test
+	originalExec := ExecCommand
+	defer func() { ExecCommand = originalExec }()
+
+	ExecCommand = func(name string, args ...string) *exec.Cmd {
+		// Mock go get, go mod tidy, and go list for our fake modules
+		if name == "go" {
+			// Join args to inspect
+			cmdStr := strings.Join(args, " ")
+
+			// Mock 'go list -m -json' for GetCurrentVersion logic
+			if strings.Contains(cmdStr, "list -m -json") {
+				// Return a fake JSON version
+				return exec.Command("echo", `{"Version": "v0.0.0"}`)
+			}
+
+			// If it's attempting to get/tidy our fake test modules, succeed immediately
+			if strings.Contains(cmdStr, "get") || strings.Contains(cmdStr, "tidy") {
+				if strings.Contains(cmdStr, "github.com/test/main") || strings.Contains(cmdStr, "tidy") {
+					// Return a dummy successful command (e.g. echo)
+					return exec.Command("echo", "mock success")
+				}
+			}
+		}
+		// Pass through normal commands (git init, etc)
+		return originalExec(name, args...)
 	}
 
+	// Switch context to main for the Git handler interaction
+	// CRITICAL: Do NOT use os.Chdir as it affects other parallel tests and global state
+	// Instead, ensure handlers use explicit root dirs.
+
 	git, _ := NewGit()
-	g, _ := NewGo(git)
+	g, err := NewGo(git)
+	if err != nil {
+		t.Fatalf("NewGo failed: %v", err)
+	}
+	g.SetRootDir(mainDir)
 
 	// 5. Execute Push
 	// We skip tests/race/backup for speed.
 	// Important: searchPath is ".." (the tmp root) so it finds dep1 and dep2
-	summary, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, "..")
+	// But since we are NOT in mainDir, ".." relative to CWD is wrong.
+	// We must pass the absolute path to the TMP dir where dep1/dep2 live.
+	summary, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, tmp)
 
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)
@@ -87,6 +118,7 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	// 6. Verify Async Results presence
 	// Since 'go get' will fail (modules don't exist remotely), we expect failure messages
 	// BUT we expect failures for BOTH dep1 and dep2, proving the async loop visited both.
+	// (Or success if mocked)
 
 	hasDep1 := strings.Contains(summary, "dep1")
 	hasDep2 := strings.Contains(summary, "dep2")
@@ -94,13 +126,14 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	if !hasDep1 || !hasDep2 {
 		t.Errorf("Summary should contain traces of both dependents. Got: %s", summary)
 	}
-
-	// Verify parallel retry logic (indirectly) - output should contain error info if failed
-	// or success if we mocked it. Here we expect 'go get failed' likely.
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
-	cmd := exec.Command("git", args...)
+	// Use ExecCommand for consistency with mocking if needed,
+	// though runGit is for setup where we might prefer real git.
+	// Using generic exec.Command for setup is safer if our mock is too aggressive.
+	// But our mock passes through unknown commands.
+	cmd := ExecCommand("git", args...)
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
 		t.Logf("git %v in %s failed: %v", args, dir, err)

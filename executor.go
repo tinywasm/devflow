@@ -8,11 +8,14 @@ import (
 	"time"
 )
 
+// ExecCommand is a variable to allow mocking in tests
+var ExecCommand = exec.Command
+
 // RunCommand executes a shell command
 // It returns the output (trimmed) and an error if the command fails
 func RunCommand(name string, args ...string) (string, error) {
 	// Execute
-	cmd := exec.Command(name, args...)
+	cmd := ExecCommand(name, args...)
 	outputBytes, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(outputBytes))
 
@@ -58,32 +61,9 @@ func RunShellCommandAsync(command string) error {
 	return cmd.Start()
 }
 
-// RunCommandWithRetry executes a command with retries
-// It waits for 'delay' duration between retries
-func RunCommandWithRetry(name string, args []string, maxRetries int, delay time.Duration) (string, error) {
-	var output string
-	var err error
-
-	for i := 0; i < maxRetries; i++ {
-		output, err = RunCommand(name, args...)
-		if err == nil {
-			return output, nil
-		}
-
-		// If this was the last attempt, return the error
-		if i == maxRetries-1 {
-			break
-		}
-
-		// Wait before retrying
-		time.Sleep(delay)
-	}
-	return output, fmt.Errorf("command %s failed after %d attempts: %w", name, maxRetries, err)
-}
-
 // RunCommandInDir executes a command in a specific directory
 func RunCommandInDir(dir, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	cmd := ExecCommand(name, args...)
 	cmd.Dir = dir
 	outputBytes, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(outputBytes))
