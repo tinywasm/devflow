@@ -6,11 +6,10 @@ import (
 )
 
 type ConsoleFilter struct {
-	buffer           []string
-	output           func(string) // callback to write output
-	hasDataRace      bool
-	shownRaceMsg     bool
-	noTestFilesCount int
+	buffer       []string
+	output       func(string) // callback to write output
+	hasDataRace  bool
+	shownRaceMsg bool
 }
 
 func NewConsoleFilter(output func(string)) *ConsoleFilter {
@@ -46,9 +45,8 @@ func (cf *ConsoleFilter) addLine(line string) {
 		return // Skip individual warnings
 	}
 
-	// Count packages with no test files
+	// Skip packages with no test files (noise)
 	if strings.Contains(line, "[no test files]") {
-		cf.noTestFilesCount++
 		return
 	}
 
@@ -204,16 +202,6 @@ func (cf *ConsoleFilter) Flush() {
 	if cf.hasDataRace && !cf.shownRaceMsg {
 		cf.output("⚠️  WARNING: DATA RACE detected")
 		cf.shownRaceMsg = true
-	}
-
-	// Show consolidated no-test-files message
-	if cf.noTestFilesCount > 0 {
-		if cf.noTestFilesCount == 1 {
-			cf.output("ℹ️  1 package has no test files")
-		} else {
-			cf.output(fmt.Sprintf("ℹ️  %d packages have no test files", cf.noTestFilesCount))
-		}
-		cf.noTestFilesCount = 0
 	}
 
 	for _, line := range cf.buffer {
