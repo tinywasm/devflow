@@ -6,10 +6,11 @@ import (
 )
 
 type ConsoleFilter struct {
-	buffer       []string
-	output       func(string) // callback to write output
-	hasDataRace  bool
-	shownRaceMsg bool
+	buffer         []string
+	output         func(string) // callback to write output
+	hasDataRace    bool
+	shownRaceMsg   bool
+	incompleteLine string
 }
 
 func NewConsoleFilter(output func(string)) *ConsoleFilter {
@@ -22,13 +23,17 @@ func NewConsoleFilter(output func(string)) *ConsoleFilter {
 }
 
 func (cf *ConsoleFilter) Add(input string) {
-	// Split input by newlines to ensure we handle line-by-line filtering
-	lines := strings.Split(input, "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		cf.addLine(line)
+	// Handle fragmentation: ensure we only process complete lines (ending in \n)
+	fullInput := cf.incompleteLine + input
+	lines := strings.Split(fullInput, "\n")
+
+	// The last element of Split is either an empty string (if input ended in \n)
+	// or the incomplete part of the line.
+	cf.incompleteLine = lines[len(lines)-1]
+
+	// Process all complete lines
+	for i := 0; i < len(lines)-1; i++ {
+		cf.addLine(lines[i])
 	}
 }
 
@@ -158,9 +163,13 @@ func (cf *ConsoleFilter) removePassingTestLogs(passLine string) {
 	// Iterate backwards from the line before the PASS line
 	// (PASS line is already in buffer at last index)
 	searchStart := len(cf.buffer) - 2
-	if searchStart < 0 {
-		return
-	}
+	/*
+		if searchStart < 0 {
+			// Even if we can't search backwards, we should fall through to the "RUN not found" logic
+			// which removes the PASS line itself. This handles "orphaned" PASS lines where the RUN
+			// line was flushed earlier or missing.
+		}
+	*/
 
 	for i := searchStart; i >= 0; i-- {
 		lineFields := strings.Fields(cf.buffer[i])
@@ -198,6 +207,12 @@ func (cf *ConsoleFilter) removePassingTestLogs(passLine string) {
 }
 
 func (cf *ConsoleFilter) Flush() {
+	// Process any remaining partial line
+	if cf.incompleteLine != "" {
+		cf.addLine(cf.incompleteLine)
+		cf.incompleteLine = ""
+	}
+
 	// Show data race warning once at the start
 	if cf.hasDataRace && !cf.shownRaceMsg {
 		cf.output("⚠️  WARNING: DATA RACE detected")

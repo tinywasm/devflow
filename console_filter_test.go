@@ -14,18 +14,18 @@ func TestConsoleFilter_Quiet(t *testing.T) {
 	cf := NewConsoleFilter(record)
 
 	// Case 1: Passing test
-	cf.Add("=== RUN   TestPass")
-	cf.Add("some log")
-	cf.Add("--- PASS: TestPass (0.01s)")
+	cf.Add("=== RUN   TestPass\n")
+	cf.Add("some log\n")
+	cf.Add("--- PASS: TestPass (0.01s)\n")
 
 	if len(output) != 0 {
 		t.Errorf("Expected no output for passing test, got: %v", output)
 	}
 
 	// Case 2: Failing test
-	cf.Add("=== RUN   TestFail")
-	cf.Add("    jsvalue_test.go:83: ToJS validation failed for int16")
-	cf.Add("--- FAIL: TestFail (0.02s)")
+	cf.Add("=== RUN   TestFail\n")
+	cf.Add("    jsvalue_test.go:83: ToJS validation failed for int16\n")
+	cf.Add("--- FAIL: TestFail (0.02s)\n")
 
 	// Manually flush since we delay flushing in actual implementation
 	cf.Flush()
@@ -49,10 +49,10 @@ func TestConsoleFilter_Quiet(t *testing.T) {
 	output = nil
 
 	// Case 3: Nested passing subtests in a passing parent
-	cf.Add("=== RUN   TestParent")
-	cf.Add("=== RUN   TestParent/ChildPass")
-	cf.Add("    --- PASS: TestParent/ChildPass (0.00s)")
-	cf.Add("--- PASS: TestParent (0.01s)")
+	cf.Add("=== RUN   TestParent\n")
+	cf.Add("=== RUN   TestParent/ChildPass\n")
+	cf.Add("    --- PASS: TestParent/ChildPass (0.00s)\n")
+	cf.Add("--- PASS: TestParent (0.01s)\n")
 
 	if len(output) != 0 {
 		t.Errorf("Expected no output for passing parent with subtests, got: %v", output)
@@ -60,13 +60,13 @@ func TestConsoleFilter_Quiet(t *testing.T) {
 
 	// Case 4: Nested passing subtests in a failing parent
 	output = nil
-	cf.Add("=== RUN   TestFailParent")
-	cf.Add("=== RUN   TestFailParent/ChildPass")
-	cf.Add("    --- PASS: TestFailParent/ChildPass (0.00s)") // filtered out
-	cf.Add("=== RUN   TestFailParent/ChildFail")
-	cf.Add("    jsvalue_test.go:83: ToJS validation failed for uint")
-	cf.Add("    --- FAIL: TestFailParent/ChildFail (0.00s)")
-	cf.Add("--- FAIL: TestFailParent (0.05s)")
+	cf.Add("=== RUN   TestFailParent\n")
+	cf.Add("=== RUN   TestFailParent/ChildPass\n")
+	cf.Add("    --- PASS: TestFailParent/ChildPass (0.00s)\n") // filtered out
+	cf.Add("=== RUN   TestFailParent/ChildFail\n")
+	cf.Add("    jsvalue_test.go:83: ToJS validation failed for uint\n")
+	cf.Add("    --- FAIL: TestFailParent/ChildFail (0.00s)\n")
+	cf.Add("--- FAIL: TestFailParent (0.05s)\n")
 
 	// Manually flush
 	cf.Flush()
@@ -108,18 +108,18 @@ func TestConsoleFilter_FilterNoise(t *testing.T) {
 	cf := NewConsoleFilter(record)
 
 	// Test filtering of various noise messages
-	cf.Add("go: warning: \"./...\" matched no packages")
-	cf.Add("no packages to test")
-	cf.Add("✅ All tests passed!")
-	cf.Add("Badges saved to docs/img/badges.svg")
+	cf.Add("go: warning: \"./...\" matched no packages\n")
+	cf.Add("no packages to test\n")
+	cf.Add("✅ All tests passed!\n")
+	cf.Add("Badges saved to docs/img/badges.svg\n")
 
 	if len(output) != 0 {
 		t.Errorf("Expected all noise to be filtered, got: %v", output)
 	}
 
 	// Test that actual test output is not filtered
-	cf.Add("=== RUN   TestSomething")
-	cf.Add("--- FAIL: TestSomething (0.01s)")
+	cf.Add("=== RUN   TestSomething\n")
+	cf.Add("--- FAIL: TestSomething (0.01s)\n")
 	cf.Flush()
 
 	if len(output) != 2 {
@@ -140,11 +140,11 @@ func TestConsoleFilter_ErrorMessageWithoutKeywords(t *testing.T) {
 	cf := NewConsoleFilter(record)
 
 	// Error message WITHOUT keywords like "fail", "error", "panic", "race"
-	cf.Add("=== RUN   TestFormatTimeWithNumericString")
-	cf.Add("    time_test.go:45: got unexpected value 123")
-	cf.Add("--- FAIL: TestFormatTimeWithNumericString (0.00s)")
-	cf.Add("FAIL")
-	cf.Add("FAIL\tgithub.com/tinywasm/time\t0.015s")
+	cf.Add("=== RUN   TestFormatTimeWithNumericString\n")
+	cf.Add("    time_test.go:45: got unexpected value 123\n")
+	cf.Add("--- FAIL: TestFormatTimeWithNumericString (0.00s)\n")
+	cf.Add("FAIL\n")
+	cf.Add("FAIL\tgithub.com/tinywasm/time\t0.015s\n")
 	cf.Flush()
 
 	// The error message SHOULD be shown even without keywords
@@ -170,9 +170,9 @@ func TestConsoleFilter_AlwaysShowDebug(t *testing.T) {
 	cf := NewConsoleFilter(record)
 
 	// DEBUG message should NOT be filtered even if the test passes
-	cf.Add("=== RUN   TestDebug")
-	cf.Add("DEBUG: connecting to database")
-	cf.Add("--- PASS: TestDebug (0.01s)")
+	cf.Add("=== RUN   TestDebug\n")
+	cf.Add("DEBUG: connecting to database\n")
+	cf.Add("--- PASS: TestDebug (0.01s)\n")
 	cf.Flush()
 
 	foundDebug := false
@@ -185,5 +185,50 @@ func TestConsoleFilter_AlwaysShowDebug(t *testing.T) {
 
 	if !foundDebug {
 		t.Errorf("Expected DEBUG message to be shown, but it was filtered out. Output: %v", output)
+	}
+}
+
+func TestConsoleFilter_BufferFragmentation(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := NewConsoleFilter(record)
+
+	// Simulate fragmented writes WITH newlines
+	// Write "=== RUN TestFrag\n"
+	// Write "--- PASS: TestFrag (0"
+	// Write ".00s)\n"
+
+	cf.Add("=== RUN   TestFrag\n")  // Complete line
+	cf.Add("--- PASS: TestFrag (0") // Incomplete
+	cf.Add(".00s)\n")               // Complete the previous line
+	cf.Flush()
+
+	// If properly handled (buffer partial lines), the PASS line should be reconstructed
+	// and trigger the removal of the RUN line.
+	// If NOT properly handled, we will see "=== RUN   TestFrag" and maybe garbage from the fragmented PASS line.
+
+	if len(output) != 0 {
+		t.Errorf("Expected fragmented PASS line to still trigger filtering. Got: %v", output)
+	}
+}
+
+func TestConsoleFilter_OrphanedPassLine(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := NewConsoleFilter(record)
+
+	// Simulate an orphaned PASS line (e.g. RUN line was flushed earlier or missing)
+	// The filter should still remove this line even if it can't find the RUN line.
+	cf.Add("--- PASS: TestOrphan (0.00s)\n")
+	cf.Flush()
+
+	if len(output) != 0 {
+		t.Errorf("Expected orphaned PASS line to be filtered. Got: %v", output)
 	}
 }
