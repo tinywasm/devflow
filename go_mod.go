@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // GoModFile represents a parsed go.mod file for efficient operations
@@ -172,6 +173,25 @@ func (g *Go) verify() error {
 	return err
 }
 
+// WaitForVersionAvailable waits for a module version to be available on Go proxy
+func (g *Go) WaitForVersionAvailable(modulePath, version string) error {
+	target := fmt.Sprintf("%s@%s", modulePath, version)
+	maxRetries := 3
+	delay := 5 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		_, err := RunCommandSilent("go", "list", "-m", target)
+		if err == nil {
+			return nil
+		}
+		if i < maxRetries-1 {
+			fmt.Printf("⏳ Waiting for %s (attempt %d/%d)...\n", version, i+1, maxRetries)
+			time.Sleep(delay)
+		}
+	}
+	return fmt.Errorf("version %s not available after %d attempts", version, maxRetries)
+}
+
 // updateDependents updates modules that depend on the current one
 func (g *Go) updateDependents(modulePath, version, searchPath string) ([]string, error) {
 	if searchPath == "" {
@@ -186,6 +206,11 @@ func (g *Go) updateDependents(modulePath, version, searchPath string) ([]string,
 
 	if len(dependents) == 0 {
 		return nil, nil
+	}
+
+	// Wait for version to be available before updating any dependents
+	if err := g.WaitForVersionAvailable(modulePath, version); err != nil {
+		return []string{fmt.Sprintf("⏳ %s", err)}, nil
 	}
 
 	// Update each dependent sequentially to avoid os.Chdir race conditions
