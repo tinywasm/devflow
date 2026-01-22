@@ -57,7 +57,6 @@ func (cf *ConsoleFilter) addLine(line string) {
 
 	// Skip noise
 	if strings.HasPrefix(line, "go: warning:") ||
-		strings.HasPrefix(line, "#") ||
 		strings.HasPrefix(line, "package ") ||
 		strings.HasPrefix(line, "ok\t") ||
 		strings.HasPrefix(line, "ok  \t") ||

@@ -8,8 +8,8 @@ require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	github.com/tinywasm/context v0.0.10
-	github.com/tinywasm/fmt v0.14.0 // indirect
+	github.com/tinywasm/context v0.0.11
+	github.com/tinywasm/fmt v0.16.1 // indirect
 	github.com/tinywasm/wizard v0.0.13
 	golang.org/x/sys v0.26.0 // indirect
 )
