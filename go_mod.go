@@ -163,6 +163,30 @@ func (g *Go) ModExistsInCurrentOrParent() bool {
 	return false
 }
 
+// FindProjectRoot looks for go.mod in startDir or its immediate parent.
+// Returns the absolute path to the directory containing go.mod, or an empty string and error if not found.
+func FindProjectRoot(startDir string) (string, error) {
+	absStart, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", err
+	}
+
+	// Check current directory
+	if _, err := os.Stat(filepath.Join(absStart, "go.mod")); err == nil {
+		return absStart, nil
+	}
+
+	// Check parent directory
+	parent := filepath.Dir(absStart)
+	if parent != absStart { // Avoid checking same dir if at root
+		if _, err := os.Stat(filepath.Join(parent, "go.mod")); err == nil {
+			return parent, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find go.mod in %s or parent", absStart)
+}
+
 // verify verifies go.mod integrity
 func (g *Go) verify() error {
 	if !g.modExists() {

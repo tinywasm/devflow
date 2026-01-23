@@ -53,6 +53,74 @@ func TestModExistsInCurrentOrParent(t *testing.T) {
 	})
 }
 
+func TestFindProjectRoot(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Structure:
+	// tmp/ (root with go.mod)
+	// tmp/subdir1/ (child)
+	// tmp/subdir1/subdir2/ (grandchild)
+
+	// Create go.mod in root
+	rootModPath := filepath.Join(tmp, "go.mod")
+	if err := os.WriteFile(rootModPath, []byte("module test"), 0644); err != nil {
+		t.Fatalf("failed to create root go.mod: %v", err)
+	}
+
+	subdir1 := filepath.Join(tmp, "subdir1")
+	subdir2 := filepath.Join(subdir1, "subdir2")
+
+	if err := os.MkdirAll(subdir2, 0755); err != nil {
+		t.Fatalf("failed to create subdirs: %v", err)
+	}
+
+	t.Run("FindsRootFromRoot", func(t *testing.T) {
+		found, err := FindProjectRoot(tmp)
+		if err != nil {
+			t.Errorf("expected to find root, got error: %v", err)
+		}
+
+		// Evaluate symbolic links if necessary, although t.TempDir usually gives absolute paths
+		// Compare paths cleaning them
+		if filepath.Clean(found) != filepath.Clean(tmp) {
+			t.Errorf("expected %s, got %s", tmp, found)
+		}
+	})
+
+	t.Run("FindsRootFromDirectChild", func(t *testing.T) {
+		found, err := FindProjectRoot(subdir1)
+		if err != nil {
+			t.Errorf("expected to find root from child, got error: %v", err)
+		}
+		if filepath.Clean(found) != filepath.Clean(tmp) {
+			t.Errorf("expected %s, got %s", tmp, found)
+		}
+	})
+
+	t.Run("FailsFromGrandChild_DueToLimit", func(t *testing.T) {
+		// Our implementation only checks current and parent.
+		// subdir2 parent is subdir1 (no go.mod).
+		// subdir1 parent is tmp (has go.mod).
+		// So checking subdir2 should check subdir2 and subdir1, find nothing, and fail.
+
+		_, err := FindProjectRoot(subdir2)
+		if err == nil {
+			t.Error("expected error when searching from grandchild due to depth limit, but got success")
+		}
+	})
+
+	t.Run("FailsWhenNoGoMod", func(t *testing.T) {
+		emptyTmp := t.TempDir()
+		emptySub := filepath.Join(emptyTmp, "sub")
+		os.Mkdir(emptySub, 0755)
+
+		_, err := FindProjectRoot(emptySub)
+		if err == nil {
+			t.Error("expected error when no go.mod exists anywhere")
+		}
+	})
+}
+
 func TestGoModFile(t *testing.T) {
 	tmp := t.TempDir()
 	gomodPath := filepath.Join(tmp, "go.mod")
