@@ -9,7 +9,7 @@ import (
 
 // GoNew orchestrator
 type GoNew struct {
-	git    *Git
+	git    GitClient
 	github *Future
 	goH    *Go
 	log    func(...any)
@@ -27,7 +27,7 @@ type NewProjectOptions struct {
 }
 
 // NewGoNew creates orchestrator (all handlers must be initialized)
-func NewGoNew(git *Git, github *Future, goHandler *Go) *GoNew {
+func NewGoNew(git GitClient, github *Future, goHandler *Go) *GoNew {
 	return &GoNew{
 		git:    git,
 		github: github,
@@ -211,15 +211,15 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 	}
 
 	// 7. Initial commit
-	if err := gn.git.add(); err != nil {
+	if err := gn.git.Add(); err != nil {
 		return "", err
 	}
-	if _, err := gn.git.commit("Initial commit"); err != nil {
+	if _, err := gn.git.Commit("Initial commit"); err != nil {
 		return "", err
 	}
 
 	// 8. Tag creation
-	if _, err := gn.git.createTag("v0.0.1"); err != nil {
+	if _, err := gn.git.CreateTag("v0.0.1"); err != nil {
 		return "", err
 	}
 
@@ -230,7 +230,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		if _, err := RunCommand("git", "remote", "add", "origin", repoURL); err != nil {
 			gn.log("Failed to add remote:", err)
 			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - failed to add remote", opts.Name)
-		} else if err := gn.git.pushWithTags("v0.0.1"); err != nil {
+		} else if err := gn.git.PushWithTags("v0.0.1"); err != nil {
 			// If push fails, warn but don't fail the whole process
 			gn.log("Push failed:", err)
 			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - push failed", opts.Name)
@@ -351,7 +351,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 	// Push
 	// We need to push current branch to main
 	// And push tags
-	if err := gn.git.pushWithTags("v0.0.1"); err != nil {
+	if err := gn.git.PushWithTags("v0.0.1"); err != nil {
 		// If fails, maybe we need to push plain first?
 		// Or maybe v0.0.1 doesn't exist?
 		// Try pushing HEAD

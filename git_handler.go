@@ -83,12 +83,12 @@ func (g *Git) Push(message, tag string) (string, error) {
 	}
 
 	// 1. Git add
-	if err := g.add(); err != nil {
+	if err := g.Add(); err != nil {
 		return "", fmt.Errorf("git add failed: %w", err)
 	}
 
 	// 2. Commit (only if there are changes)
-	_, err := g.commit(message)
+	_, err := g.Commit(message)
 	if err != nil {
 		return "", fmt.Errorf("git commit failed: %w", err)
 	}
@@ -115,7 +115,7 @@ func (g *Git) Push(message, tag string) (string, error) {
 	maxAttempts := 100 // Prevent infinite loop
 	attempt := 0
 	for attempt < maxAttempts {
-		created, err := g.createTag(finalTag)
+		created, err := g.CreateTag(finalTag)
 		if err == nil && created {
 			// Success
 			summary = append(summary, fmt.Sprintf("✅ Tag: %s", finalTag))
@@ -124,7 +124,7 @@ func (g *Git) Push(message, tag string) (string, error) {
 
 		// Tag exists, increment from current finalTag
 		g.log("Tag", finalTag, "already exists, trying next")
-		nextTag, err := g.incrementTag(finalTag)
+		nextTag, err := g.IncrementTag(finalTag)
 		if err != nil {
 			return "", fmt.Errorf("failed to increment tag: %w", err)
 		}
@@ -137,7 +137,7 @@ func (g *Git) Push(message, tag string) (string, error) {
 	}
 
 	// 5. Push commits and tag
-	if err := g.pushWithTags(finalTag); err != nil {
+	if err := g.PushWithTags(finalTag); err != nil {
 		return "", fmt.Errorf("push failed: %w", err)
 	}
 	summary = append(summary, "✅ Pushed ok")
@@ -145,8 +145,8 @@ func (g *Git) Push(message, tag string) (string, error) {
 	return strings.Join(summary, ", "), nil
 }
 
-// add adds all changes to staging
-func (g *Git) add() error {
+// Add adds all changes to staging
+func (g *Git) Add() error {
 	_, err := RunCommand("git", "add", ".")
 	return err
 }
@@ -178,9 +178,9 @@ func (g *Git) hasChanges() (bool, error) {
 	return false, nil
 }
 
-// commit creates a commit with the given message
+// Commit creates a commit with the given message
 // Returns true if a commit was created
-func (g *Git) commit(message string) (bool, error) {
+func (g *Git) Commit(message string) (bool, error) {
 	hasChanges, err := g.hasChanges()
 	if err != nil {
 		return false, err
@@ -206,9 +206,9 @@ func (g *Git) GetLatestTag() (string, error) {
 	return tag, nil
 }
 
-// createTag creates a new tag
-func (g *Git) createTag(tag string) (bool, error) {
-	exists, err := g.tagExists(tag)
+// CreateTag creates a new tag
+func (g *Git) CreateTag(tag string) (bool, error) {
+	exists, err := g.TagExists(tag)
 	if err != nil {
 		return false, err
 	}
@@ -249,8 +249,8 @@ func (g *Git) GenerateNextTag() (string, error) {
 	return newTag, nil
 }
 
-// incrementTag increments a specific tag (e.g., v0.0.12 -> v0.0.13)
-func (g *Git) incrementTag(tag string) (string, error) {
+// IncrementTag increments a specific tag (e.g., v0.0.12 -> v0.0.13)
+func (g *Git) IncrementTag(tag string) (string, error) {
 	if tag == "" {
 		return "v0.0.1", nil
 	}
@@ -272,8 +272,8 @@ func (g *Git) incrementTag(tag string) (string, error) {
 	return newTag, nil
 }
 
-// tagExists checks if a tag exists
-func (g *Git) tagExists(tag string) (bool, error) {
+// TagExists checks if a tag exists
+func (g *Git) TagExists(tag string) (bool, error) {
 	_, err := RunCommandSilent("git", "rev-parse", tag)
 	if err != nil {
 		return false, nil
@@ -317,8 +317,8 @@ func (g *Git) pushTag(tag string) error {
 	return nil
 }
 
-// pushWithTags pushes commits and tag
-func (g *Git) pushWithTags(tag string) error {
+// PushWithTags pushes commits and tag
+func (g *Git) PushWithTags(tag string) error {
 	branch, err := g.getCurrentBranch()
 	if err != nil {
 		return err

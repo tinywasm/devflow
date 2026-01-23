@@ -293,6 +293,46 @@ func (m *MockGitClient) SetLog(fn func(...any)) {
 	m.log = fn
 }
 
+func (m *MockGitClient) SetShouldWrite(fn func() bool) {
+	// mock implementation
+}
+
+func (m *MockGitClient) SetRootDir(path string) {
+	// mock implementation
+}
+
+func (m *MockGitClient) GitIgnoreAdd(entry string) error {
+	return nil
+}
+
+func (m *MockGitClient) Add() error {
+	return nil
+}
+
+func (m *MockGitClient) Commit(message string) (bool, error) {
+	return true, nil
+}
+
+func (m *MockGitClient) CreateTag(tag string) (bool, error) {
+	return true, nil
+}
+
+func (m *MockGitClient) PushWithTags(tag string) error {
+	return nil
+}
+
+func (m *MockGitClient) GetConfigUserName() (string, error) {
+	return "Mock User", nil
+}
+
+func (m *MockGitClient) GetConfigUserEmail() (string, error) {
+	return "mock@example.com", nil
+}
+
+func (m *MockGitClient) InitRepo(dir string) error {
+	return nil
+}
+
 func TestGoPush_RemoteAccessFailure(t *testing.T) {
 	// Isolate execution in a temp directory to avoid recursive testing of the current project
 	dir, cleanup := testCreateGoModule("github.com/test/repo")

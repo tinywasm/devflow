@@ -19,7 +19,7 @@ func TestGitHasChanges(t *testing.T) {
 	os.WriteFile("test.txt", []byte("test"), 0644)
 
 	// Add
-	git.add()
+	git.Add()
 
 	// Should have changes
 	hasChanges, err := git.hasChanges()
@@ -56,7 +56,7 @@ func TestGitGenerateNextTag(t *testing.T) {
 	}
 
 	// Create tag
-	git.createTag("v0.0.1")
+	git.CreateTag("v0.0.1")
 
 	// Next should be v0.0.2
 	tag, err = git.GenerateNextTag()
@@ -78,14 +78,14 @@ func TestGitCommit(t *testing.T) {
 	git, _ := NewGit()
 
 	// Without changes should not fail
-	_, err := git.commit("test")
+	_, err := git.Commit("test")
 	if err != nil {
 		t.Error("Commit without changes should not fail")
 	}
 
 	// With changes
 	os.WriteFile("test.txt", []byte("test changes"), 0644)
-	git.add()
+	git.Add()
 
 	// Check for changes
 	has, _ := git.hasChanges()
@@ -93,7 +93,7 @@ func TestGitCommit(t *testing.T) {
 		t.Fatal("Should have changes before commit")
 	}
 
-	committed, err := git.commit("test commit")
+	committed, err := git.Commit("test commit")
 	if err != nil {
 		t.Logf("Error content: %v", err)
 		t.Fatalf("GitCommit failed: %v", err)
@@ -156,9 +156,9 @@ func TestGitPushRejectsLowerTag(t *testing.T) {
 	exec.Command("git", "remote", "add", "origin", "file://"+remoteDir).Run()
 
 	os.WriteFile("test.txt", []byte("initial"), 0644)
-	git.add()
-	git.commit("initial")
-	git.createTag("v0.4.6")
+	git.Add()
+	git.Commit("initial")
+	git.CreateTag("v0.4.6")
 
 	// Attempt push with lower tag
 	_, err := git.Push("fix: something", "v0.0.51")
@@ -186,12 +186,12 @@ func TestGitPushAcceptsHigherTag(t *testing.T) {
 
 	git, _ := NewGit()
 	os.WriteFile("test.txt", []byte("initial"), 0644)
-	git.add()
-	git.commit("initial")
-	git.createTag("v0.4.6")
+	git.Add()
+	git.Commit("initial")
+	git.CreateTag("v0.4.6")
 
 	os.WriteFile("test.txt", []byte("update"), 0644)
-	git.add()
+	git.Add()
 	summary, err := git.Push("fix: something", "v0.4.7")
 	if err != nil {
 		t.Fatalf("Push failed for higher tag v0.4.7: %v", err)
@@ -250,11 +250,11 @@ func TestGitPushWithUpstreamLogic(t *testing.T) {
 
 	// Create commit
 	os.WriteFile("test.txt", []byte("content"), 0644)
-	git.add()
-	git.commit("initial")
+	git.Add()
+	git.Commit("initial")
 
 	// Create tag locally first!
-	git.createTag("v0.0.1")
+	git.CreateTag("v0.0.1")
 
 	// Test hasUpstream (should be false)
 	has, err := git.hasUpstream()
@@ -266,7 +266,7 @@ func TestGitPushWithUpstreamLogic(t *testing.T) {
 	}
 
 	// Test pushWithTags (should set upstream)
-	err = git.pushWithTags("v0.0.1")
+	err = git.PushWithTags("v0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestGitCreateTagExists(t *testing.T) {
 	// Initial commit needed for tagging
 	exec.Command("git", "commit", "--allow-empty", "-m", "init").Run()
 
-	created, err := git.createTag("v0.0.1")
+	created, err := git.CreateTag("v0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestGitCreateTagExists(t *testing.T) {
 	}
 
 	// Try to create again
-	created, err = git.createTag("v0.0.1")
+	created, err = git.CreateTag("v0.0.1")
 	if err == nil {
 		t.Error("Expected error when creating existing tag")
 	}
@@ -323,7 +323,7 @@ func TestGitAddError(t *testing.T) {
 	// Corrupt .git/index
 	os.WriteFile(".git/index", []byte("garbage"), 0000)
 
-	err := git.add()
+	err := git.Add()
 	if err == nil {
 		t.Error("Expected git add to fail with corrupt index")
 	}
@@ -339,7 +339,7 @@ func TestGitPushCommitFailure(t *testing.T) {
 
 	// Stage file
 	os.WriteFile("test.txt", []byte("content"), 0644)
-	git.add()
+	git.Add()
 
 	// Create failing pre-commit hook
 	os.MkdirAll(".git/hooks", 0755)

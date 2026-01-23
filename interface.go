@@ -31,4 +31,14 @@ type GitClient interface {
 	Push(message, tag string) (string, error)
 	GetLatestTag() (string, error)
 	SetLog(fn func(...any))
+	SetShouldWrite(fn func() bool)
+	SetRootDir(path string)
+	GitIgnoreAdd(entry string) error
+	GetConfigUserName() (string, error)
+	GetConfigUserEmail() (string, error)
+	InitRepo(dir string) error
+	Add() error
+	Commit(message string) (bool, error)
+	CreateTag(tag string) (bool, error)
+	PushWithTags(tag string) error
 }
