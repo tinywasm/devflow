@@ -45,8 +45,8 @@ type GitClient interface {
 
 // FolderWatcher defines interface for adding/removing directories to watch
 type FolderWatcher interface {
-	AddDirectoryToWatcher(path string) error
-	RemoveDirectoryFromWatcher(path string) error
+	AddDirectoriesToWatch(paths ...string) error
+	RemoveDirectoriesFromWatcher(paths ...string) error
 }
 
 // GoModInterface defines interface for go.mod handling

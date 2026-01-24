@@ -307,7 +307,7 @@ func (g *GoModHandler) reconcilePaths(entries []ReplaceEntry) {
 	for mod, path := range newMap {
 		if _, exists := g.currentPaths[mod]; !exists {
 			g.log("GoModHandler: Watching external module:", path)
-			if err := g.watcher.AddDirectoryToWatcher(path); err != nil {
+			if err := g.watcher.AddDirectoriesToWatch(path); err != nil {
 				g.log("Frontend Error: Failed to watch external module:", path, err)
 			}
 		}
@@ -317,7 +317,7 @@ func (g *GoModHandler) reconcilePaths(entries []ReplaceEntry) {
 	for mod, path := range g.currentPaths {
 		if _, exists := newMap[mod]; !exists {
 			g.log("GoModHandler: Stop watching external module:", path)
-			if err := g.watcher.RemoveDirectoryFromWatcher(path); err != nil {
+			if err := g.watcher.RemoveDirectoriesFromWatcher(path); err != nil {
 				g.log("Frontend Error: Failed to remove watch for external module:", path, err)
 			}
 		}

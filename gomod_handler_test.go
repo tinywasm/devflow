@@ -10,17 +10,19 @@ type GoModMockWatcher struct {
 	watchedPaths []string
 }
 
-func (m *GoModMockWatcher) AddDirectoryToWatcher(path string) error {
-	m.watchedPaths = append(m.watchedPaths, path)
+func (m *GoModMockWatcher) AddDirectoriesToWatch(paths ...string) error {
+	m.watchedPaths = append(m.watchedPaths, paths...)
 	return nil
 }
 
-func (m *GoModMockWatcher) RemoveDirectoryFromWatcher(path string) error {
+func (m *GoModMockWatcher) RemoveDirectoriesFromWatcher(paths ...string) error {
 	// Simple mock removing from the slice
-	for i, p := range m.watchedPaths {
-		if p == path {
-			m.watchedPaths = append(m.watchedPaths[:i], m.watchedPaths[i+1:]...)
-			return nil
+	for _, path := range paths {
+		for i, p := range m.watchedPaths {
+			if p == path {
+				m.watchedPaths = append(m.watchedPaths[:i], m.watchedPaths[i+1:]...)
+				break
+			}
 		}
 	}
 	return nil
