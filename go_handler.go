@@ -171,9 +171,22 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 
 	// 1-2. Load and modify go.mod
 	// Since NewGoModFile reads from disk, we pass full path
+	// 1-2. Load and modify go.mod
+	// Since NewGoModFile reads from disk, we pass full path
 	modFile := filepath.Join(depDir, "go.mod")
-	gomod, err := NewGoModHandler(modFile)
-	if err != nil {
+	gomod := NewGoModHandler()
+	gomod.SetRootDir(depDir)
+	// No error check needed for creation, but methods will fail if file missing
+
+	// Check/Load explicitly if we want to fail fast?
+	// But current flow relied on NewGoModHandler returning error.
+	// Since we moved loading to methods, we can't fail fast here unless we call something.
+	// But RemoveReplace returns bool.
+	// Save() returns error if write fails.
+	// Maybe we should just proceed.
+	// The original code returned error if file not found.
+	// Let's verify file existence manually?
+	if _, err := os.Stat(modFile); err != nil {
 		return "", fmt.Errorf("failed to load go.mod: %w", err)
 	}
 

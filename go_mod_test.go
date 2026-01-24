@@ -133,10 +133,12 @@ replace github.com/test/lib => ../lib
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm, err := NewGoModHandler(gomodPath)
-		if err != nil {
-			t.Fatal(err)
-		}
+		os.WriteFile(gomodPath, []byte(content), 0644)
+
+		gm := NewGoModHandler()
+		gm.SetRootDir(tmp)
+		// Explicit load or let RemoveReplace trigger it
+		// RemoveReplace now auto-loads.
 
 		removed := gm.RemoveReplace("github.com/test/lib")
 		if !removed {
@@ -146,8 +148,7 @@ replace github.com/test/lib => ../lib
 			t.Error("expected modified to be true")
 		}
 
-		err = gm.Save()
-		if err != nil {
+		if err := gm.Save(); err != nil {
 			t.Fatal(err)
 		}
 
@@ -166,10 +167,10 @@ replace (
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm, err := NewGoModHandler(gomodPath)
-		if err != nil {
-			t.Fatal(err)
-		}
+		os.WriteFile(gomodPath, []byte(content), 0644)
+
+		gm := NewGoModHandler()
+		gm.SetRootDir(tmp)
 
 		gm.RemoveReplace("github.com/test/lib")
 		gm.Save()
@@ -191,10 +192,10 @@ replace (
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm, err := NewGoModHandler(gomodPath)
-		if err != nil {
-			t.Fatal(err)
-		}
+		os.WriteFile(gomodPath, []byte(content), 0644)
+
+		gm := NewGoModHandler()
+		gm.SetRootDir(tmp)
 
 		gm.RemoveReplace("github.com/test/lib")
 		gm.Save()
@@ -210,7 +211,11 @@ replace (
 replace github.com/test/lib => ../lib
 replace github.com/test/other => ../other
 `
-		gm, _ := NewGoModHandler(gomodPath)
+		gm := NewGoModHandler()
+		gm.SetRootDir(tmp)
+		// Manually injection of lines for test? Or standard load?
+		// The original test said: gm.lines = strings.Split(content, "\n")
+		// So we do the same.
 		gm.lines = strings.Split(content, "\n")
 
 		if !gm.HasOtherReplaces("github.com/test/lib") {
@@ -246,10 +251,9 @@ replace (
 replace github.com/test/lib4 => ../lib4
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
-		gm, err := NewGoModHandler(gomodPath)
-		if err != nil {
-			t.Fatal(err)
-		}
+		os.WriteFile(gomodPath, []byte(content), 0644)
+		gm := NewGoModHandler()
+		gm.SetRootDir(tmp)
 
 		entries, err := gm.GetLocalReplacePaths()
 		if err != nil {

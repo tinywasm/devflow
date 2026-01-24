@@ -40,10 +40,7 @@ func TestGoModHandler(t *testing.T) {
 	os.WriteFile(gomodPath, []byte(content), 0644)
 
 	watcher := &GoModMockWatcher{}
-	handler, err := NewGoModHandler(gomodPath)
-	if err != nil {
-		t.Fatalf("Failed to create handler: %v", err)
-	}
+	handler := NewGoModHandler()
 	handler.SetRootDir(rootDir)
 	handler.SetFolderWatcher(watcher)
 

@@ -12,7 +12,6 @@ import (
 
 // GoModHandler represents a parsed go.mod file and handles file events
 type GoModHandler struct {
-	path     string   // absolute path to go.mod
 	lines    []string // all lines of the file
 	modified bool     // track if changes were made
 
@@ -31,30 +30,36 @@ type ReplaceEntry struct {
 }
 
 // NewGoModHandler reads and parses a go.mod file or returns an empty handler if path is empty
-func NewGoModHandler(gomodPath string) (*GoModHandler, error) {
-	h := &GoModHandler{
-		path:          gomodPath,
+func NewGoModHandler() *GoModHandler {
+	return &GoModHandler{
+		rootDir:       ".",
 		currentPaths:  make(map[string]string),
 		knownReplaces: make(map[string]string),
 		log:           func(messages ...any) {},
 	}
+}
 
-	if gomodPath == "" {
-		return h, nil
-	}
-
+func (g *GoModHandler) load() error {
+	gomodPath := filepath.Join(g.rootDir, "go.mod")
 	content, err := os.ReadFile(gomodPath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	h.lines = strings.Split(string(content), "\n")
-	return h, nil
+	g.lines = strings.Split(string(content), "\n")
+	return nil
 }
 
 // RemoveReplace removes a replace directive for the given module
 // Returns true if a replace was found and removed
 func (m *GoModHandler) RemoveReplace(modulePath string) bool {
+	// check if loaded
+	if len(m.lines) == 0 {
+		if err := m.load(); err != nil {
+			return false
+		}
+	}
+
 	originalCount := len(m.lines)
 	var newLines []string
 	inReplaceBlock := false
@@ -102,9 +107,16 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 // GetLocalReplacePaths returns absolute paths from local replace directives.
 // Relative paths are resolved starting from the directory containing go.mod.
 func (m *GoModHandler) GetLocalReplacePaths() ([]ReplaceEntry, error) {
+	// check if loaded
+	if len(m.lines) == 0 {
+		if err := m.load(); err != nil {
+			return nil, err
+		}
+	}
+
 	var entries []ReplaceEntry
 	inReplaceBlock := false
-	rootDir := filepath.Dir(m.path)
+	rootDir := m.rootDir
 
 	for _, line := range m.lines {
 		trimmed := strings.TrimSpace(line)
@@ -167,6 +179,13 @@ func (m *GoModHandler) GetLocalReplacePaths() ([]ReplaceEntry, error) {
 // HasOtherReplaces returns true if there are replace directives
 // other than the specified module
 func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
+	// check if loaded
+	if len(m.lines) == 0 {
+		if err := m.load(); err != nil {
+			return false
+		}
+	}
+
 	inReplaceBlock := false
 	for _, line := range m.lines {
 		trimmed := strings.TrimSpace(line)
@@ -197,12 +216,12 @@ func (m *GoModHandler) Save() error {
 	}
 
 	content := strings.Join(m.lines, "\n")
-	return os.WriteFile(m.path, []byte(content), 0644)
+	return os.WriteFile(filepath.Join(m.rootDir, "go.mod"), []byte(content), 0644)
 }
 
 // RunTidy executes 'go mod tidy' in the directory of the go.mod file
 func (m *GoModHandler) RunTidy() error {
-	dir := filepath.Dir(m.path)
+	dir := m.rootDir
 	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Dir = dir
 	_, err := cmd.CombinedOutput()
