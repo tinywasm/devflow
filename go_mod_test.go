@@ -133,7 +133,7 @@ replace github.com/test/lib => ../lib
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm, err := NewGoModFile(gomodPath)
+		gm, err := NewGoModHandler(gomodPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,7 +166,7 @@ replace (
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm, err := NewGoModFile(gomodPath)
+		gm, err := NewGoModHandler(gomodPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,7 +191,7 @@ replace (
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm, err := NewGoModFile(gomodPath)
+		gm, err := NewGoModHandler(gomodPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -210,7 +210,7 @@ replace (
 replace github.com/test/lib => ../lib
 replace github.com/test/other => ../other
 `
-		gm, _ := NewGoModFile(gomodPath)
+		gm, _ := NewGoModHandler(gomodPath)
 		gm.lines = strings.Split(content, "\n")
 
 		if !gm.HasOtherReplaces("github.com/test/lib") {
@@ -226,6 +226,58 @@ replace github.com/test/other => ../other
 		gm.lines = []string{"module test", "go 1.20"}
 		if gm.HasOtherReplaces("") {
 			t.Error("expected false when no replaces exist")
+		}
+	})
+}
+
+func TestGetLocalReplacePaths(t *testing.T) {
+	tmp := t.TempDir()
+	gomodPath := filepath.Join(tmp, "go.mod")
+
+	t.Run("ParsesInlineAndBlockReplaces", func(t *testing.T) {
+		content := `module test
+go 1.20
+replace github.com/test/lib1 => ../lib1
+replace (
+	github.com/test/lib2 => /abs/path/lib2
+	github.com/test/lib3 => ./lib3 // some comment
+	github.com/test/remote => github.com/test/remote v1.0.0
+)
+replace github.com/test/lib4 => ../lib4
+`
+		os.WriteFile(gomodPath, []byte(content), 0644)
+		gm, err := NewGoModHandler(gomodPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		entries, err := gm.GetLocalReplacePaths()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(entries) != 4 {
+			t.Errorf("expected 4 entries, got %d", len(entries))
+		}
+
+		expectedPaths := map[string]string{
+			"github.com/test/lib1": filepath.Clean(filepath.Join(tmp, "../lib1")),
+			"github.com/test/lib2": "/abs/path/lib2",
+			"github.com/test/lib3": filepath.Join(tmp, "lib3"),
+			"github.com/test/lib4": filepath.Clean(filepath.Join(tmp, "../lib4")),
+		}
+
+		for _, entry := range entries {
+			expected, exists := expectedPaths[entry.ModulePath]
+			if !exists {
+				t.Errorf("unexpected module path: %s", entry.ModulePath)
+				continue
+			}
+
+			absExpected, _ := filepath.Abs(expected)
+			if entry.LocalPath != absExpected {
+				t.Errorf("for %s, expected %s, got %s", entry.ModulePath, absExpected, entry.LocalPath)
+			}
 		}
 	})
 }

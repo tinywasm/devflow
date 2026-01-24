@@ -42,3 +42,21 @@ type GitClient interface {
 	CreateTag(tag string) (bool, error)
 	PushWithTags(tag string) error
 }
+
+// FolderWatcher defines interface for adding/removing directories to watch
+type FolderWatcher interface {
+	AddDirectoryToWatcher(path string) error
+	RemoveDirectoryFromWatcher(path string) error
+}
+
+// GoModInterface defines interface for go.mod handling
+type GoModInterface interface {
+	NewFileEvent(fileName, extension, filePath, event string) error
+	SetFolderWatcher(watcher FolderWatcher)
+	Name() string
+	SupportedExtensions() []string
+	MainInputFileRelativePath() string
+	UnobservedFiles() []string
+	SetLog(fn func(...any))
+	SetRootDir(path string)
+}

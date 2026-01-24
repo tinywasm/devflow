@@ -172,7 +172,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	// 1-2. Load and modify go.mod
 	// Since NewGoModFile reads from disk, we pass full path
 	modFile := filepath.Join(depDir, "go.mod")
-	gomod, err := NewGoModFile(modFile)
+	gomod, err := NewGoModHandler(modFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to load go.mod: %w", err)
 	}
