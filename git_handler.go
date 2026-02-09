@@ -2,7 +2,6 @@ package devflow
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -22,10 +21,26 @@ func NewGit() (*Git, error) {
 	}
 
 	return &Git{
-		rootDir:     ".",
+		rootDir:     "",
 		shouldWrite: func() bool { return false },
 		log:         func(...any) {}, // default no-op
 	}, nil
+}
+
+// run executes a command in the handler's root directory
+func (g *Git) run(name string, args ...string) (string, error) {
+	if g.rootDir != "" && g.rootDir != "." {
+		return RunCommandInDir(g.rootDir, name, args...)
+	}
+	return RunCommand(name, args...)
+}
+
+// runSilent executes a command silently in the handler's root directory
+func (g *Git) runSilent(name string, args ...string) (string, error) {
+	if g.rootDir != "" && g.rootDir != "." {
+		return RunCommandInDir(g.rootDir, name, args...)
+	}
+	return RunCommandSilent(name, args...)
 }
 
 // SetRootDir sets the root directory for git operations
@@ -49,7 +64,7 @@ func (g *Git) SetLog(fn func(...any)) {
 // CheckRemoteAccess verifies connectivity to the remote repository
 func (g *Git) CheckRemoteAccess() error {
 	// git ls-remote origin checks access without needing upstream configured
-	_, err := RunCommandSilent("git", "ls-remote", "origin")
+	_, err := g.runSilent("git", "ls-remote", "origin")
 	if err != nil {
 		// Try to provide a helpful error message
 		if strings.Contains(err.Error(), "Authentication failed") || strings.Contains(err.Error(), "Could not read from remote repository") {
@@ -187,17 +202,17 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 
 // Add adds all changes to staging
 func (g *Git) Add() error {
-	_, err := RunCommand("git", "add", ".")
+	_, err := g.run("git", "add", ".")
 	return err
 }
 
 // hasChanges checks if there are staged changes
 func (g *Git) hasChanges() (bool, error) {
 	// Check if HEAD exists
-	_, err := RunCommandSilent("git", "rev-parse", "HEAD")
+	_, err := g.runSilent("git", "rev-parse", "HEAD")
 	if err != nil {
 		// No HEAD (fresh repo). Check if there are any files staged for initial commit.
-		out, err := RunCommandSilent("git", "status", "--porcelain")
+		out, err := g.runSilent("git", "status", "--porcelain")
 		if err != nil {
 			return false, err
 		}
@@ -208,7 +223,10 @@ func (g *Git) hasChanges() (bool, error) {
 	}
 
 	// Use Silent to avoid spamming logs for checks
-	_, err = RunCommandSilent("git", "diff-index", "--quiet", "HEAD", "--")
+	// CRITICAL: We use --cached to only check what IS STAGED.
+	// This prevents git commit from failing with "nothing to commit" when
+	// there are unstaged changes.
+	_, err = g.runSilent("git", "diff-index", "--quiet", "--cached", "HEAD", "--")
 
 	if err != nil {
 		// If command fails (exit code 1), it means there are changes
@@ -230,7 +248,7 @@ func (g *Git) Commit(message string) (bool, error) {
 		return false, nil
 	}
 
-	_, err = RunCommand("git", "commit", "-m", message)
+	_, err = g.run("git", "commit", "-m", message)
 	if err != nil {
 		return false, err
 	}
@@ -239,7 +257,7 @@ func (g *Git) Commit(message string) (bool, error) {
 
 // GetLatestTag gets the latest tag
 func (g *Git) GetLatestTag() (string, error) {
-	tag, err := RunCommandSilent("git", "describe", "--abbrev=0", "--tags")
+	tag, err := g.runSilent("git", "describe", "--abbrev=0", "--tags")
 	if err != nil {
 		return "", nil
 	}
@@ -257,7 +275,7 @@ func (g *Git) CreateTag(tag string) (bool, error) {
 		return false, fmt.Errorf("tag %s already exists", tag)
 	}
 
-	_, err = RunCommand("git", "tag", tag)
+	_, err = g.run("git", "tag", tag)
 	return true, err
 }
 
@@ -314,7 +332,7 @@ func (g *Git) IncrementTag(tag string) (string, error) {
 
 // TagExists checks if a tag exists
 func (g *Git) TagExists(tag string) (bool, error) {
-	_, err := RunCommandSilent("git", "rev-parse", tag)
+	_, err := g.runSilent("git", "rev-parse", tag)
 	if err != nil {
 		return false, nil
 	}
@@ -323,7 +341,7 @@ func (g *Git) TagExists(tag string) (bool, error) {
 
 // getCurrentBranch gets the current branch
 func (g *Git) getCurrentBranch() (string, error) {
-	output, err := RunCommandSilent("git", "symbolic-ref", "--short", "HEAD")
+	output, err := g.runSilent("git", "symbolic-ref", "--short", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}
@@ -332,7 +350,7 @@ func (g *Git) getCurrentBranch() (string, error) {
 
 // hasUpstream checks if the branch has upstream
 func (g *Git) hasUpstream() (bool, error) {
-	_, err := RunCommandSilent("git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "@{u}")
+	_, err := g.runSilent("git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "@{u}")
 	if err != nil {
 		return false, nil
 	}
@@ -341,7 +359,7 @@ func (g *Git) hasUpstream() (bool, error) {
 
 // setUpstream configures upstream
 func (g *Git) setUpstream(branch string) error {
-	_, err := RunCommand("git", "push", "--set-upstream", "origin", branch)
+	_, err := g.run("git", "push", "--set-upstream", "origin", branch)
 	if err != nil {
 		return fmt.Errorf("failed to set upstream: %w", err)
 	}
@@ -350,7 +368,7 @@ func (g *Git) setUpstream(branch string) error {
 
 // pushTag pushes a specific tag
 func (g *Git) pushTag(tag string) error {
-	_, err := RunCommand("git", "push", "origin", tag)
+	_, err := g.run("git", "push", "origin", tag)
 	if err != nil {
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
@@ -375,7 +393,7 @@ func (g *Git) PushWithTags(tag string) error {
 		}
 	} else {
 		// Normal push
-		_, err := RunCommand("git", "push")
+		_, err := g.run("git", "push")
 		if err != nil {
 			return fmt.Errorf("git push failed: %w", err)
 		}
@@ -390,7 +408,7 @@ func (g *Git) PushWithTags(tag string) error {
 
 // GetConfigUserName gets the git user.name
 func (g *Git) GetConfigUserName() (string, error) {
-	name, err := RunCommandSilent("git", "config", "user.name")
+	name, err := g.runSilent("git", "config", "user.name")
 	if err != nil {
 		return "", err
 	}
@@ -399,7 +417,7 @@ func (g *Git) GetConfigUserName() (string, error) {
 
 // GetConfigUserEmail gets the git user.email
 func (g *Git) GetConfigUserEmail() (string, error) {
-	email, err := RunCommandSilent("git", "config", "user.email")
+	email, err := g.runSilent("git", "config", "user.email")
 	if err != nil {
 		return "", err
 	}
@@ -409,13 +427,13 @@ func (g *Git) GetConfigUserEmail() (string, error) {
 // IsAheadOfRemote checks if local branch is ahead of remote
 func (g *Git) IsAheadOfRemote() (bool, error) {
 	// Get current branch
-	branch, err := RunCommandSilent("git", "rev-parse", "--abbrev-ref", "HEAD")
+	branch, err := g.runSilent("git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return false, err
 	}
 
 	// Check if ahead of origin
-	out, err := RunCommandSilent("git", "rev-list", "--count", fmt.Sprintf("origin/%s..HEAD", branch))
+	out, err := g.runSilent("git", "rev-list", "--count", fmt.Sprintf("origin/%s..HEAD", branch))
 	if err != nil {
 		// If origin/<branch> doesn't exist, we're not ahead
 		return false, nil
@@ -431,16 +449,16 @@ func (g *Git) IsAheadOfRemote() (bool, error) {
 
 // PushWithoutTags pushes commits without pushing tags
 func (g *Git) PushWithoutTags() error {
-	_, err := RunCommand("git", "push")
+	_, err := g.run("git", "push")
 	return err
 }
 
 // SetUserConfig sets git user name and email
 func (g *Git) SetUserConfig(name, email string) error {
-	if _, err := RunCommand("git", "config", "user.name", name); err != nil {
+	if _, err := g.run("git", "config", "user.name", name); err != nil {
 		return err
 	}
-	if _, err := RunCommand("git", "config", "user.email", email); err != nil {
+	if _, err := g.run("git", "config", "user.email", email); err != nil {
 		return err
 	}
 	return nil
@@ -452,18 +470,7 @@ func (g *Git) InitRepo(dir string) error {
 		return err
 	}
 
-	// Set main branch
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	defer os.Chdir(cwd)
-
-	if err := os.Chdir(dir); err != nil {
-		return err
-	}
-
-	if _, err := RunCommand("git", "branch", "-M", "main"); err != nil {
+	if _, err := RunCommandInDir(dir, "git", "branch", "-M", "main"); err != nil {
 		// On fresh init with no commits, this might fail, but git init usually sets up a default branch.
 		// Newer git versions use init.defaultBranch.
 		// If it fails, it might mean there are no commits yet so HEAD doesn't point anywhere meaningful.

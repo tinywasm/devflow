@@ -230,26 +230,12 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 
 	// 7. Push the dependent module
-	// Save current directory and change to depDir for the push
-	originalDir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	if err := os.Chdir(depDir); err != nil {
-		return "", fmt.Errorf("failed to change to dependent directory: %w", err)
-	}
-
-	// Ensure we restore the original directory
-	defer func() {
-		os.Chdir(originalDir)
-	}()
-
 	// Create new handlers for the dependent directory
 	git, err := NewGit()
 	if err != nil {
 		return "", fmt.Errorf("git init failed: %w", err)
 	}
+	git.SetRootDir(depDir)
 
 	depHandler, err := NewGo(git)
 	if err != nil {
@@ -257,6 +243,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 
 	// Push with skipDependents=true and skipBackup=true to avoid infinite recursion
+	// We pass the depDir as searchPath just in case, though it's not used here since skipDependents is true
 	commitMsg := fmt.Sprintf("deps: update %s to %s", filepath.Base(modulePath), version)
 	_, err = depHandler.Push(commitMsg, "", true, true, true, true, "")
 	if err != nil {
