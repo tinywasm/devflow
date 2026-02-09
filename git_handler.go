@@ -93,13 +93,7 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 		return PushResult{}, fmt.Errorf("git add failed: %w", err)
 	}
 
-	// 2. Commit (only if there are changes)
-	_, err := g.Commit(message)
-	if err != nil {
-		return PushResult{}, fmt.Errorf("git commit failed: %w", err)
-	}
-
-	// 3. Determine tag (provided or generated)
+	// 2. Determine tag (provided or generated)
 	finalTag := tag
 	if finalTag == "" {
 		generatedTag, err := g.GenerateNextTag()
@@ -109,7 +103,7 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 		finalTag = generatedTag
 	}
 
-	// Validate tag is greater than latest
+	// 3. Validate tag is greater than latest
 	latestTag, err := g.GetLatestTag()
 	if err == nil && latestTag != "" {
 		if CompareVersions(finalTag, latestTag) <= 0 {
@@ -117,7 +111,44 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 		}
 	}
 
-	// 4. Create tag - if exists, keep incrementing until we find available one
+	// 4. Commit (only if there are changes)
+	committed, err := g.Commit(message)
+	if err != nil {
+		return PushResult{}, fmt.Errorf("git commit failed: %w", err)
+	}
+
+	// If no changes were committed, check if we're ahead of remote
+	// If so, we can still push existing commits without creating a tag
+	if !committed {
+		// Check if there are unpushed commits
+		ahead, err := g.IsAheadOfRemote()
+		if err != nil {
+			// Can't determine status, just return success without doing anything
+			return PushResult{
+				Summary: "No changes to commit",
+				Tag:     "",
+			}, nil
+		}
+
+		if ahead {
+			// There are unpushed commits, push them without creating a new tag
+			if err := g.PushWithoutTags(); err != nil {
+				return PushResult{}, fmt.Errorf("push failed: %w", err)
+			}
+			return PushResult{
+				Summary: "✅ Pushed existing commits",
+				Tag:     "",
+			}, nil
+		}
+
+		// No changes and no unpushed commits
+		return PushResult{
+			Summary: "No changes to commit",
+			Tag:     "",
+		}, nil
+	}
+
+	// 5. Create tag - if exists, keep incrementing until we find available one
 	maxAttempts := 100 // Prevent infinite loop
 	attempt := 0
 	for attempt < maxAttempts {
@@ -373,6 +404,35 @@ func (g *Git) GetConfigUserEmail() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(email), nil
+}
+
+// IsAheadOfRemote checks if local branch is ahead of remote
+func (g *Git) IsAheadOfRemote() (bool, error) {
+	// Get current branch
+	branch, err := RunCommandSilent("git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return false, err
+	}
+
+	// Check if ahead of origin
+	out, err := RunCommandSilent("git", "rev-list", "--count", fmt.Sprintf("origin/%s..HEAD", branch))
+	if err != nil {
+		// If origin/<branch> doesn't exist, we're not ahead
+		return false, nil
+	}
+
+	count := strings.TrimSpace(out)
+	if count == "0" || count == "" {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// PushWithoutTags pushes commits without pushing tags
+func (g *Git) PushWithoutTags() error {
+	_, err := RunCommand("git", "push")
+	return err
 }
 
 // SetUserConfig sets git user name and email

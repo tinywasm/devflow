@@ -133,6 +133,9 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	// Speed up tests by reducing retry delay
 	g.SetRetryConfig(10*time.Millisecond, 2)
 
+	// Add a change to ensure it commits and tags
+	os.WriteFile(filepath.Join(mainDir, "update.go"), []byte("package main\n"), 0644)
+
 	// 5. Execute Push
 	// We skip tests/race/backup for speed.
 	// Important: searchPath is ".." (the tmp root) so it finds dep1 and dep2
