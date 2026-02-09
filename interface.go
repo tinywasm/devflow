@@ -28,7 +28,7 @@ type GitHubAuthHandler interface {
 // GitClient defines the interface for Git operations.
 type GitClient interface {
 	CheckRemoteAccess() error
-	Push(message, tag string) (string, error)
+	Push(message, tag string) (PushResult, error)
 	GetLatestTag() (string, error)
 	SetLog(fn func(...any))
 	SetShouldWrite(fn func() bool)

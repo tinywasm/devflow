@@ -12,7 +12,7 @@ import (
 )
 
 // Test executes the test suite for the project
-func (g *Go) Test(customArgs []string) (string, error) {
+func (g *Go) Test(customArgs []string, skipRace bool) (string, error) {
 	hasCustomArgs := len(customArgs) > 0
 
 	// Detect Module Name
@@ -35,11 +35,11 @@ func (g *Go) Test(customArgs []string) (string, error) {
 	}
 
 	// Full test suite (run all phases)
-	return g.runFullTestSuite(moduleName)
+	return g.runFullTestSuite(moduleName, skipRace)
 }
 
 // runFullTestSuite executes the complete test suite (vet, race, cover, wasm, badges)
-func (g *Go) runFullTestSuite(moduleName string) (string, error) {
+func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
 	cache := NewTestCache()
 	if cache.IsCacheValid() {
@@ -129,12 +129,17 @@ func (g *Go) runFullTestSuite(moduleName string) (string, error) {
 		addMsg(true, "vet ok")
 	}
 
-	// Run tests with race detection AND coverage in a single command
+	// Run tests with coverage and optional race detection
 	// go test ./... automatically discovers all packages with tests
 	var testErr error
 	var testOutput string
 
-	testCmd := exec.Command("go", "test", "-race", "-cover", "-count=1", "./...")
+	testArgs := []string{"test", "-cover", "-count=1", "./..."}
+	if !skipRace {
+		testArgs = append(testArgs[:1], append([]string{"-race"}, testArgs[1:]...)...)
+	}
+
+	testCmd := exec.Command("go", testArgs...)
 
 	testBuffer := &bytes.Buffer{}
 
@@ -158,7 +163,7 @@ func (g *Go) runFullTestSuite(moduleName string) (string, error) {
 
 	// Process test results
 	var stdTestsRan bool
-	testStatus, raceStatus, stdTestsRan, msgs = evaluateTestResults(testErr, testOutput, moduleName, msgs)
+	testStatus, raceStatus, stdTestsRan, msgs = evaluateTestResults(testErr, testOutput, moduleName, msgs, skipRace)
 
 	// If no stdlib tests ran but we see exclusions, consider enabling WASM (if not already enabled)
 	if !stdTestsRan {
@@ -326,7 +331,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string) (string, err
 	wg.Wait()
 
 	// Process stdlib test results (without race detection reporting)
-	testStatus, _, stdTestsRan, msgs := evaluateTestResults(testErr, testOutput, moduleName, msgs)
+	testStatus, _, stdTestsRan, msgs := evaluateTestResults(testErr, testOutput, moduleName, msgs, false)
 
 	// Remove "race detection ok" message since we're not forcing -race in custom args
 	// (user can add -race explicitly if desired)
@@ -513,9 +518,13 @@ func parseGoListFiles(output string) map[string]bool {
 
 // evaluateTestResults analyzes the output of go test and decides the outcome
 // This function is pure and can be easily tested.
-func evaluateTestResults(err error, output, moduleName string, msgs []string) (testStatus, raceStatus string, stdTestsRan bool, newMsgs []string) {
+func evaluateTestResults(err error, output, moduleName string, msgs []string, skipRace bool) (testStatus, raceStatus string, stdTestsRan bool, newMsgs []string) {
 	testStatus = "Failed"
 	raceStatus = "Detected"
+	if skipRace {
+		raceStatus = "Skipped"
+	}
+
 	newMsgs = msgs
 
 	addMsg := func(ok bool, msg string) {
@@ -534,9 +543,13 @@ func evaluateTestResults(err error, output, moduleName string, msgs []string) (t
 
 	if err == nil {
 		testStatus = "Passing"
-		raceStatus = "Clean"
+		if !skipRace {
+			raceStatus = "Clean"
+			addMsg(true, "race detection ok")
+		} else {
+			addMsg(true, "race detection skipped")
+		}
 		addMsg(true, "tests stdlib ok")
-		addMsg(true, "race detection ok")
 		stdTestsRan = true
 		return
 	}
@@ -579,10 +592,19 @@ func evaluateTestResults(err error, output, moduleName string, msgs []string) (t
 	if !hasRealFailures && !hasBuildFailures && (isExclusionError || hasStdOk) {
 		// It's a "Partial Success" or "Exclusion Only"
 		testStatus = "Passing"
-		raceStatus = "Clean"
+		if !skipRace {
+			raceStatus = "Clean"
+			if stdTestsRan {
+				addMsg(true, "race detection ok")
+			}
+		} else {
+			if stdTestsRan {
+				addMsg(true, "race detection skipped")
+			}
+		}
+
 		if stdTestsRan {
 			addMsg(true, "tests stdlib ok")
-			addMsg(true, "race detection ok")
 		}
 	} else {
 		// Real failure

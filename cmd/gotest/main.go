@@ -44,7 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	summary, err := goHandler.Test(customArgs)
+	summary, err := goHandler.Test(customArgs, false)
 	if err != nil {
 		fmt.Println("Tests failed:", err)
 		os.Exit(1)

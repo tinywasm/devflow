@@ -273,6 +273,7 @@ func TestEvaluateTestResults(t *testing.T) {
 		name         string
 		err          error
 		output       string
+		skipRace     bool
 		expected     string
 		expectedRan  bool
 		expectedMsgs []string // Messages that MUST be present
@@ -287,6 +288,21 @@ func TestEvaluateTestResults(t *testing.T) {
 			expectedMsgs: []string{
 				"✅ tests stdlib ok",
 				"✅ race detection ok",
+			},
+		},
+		{
+			name:        "Pure Success (Skip Race)",
+			err:         nil,
+			output:      "ok  github.com/mod 1.0s",
+			skipRace:    true,
+			expected:    "Passing",
+			expectedRan: true,
+			expectedMsgs: []string{
+				"✅ tests stdlib ok",
+				"✅ race detection skipped",
+			},
+			excludedMsgs: []string{
+				"race detection ok",
 			},
 		},
 		{
@@ -344,7 +360,7 @@ func TestEvaluateTestResults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			status, _, ran, msgs := evaluateTestResults(tt.err, tt.output, "testmod", nil)
+			status, _, ran, msgs := evaluateTestResults(tt.err, tt.output, "testmod", nil, tt.skipRace)
 			if status != tt.expected {
 				t.Errorf("Expected status %s, got %s", tt.expected, status)
 			}

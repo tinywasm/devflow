@@ -71,10 +71,10 @@ Workflow:
 		os.Exit(1)
 	}
 
-	summary, err := git.Push(message, tag)
+	result, err := git.Push(message, tag)
 
-	if summary != "" {
-		fmt.Println(summary)
+	if result.Summary != "" {
+		fmt.Println(result.Summary)
 	}
 
 	if err != nil {

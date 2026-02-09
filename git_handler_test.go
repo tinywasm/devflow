@@ -132,13 +132,13 @@ func TestGitPush(t *testing.T) {
 	git, _ := NewGit()
 	os.WriteFile("README.md", []byte("# test"), 0644)
 
-	summary, err := git.Push("initial commit", "v0.0.1")
+	result, err := git.Push("initial commit", "v0.0.1")
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)
 	}
 
-	if !strings.Contains(summary, "Pushed ok") {
-		t.Errorf("Expected summary to contain 'Pushed ok', got: %s", summary)
+	if !strings.Contains(result.Summary, "Pushed ok") {
+		t.Errorf("Expected summary to contain 'Pushed ok', got: %s", result.Summary)
 	}
 }
 
@@ -192,13 +192,13 @@ func TestGitPushAcceptsHigherTag(t *testing.T) {
 
 	os.WriteFile("test.txt", []byte("update"), 0644)
 	git.Add()
-	summary, err := git.Push("fix: something", "v0.4.7")
+	result, err := git.Push("fix: something", "v0.4.7")
 	if err != nil {
 		t.Fatalf("Push failed for higher tag v0.4.7: %v", err)
 	}
 
-	if !strings.Contains(summary, "v0.4.7") {
-		t.Errorf("Expected summary to contain tag v0.4.7, got: %s", summary)
+	if !strings.Contains(result.Summary, "v0.4.7") {
+		t.Errorf("Expected summary to contain tag v0.4.7, got: %s", result.Summary)
 	}
 }
 

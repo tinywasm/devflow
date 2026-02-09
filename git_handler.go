@@ -66,12 +66,18 @@ func (g *Git) CheckRemoteAccess() error {
 	return nil
 }
 
+// PushResult contains the results of a Git push operation
+type PushResult struct {
+	Summary string // Human-readable summary of operations performed
+	Tag     string // The tag that was created and pushed
+}
+
 // Push executes the complete push workflow (add, commit, tag, push)
-// Returns a summary of operations and error if any.
-func (g *Git) Push(message, tag string) (string, error) {
+// Returns a PushResult and error if any.
+func (g *Git) Push(message, tag string) (PushResult, error) {
 	// Validate message
 	if err := ValidateCommitMessage(message); err != nil {
-		return "", err
+		return PushResult{}, err
 	}
 	message = FormatCommitMessage(message)
 
@@ -79,18 +85,18 @@ func (g *Git) Push(message, tag string) (string, error) {
 
 	// 0. Verify remote access before doing anything destructive
 	if err := g.CheckRemoteAccess(); err != nil {
-		return "", err
+		return PushResult{}, err
 	}
 
 	// 1. Git add
 	if err := g.Add(); err != nil {
-		return "", fmt.Errorf("git add failed: %w", err)
+		return PushResult{}, fmt.Errorf("git add failed: %w", err)
 	}
 
 	// 2. Commit (only if there are changes)
 	_, err := g.Commit(message)
 	if err != nil {
-		return "", fmt.Errorf("git commit failed: %w", err)
+		return PushResult{}, fmt.Errorf("git commit failed: %w", err)
 	}
 
 	// 3. Determine tag (provided or generated)
@@ -98,7 +104,7 @@ func (g *Git) Push(message, tag string) (string, error) {
 	if finalTag == "" {
 		generatedTag, err := g.GenerateNextTag()
 		if err != nil {
-			return "", fmt.Errorf("failed to generate tag: %w", err)
+			return PushResult{}, fmt.Errorf("failed to generate tag: %w", err)
 		}
 		finalTag = generatedTag
 	}
@@ -107,7 +113,7 @@ func (g *Git) Push(message, tag string) (string, error) {
 	latestTag, err := g.GetLatestTag()
 	if err == nil && latestTag != "" {
 		if CompareVersions(finalTag, latestTag) <= 0 {
-			return "", fmt.Errorf("tag %s is not greater than latest tag %s", finalTag, latestTag)
+			return PushResult{}, fmt.Errorf("tag %s is not greater than latest tag %s", finalTag, latestTag)
 		}
 	}
 
@@ -126,23 +132,26 @@ func (g *Git) Push(message, tag string) (string, error) {
 		g.log("Tag", finalTag, "already exists, trying next")
 		nextTag, err := g.IncrementTag(finalTag)
 		if err != nil {
-			return "", fmt.Errorf("failed to increment tag: %w", err)
+			return PushResult{}, fmt.Errorf("failed to increment tag: %w", err)
 		}
 		finalTag = nextTag
 		attempt++
 	}
 
 	if attempt >= maxAttempts {
-		return "", fmt.Errorf("could not find available tag after %d attempts", maxAttempts)
+		return PushResult{}, fmt.Errorf("could not find available tag after %d attempts", maxAttempts)
 	}
 
 	// 5. Push commits and tag
 	if err := g.PushWithTags(finalTag); err != nil {
-		return "", fmt.Errorf("push failed: %w", err)
+		return PushResult{}, fmt.Errorf("push failed: %w", err)
 	}
 	summary = append(summary, "✅ Pushed ok")
 
-	return strings.Join(summary, ", "), nil
+	return PushResult{
+		Summary: strings.Join(summary, ", "),
+		Tag:     finalTag,
+	}, nil
 }
 
 // Add adds all changes to staging

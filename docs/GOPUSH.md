@@ -12,6 +12,7 @@ gopush 'commit message' [tag]
 
 - **commit message**: Required. The message for the git commit.
 - **tag**: Optional. The tag to create. If not provided, it will be auto-generated.
+- **--skip-race** or **-R**: Optional. Skip race detection tests for faster execution.
 
 ## What it does
 
@@ -21,7 +22,7 @@ gopush 'commit message' [tag]
 4. Creates/uses tag
 5. Pushes to remote
 6. Finds dependent modules in search path
-7. For each dependent:
+7. For each dependent (in parallel):
    - Removes replace directive for published module
    - Runs `go get module@tag` and `go mod tidy`
    - If no other replaces exist: auto-push with `deps: update X to vY`

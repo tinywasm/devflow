@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -448,17 +450,42 @@ func (g *Go) updateDependents(modulePath, version, searchPath string) ([]string,
 		return []string{fmt.Sprintf("⏳ %s", err)}, nil
 	}
 
-	// Update each dependent sequentially to avoid os.Chdir race conditions
-	var results []string
+	// Update dependents in parallel with a limit of 5 concurrent updates
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 5)
+	resultsChan := make(chan string, len(dependents))
+
+	// Print start message
+	fmt.Printf("🚀 Updating %d dependents in parallel...\n", len(dependents))
+
 	for _, depDir := range dependents {
-		depName := filepath.Base(depDir)
-		result, err := g.UpdateDependentModule(depDir, modulePath, version)
-		if err != nil {
-			results = append(results, fmt.Sprintf("❌ %s: %v", depName, err))
-		} else {
-			results = append(results, fmt.Sprintf("✅ %s: %s", depName, result))
-		}
+		wg.Add(1)
+		go func(dir string) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire token
+			defer func() { <-semaphore }() // Release token
+
+			result, err := g.UpdateDependentModule(dir, modulePath, version)
+			depName := filepath.Base(dir)
+
+			if err != nil {
+				resultsChan <- fmt.Sprintf("❌ %s: %v", depName, err)
+			} else {
+				resultsChan <- fmt.Sprintf("✅ %s: %s", depName, result)
+			}
+		}(depDir)
 	}
+
+	wg.Wait()
+	close(resultsChan)
+
+	var results []string
+	for res := range resultsChan {
+		results = append(results, res)
+	}
+
+	// Sort results for consistent output
+	sort.Strings(results)
 
 	fmt.Println()
 	return results, nil

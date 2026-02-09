@@ -108,7 +108,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	// 2. Run tests (if not skipped)
 	if !skipTests {
-		testSummary, err := g.Test([]string{}) // Empty slice = full test suite
+		testSummary, err := g.Test([]string{}, skipRace) // Empty slice = full test suite
 		if err != nil {
 			return "", fmt.Errorf("tests failed: %w", err)
 		}
@@ -118,17 +118,16 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	}
 
 	// 3. Execute git push workflow
-	pushSummary, err := g.git.Push(message, tag)
+	pushResult, err := g.git.Push(message, tag)
 	if err != nil {
 		return "", fmt.Errorf("push workflow failed: %w", err)
 	}
-	summary = append(summary, pushSummary)
+	summary = append(summary, pushResult.Summary)
 
-	// 4. Get created tag
-	latestTag, err := g.git.GetLatestTag()
-	if err != nil {
-		summary = append(summary, fmt.Sprintf("Warning: could not get latest tag: %v", err))
-		// Not fatal error
+	// 4. Use the tag that was actually created and pushed
+	createdTag := pushResult.Tag
+	if createdTag == "" {
+		summary = append(summary, "Warning: no tag was created during push")
 	}
 
 	// 5. Get module name
@@ -138,9 +137,9 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		return strings.Join(summary, ", "), nil
 	}
 
-	// 6. Update dependent modules
-	if !skipDependents {
-		updateResults, err := g.updateDependents(modulePath, latestTag, searchPath)
+	// 6. Update dependent modules (only if we have a valid tag)
+	if !skipDependents && createdTag != "" {
+		updateResults, err := g.updateDependents(modulePath, createdTag, searchPath)
 		if err != nil {
 			summary = append(summary, fmt.Sprintf("Warning: failed to scan dependents: %v", err))
 		}

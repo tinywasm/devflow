@@ -33,6 +33,27 @@ Examples:
 		os.Exit(0)
 	}
 
+	// Parse optional flags manually to keep message/tag positional logic simple
+	var skipRace bool
+	var filteredArgs []string
+
+	for _, arg := range args {
+		if arg == "--skip-race" || arg == "-R" {
+			skipRace = true
+		} else {
+			filteredArgs = append(filteredArgs, arg)
+		}
+	}
+
+	// Update args to filtered list
+	args = filteredArgs
+
+	// Check if help requested (again, in case it was the only arg) or no arguments left
+	if len(args) == 0 {
+		usage()
+		os.Exit(0)
+	}
+
 	firstArg := args[0]
 	if firstArg == "help" || firstArg == "?" || firstArg == "-h" || firstArg == "--help" {
 		usage()
@@ -57,8 +78,8 @@ Examples:
 		os.Exit(1)
 	}
 
-	// Always run with defaults
-	summary, err := goHandler.Push(message, tag, false, false, false, false, "..")
+	// Run Push with parsed options
+	summary, err := goHandler.Push(message, tag, false, skipRace, false, false, "..")
 	if err != nil {
 		fmt.Println("Push failed:", err)
 		os.Exit(1)

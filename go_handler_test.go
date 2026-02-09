@@ -58,7 +58,7 @@ func TestExample(t *testing.T) {}
 	mockGit := &MockGitClient{}
 	goHandler, _ := NewGo(mockGit)
 
-	_, err := goHandler.Test([]string{}) // quiet mode, full suite
+	_, err := goHandler.Test([]string{}, false) // quiet mode, full suite, no skip race
 	if err != nil {
 		// In test environment, tests might fail, but we check the call works
 		t.Log("Test failed as expected in test environment:", err)
@@ -268,6 +268,7 @@ type MockGitClient struct {
 	checkAccessErr error
 	pushErr        error
 	latestTag      string
+	createdTag     string // NEW: Tag to return from Push()
 	log            func(...any)
 }
 
@@ -275,14 +276,21 @@ func (m *MockGitClient) CheckRemoteAccess() error {
 	return m.checkAccessErr
 }
 
-func (m *MockGitClient) Push(message, tag string) (string, error) {
+func (m *MockGitClient) Push(message, tag string) (PushResult, error) {
 	if m.checkAccessErr != nil {
-		return "", m.checkAccessErr
+		return PushResult{}, m.checkAccessErr
 	}
 	if m.pushErr != nil {
-		return "", m.pushErr
+		return PushResult{}, m.pushErr
 	}
-	return "Mock push ok", nil
+	resultTag := m.createdTag
+	if resultTag == "" {
+		resultTag = "v0.0.1" // Default test tag
+	}
+	return PushResult{
+		Summary: "Mock push ok",
+		Tag:     resultTag,
+	}, nil
 }
 
 func (m *MockGitClient) GetLatestTag() (string, error) {
