@@ -13,6 +13,7 @@ Complete Go development automation: project init, testing, versioning, updates, 
 - **[gopush](docs/GOPUSH.md)** - Complete workflow: test + push + update dependents
 - **[devbackup](docs/DEVBACKUP.md)** - Configure and execute automated backups
 - **[badges](docs/BADGES.md)** - Generate SVG badges for README (test status, coverage, etc.)
+- **[devllm](docs/DEVLLM.md)** - Sync LLM configuration files from master template
 
 ## Configuration
 
@@ -27,6 +28,7 @@ go install github.com/tinywasm/devflow/cmd/push@latest
 go install github.com/tinywasm/devflow/cmd/gopush@latest
 go install github.com/tinywasm/devflow/cmd/devbackup@latest
 go install github.com/tinywasm/devflow/cmd/badges@latest
+go install github.com/tinywasm/devflow/cmd/devllm@latest
 ```
 
 ## Quick Start
@@ -46,6 +48,9 @@ gopush "feat: new feature"
 
 # Generate badges
 badges
+
+# Sync LLM configs
+devllm
 
 ```
 

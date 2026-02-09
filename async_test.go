@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAsyncUpdateFlow(t *testing.T) {
@@ -72,6 +73,15 @@ func TestAsyncUpdateFlow(t *testing.T) {
 		if name == "go" {
 			// Join args to inspect
 			cmdStr := strings.Join(args, " ")
+			// Mock 'go version' (used in NewGo)
+			if cmdStr == "version" {
+				return exec.Command("echo", "go version go1.20 linux/amd64")
+			}
+
+			// Mock 'go mod verify'
+			if strings.Contains(cmdStr, "mod verify") {
+				return exec.Command("echo", "all modules verified")
+			}
 
 			// Mock 'go list -m -json' for GetCurrentVersion logic
 			if strings.Contains(cmdStr, "list -m -json") {
@@ -119,6 +129,9 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGo failed: %v", err)
 	}
+
+	// Speed up tests by reducing retry delay
+	g.SetRetryConfig(10*time.Millisecond, 2)
 
 	// 5. Execute Push
 	// We skip tests/race/backup for speed.

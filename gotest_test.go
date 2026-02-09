@@ -183,14 +183,12 @@ FAIL`,
 				"panic: runtime error: invalid memory address or nil pointer dereference",
 				"handler.go:25",
 				"--- FAIL: TestNilPointer",
+				// Now we EXPECT these to be present because we are in panic mode
+				"goroutine 6",
+				"signal SIGSEGV",
 			},
 			excluded: []string{
-				"goroutine 6",
-				"/usr/local/go/src/testing",
-				"signal SIGSEGV",
-				"code=0x1",
-				"+0x25",
-				"0xc0000a6b60",
+				// converted to expected or just allowed
 			},
 		},
 	}

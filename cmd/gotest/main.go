@@ -1,44 +1,37 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/tinywasm/devflow"
 )
 
 func main() {
-	fs := flag.NewFlagSet("gotest", flag.ContinueOnError)
-	fs.SetOutput(io.Discard) // Silence default flag errors
-
 	usage := func() {
-		fmt.Println("Usage: gotest")
-		fmt.Println("Runs: vet, tests, race detection, coverage, and wasm tests.")
+		fmt.Println("Usage: gotest [go test flags]")
+		fmt.Println()
+		fmt.Println("No args: Full test suite (vet, race, cover, wasm, badges)")
+		fmt.Println("With args: Pass flags to 'go test' (no vet/wasm/badges/cache)")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  gotest              # Full suite")
+		fmt.Println("  gotest -v           # Verbose output (filtered)")
+		fmt.Println("  gotest -run TestFoo # Run specific test")
+		fmt.Println("  gotest -bench .     # Run benchmarks")
 	}
 
-	err := fs.Parse(os.Args[1:])
-	if err != nil {
-		if err == flag.ErrHelp {
+	// Handle help requests
+	if len(os.Args) > 1 {
+		arg := os.Args[1]
+		if arg == "?" || arg == "help" || arg == "-h" || arg == "--help" {
 			usage()
 			os.Exit(0)
 		}
-		// Minimal error for flags like -v
-		fmt.Println("gotest: no arguments needed.")
-		os.Exit(1)
 	}
 
-	// Check handling for help args
-	if len(fs.Args()) > 0 {
-		arg := fs.Args()[0]
-		if arg == "?" || arg == "help" {
-			usage()
-			os.Exit(0)
-		}
-		fmt.Printf("gotest: unexpected %q. No arguments needed.\n", arg)
-		os.Exit(1)
-	}
+	// Forward all arguments to Test()
+	customArgs := os.Args[1:]
 
 	git, err := devflow.NewGit()
 	if err != nil {
@@ -51,7 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	summary, err := goHandler.Test()
+	summary, err := goHandler.Test(customArgs)
 	if err != nil {
 		fmt.Println("Tests failed:", err)
 		os.Exit(1)

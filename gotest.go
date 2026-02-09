@@ -12,13 +12,34 @@ import (
 )
 
 // Test executes the test suite for the project
-func (g *Go) Test() (string, error) {
+func (g *Go) Test(customArgs []string) (string, error) {
+	hasCustomArgs := len(customArgs) > 0
+
 	// Detect Module Name
 	moduleName, err := getModuleName(".")
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
 	}
 
+	// Check cache only for full suite runs
+	if !hasCustomArgs {
+		cache := NewTestCache()
+		if cache.IsCacheValid() {
+			return cache.GetCachedMessage(), nil
+		}
+	}
+
+	// Branch based on whether custom args are provided
+	if hasCustomArgs {
+		return g.runCustomTests(customArgs, moduleName)
+	}
+
+	// Full test suite (run all phases)
+	return g.runFullTestSuite(moduleName)
+}
+
+// runFullTestSuite executes the complete test suite (vet, race, cover, wasm, badges)
+func (g *Go) runFullTestSuite(moduleName string) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
 	cache := NewTestCache()
 	if cache.IsCacheValid() {
@@ -242,6 +263,145 @@ func (g *Go) Test() (string, error) {
 		g.log("Warning: failed to save test cache:", err)
 	}
 
+	return summary, nil
+}
+
+// runCustomTests executes tests with custom go test flags (fast path)
+// Skips vet, badges, and cache, but runs WASM tests if detected
+func (g *Go) runCustomTests(customArgs []string, moduleName string) (string, error) {
+	var msgs []string
+	addMsg := func(ok bool, msg string) {
+		symbol := "✅"
+		if !ok {
+			symbol = "❌"
+		}
+		msgs = append(msgs, fmt.Sprintf("%s %s", symbol, msg))
+	}
+
+	// Detect WASM tests in parallel with stdlib tests preparation
+	var wg sync.WaitGroup
+	var enableWasmTests bool
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Check for WASM test files by comparing native vs WASM test file lists
+		nativeCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		nativeOut, _ := nativeCmd.CombinedOutput()
+
+		wasmCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		wasmCmd.Env = os.Environ()
+		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
+		wasmOut, _ := wasmCmd.CombinedOutput()
+
+		enableWasmTests = shouldEnableWasm(string(nativeOut), string(wasmOut))
+	}()
+
+	// Build command: go test <customArgs> ./...
+	testArgs := append([]string{"test"}, customArgs...)
+	testArgs = append(testArgs, "./...")
+
+	testCmd := exec.Command("go", testArgs...)
+	testBuffer := &bytes.Buffer{}
+
+	// CRITICAL: Keep ConsoleFilter for clean output
+	testFilter := NewConsoleFilter(nil)
+	testPipe := &paramWriter{
+		write: func(p []byte) (n int, err error) {
+			s := string(p)
+			testBuffer.Write(p)
+			testFilter.Add(s)
+			return len(p), nil
+		},
+	}
+
+	testCmd.Stdout = testPipe
+	testCmd.Stderr = testPipe
+	testErr := testCmd.Run()
+	testFilter.Flush()
+
+	testOutput := testBuffer.String()
+
+	// Wait for WASM detection to complete
+	wg.Wait()
+
+	// Process stdlib test results (without race detection reporting)
+	testStatus, _, stdTestsRan, msgs := evaluateTestResults(testErr, testOutput, moduleName, msgs)
+
+	// Remove "race detection ok" message since we're not forcing -race in custom args
+	// (user can add -race explicitly if desired)
+	var filteredMsgs []string
+	for _, msg := range msgs {
+		if !strings.Contains(msg, "race detection ok") {
+			filteredMsgs = append(filteredMsgs, msg)
+		}
+	}
+	msgs = filteredMsgs
+
+	// If no stdlib tests ran but we see exclusions, consider enabling WASM
+	if !stdTestsRan {
+		isExclusionError := strings.Contains(testOutput, "matched no packages") ||
+			strings.Contains(testOutput, "build constraints exclude all Go files")
+		if isExclusionError {
+			enableWasmTests = true
+			g.log("No stdlib tests matched/run (possibly WASM-only module), attempting WASM tests...")
+		}
+	}
+
+	// Run WASM tests with same custom args (excluding -race)
+	if enableWasmTests {
+		if err := g.installWasmBrowserTest(); err != nil {
+			addMsg(false, "WASM tests skipped (setup failed)")
+		} else {
+			// Build WASM test command with custom args, filtering out -race (not supported in WASM)
+			var wasmArgs []string
+			for _, arg := range customArgs {
+				if arg != "-race" {
+					wasmArgs = append(wasmArgs, arg)
+				}
+			}
+			wasmTestArgs := append([]string{"test", "-exec", "wasmbrowsertest"}, wasmArgs...)
+			wasmTestArgs = append(wasmTestArgs, "./...")
+
+			wasmCmd := exec.Command("go", wasmTestArgs...)
+			wasmCmd.Env = os.Environ()
+			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
+
+			var wasmOut bytes.Buffer
+			wasmFilter := NewConsoleFilter(nil)
+			wasmPipe := &paramWriter{
+				write: func(p []byte) (n int, err error) {
+					s := string(p)
+					wasmOut.Write(p)
+					wasmFilter.Add(s)
+					return len(p), nil
+				},
+			}
+
+			wasmCmd.Stdout = wasmPipe
+			wasmCmd.Stderr = wasmPipe
+
+			err := wasmCmd.Run()
+			wasmFilter.Flush()
+
+			if err != nil {
+				addMsg(false, "tests wasm failed")
+				testStatus = "Failed"
+			} else {
+				addMsg(true, "tests wasm ok")
+				if testStatus != "Failed" {
+					testStatus = "Passing"
+				}
+			}
+		}
+	}
+
+	summary := strings.Join(msgs, ", ")
+	if testStatus == "Failed" {
+		return summary, fmt.Errorf("%s", summary)
+	}
+
+	// NO cache save, NO badges (as requested)
 	return summary, nil
 }
 

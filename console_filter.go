@@ -11,6 +11,8 @@ type ConsoleFilter struct {
 	hasDataRace    bool
 	shownRaceMsg   bool
 	incompleteLine string
+	inPanicMode    bool // true when we detect a panic/timeout
+	panicLines     int  // lines remaining to show after panic
 }
 
 func NewConsoleFilter(output func(string)) *ConsoleFilter {
@@ -40,6 +42,18 @@ func (cf *ConsoleFilter) Add(input string) {
 func (cf *ConsoleFilter) addLine(line string) {
 	// ALWAYS show DEBUG messages
 	if strings.Contains(line, "DEBUG") {
+		cf.output(line)
+		return
+	}
+
+	// Detect panic or timeout - Enter panic mode
+	if strings.HasPrefix(line, "panic:") || strings.Contains(line, "test timed out") {
+		cf.inPanicMode = true
+		cf.Flush() // Flush any pending buffer content to preserve context
+	}
+
+	// If in panic mode, show everything to aid debugging
+	if cf.inPanicMode {
 		cf.output(line)
 		return
 	}

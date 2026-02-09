@@ -232,3 +232,59 @@ func TestConsoleFilter_OrphanedPassLine(t *testing.T) {
 		t.Errorf("Expected orphaned PASS line to be filtered. Got: %v", output)
 	}
 }
+
+func TestConsoleFilter_PanicMode(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := NewConsoleFilter(record)
+
+	// 1. Normal filtering phase: "goroutine" lines are normally noise
+	cf.Add("goroutine 1 [running]:\n")
+
+	// Verify it was filtered (buffer might hold it if it thinks it's part of a block,
+	// but goroutine lines are explicitly skipped in addLine)
+	// Actually, let's flush to be sure, though typically flush dumps buffer.
+	// But `goroutine` lines return early in `addLine`, so they don't even hit the buffer.
+	// So we can check output now? No, `NewConsoleFilter` output callback is immediate for some things logic-wise?
+	// `addLine` calls `output` directly for DEBUG, but for others it appends to buffer.
+	// Wait, `goroutine` lines invoke `return` in `addLine`, so they are just dropped.
+	// They are NOT added to buffer.
+
+	if len(output) != 0 {
+		t.Errorf("Expected initial noise to be filtered, got: %v", output)
+	}
+
+	// 2. Trigger Panic Mode
+	panicMsg := "panic: test timed out after 30s\n"
+	cf.Add(panicMsg)
+
+	// 3. Post-panic noise (should be preserved)
+	// These lines would normally be filtered
+	traceLine1 := "goroutine 442 [running]:\n"
+	traceLine2 := "\t/usr/local/go/src/testing/testing.go:2682 +0x345\n"
+
+	cf.Add(traceLine1)
+	cf.Add(traceLine2)
+
+	cf.Flush()
+
+	// Verification
+	// We expect: panicMsg, traceLine1, traceLine2
+	expectedCount := 3
+	if len(output) != expectedCount {
+		t.Fatalf("Expected %d lines in panic mode, got %d. Output: %v", expectedCount, len(output), output)
+	}
+
+	if output[0] != "panic: test timed out after 30s" {
+		t.Errorf("Expected panic message, got: %q", output[0])
+	}
+	if output[1] != "goroutine 442 [running]:" {
+		t.Errorf("Expected trace line 1, got: %q", output[1])
+	}
+	if output[2] != "\t/usr/local/go/src/testing/testing.go:2682 +0x345" {
+		t.Errorf("Expected trace line 2, got: %q", output[2])
+	}
+}

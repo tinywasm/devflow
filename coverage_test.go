@@ -3,6 +3,7 @@ package devflow
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestGoPushFlags(t *testing.T) {
@@ -116,6 +117,7 @@ func TestGoUpdateModuleFail(t *testing.T) {
 		log: func(args ...any) {},
 	}
 	goHandler, _ := NewGo(mockGit)
+	goHandler.SetRetryConfig(10*time.Millisecond, 2)
 
 	// Try to update a module in current dir (which is not a valid dependent in this context, or just fails `go get`)
 	// We try to run updateModule on the current directory for a non-existent dependency

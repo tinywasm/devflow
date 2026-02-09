@@ -403,8 +403,16 @@ func (g *Go) verify() error {
 // WaitForVersionAvailable waits for a module version to be available on Go proxy
 func (g *Go) WaitForVersionAvailable(modulePath, version string) error {
 	target := fmt.Sprintf("%s@%s", modulePath, version)
-	maxRetries := 3
-	delay := 5 * time.Second
+
+	maxRetries := g.retryAttempts
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+
+	delay := g.retryDelay
+	if delay == 0 {
+		delay = 5 * time.Second
+	}
 
 	for i := 0; i < maxRetries; i++ {
 		_, err := RunCommandSilent("go", "list", "-m", target)
