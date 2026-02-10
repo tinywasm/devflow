@@ -8,8 +8,9 @@ import (
 type ConsoleFilter struct {
 	buffer         []string
 	output         func(string) // callback to write output
-	hasDataRace    bool
-	shownRaceMsg   bool
+	hasDataRace       bool
+	shownRaceMsg      bool
+	releasedFuncCalls int
 	incompleteLine string
 	inPanicMode    bool // true when we detect a panic/timeout
 	panicLines     int  // lines remaining to show after panic
@@ -55,6 +56,12 @@ func (cf *ConsoleFilter) addLine(line string) {
 	// If in panic mode, show everything to aid debugging
 	if cf.inPanicMode {
 		cf.output(line)
+		return
+	}
+
+	// Detect WASM released function callbacks
+	if line == "call to released function" {
+		cf.releasedFuncCalls++
 		return
 	}
 
@@ -226,14 +233,34 @@ func (cf *ConsoleFilter) Flush() {
 		cf.incompleteLine = ""
 	}
 
-	// Show data race warning once at the start
+	// Show data race warning once
 	if cf.hasDataRace && !cf.shownRaceMsg {
 		cf.output("⚠️  WARNING: DATA RACE detected")
 		cf.shownRaceMsg = true
 	}
 
+	// Show WASM released function summary
+	if cf.releasedFuncCalls > 0 {
+		cf.output(fmt.Sprintf("⚠️  WASM: %d call(s) to released function", cf.releasedFuncCalls))
+		cf.releasedFuncCalls = 0
+	}
+
+	// Deduplicate: count repeated lines, show with ×N suffix
+	seen := make(map[string]int)
+	var unique []string
 	for _, line := range cf.buffer {
-		cf.output(line)
+		seen[line]++
+		if seen[line] == 1 {
+			unique = append(unique, line)
+		}
+	}
+
+	for _, line := range unique {
+		if count := seen[line]; count > 1 {
+			cf.output(fmt.Sprintf("%s (×%d)", line, count))
+		} else {
+			cf.output(line)
+		}
 	}
 	cf.buffer = nil
 }

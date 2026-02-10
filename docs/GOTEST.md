@@ -20,21 +20,27 @@ gotest [go test flags]
 ### Examples
 
 ```bash
-gotest              # Full suite
-gotest -v           # Verbose output (filtered)
+gotest              # Full suite (vet, race, cover, wasm, badges)
+gotest -v           # Show verbose output filtered
 gotest -run TestFoo # Run specific test
 gotest -bench .     # Run benchmarks
 ```
+
+### Note on Verbose Output
+`gotest` now runs internal tests with `-v` by default, but uses `ConsoleFilter` to keep the output clean. It only shows failed tests and critical summaries, making verbose diagnostic data available without the noise.
 
 ## What it does
 
 ### Without arguments (full suite):
 
 1. Runs `go vet ./...`
-2. Runs `go test -race -cover ./...` (stdlib tests only)
-3. Calculates coverage
-4. Auto-detects and runs WASM tests if found (`*Wasm*_test.go`)
-5. Updates README badges
+23. Runs `go test -race -cover ./...` (stdlib tests)
+4. Calculates coverage
+5. Auto-detects and runs WASM tests if found (`*Wasm*_test.go`)
+6. Detects slowest test (if > 2.0s)
+7. Detects WASM released function calls
+8. Updates README badges
+9. Displays total execution time
 
 ### With arguments (fast path):
 
@@ -57,8 +63,18 @@ gotest -bench .     # Run benchmarks
 
 **Full suite (no arguments):**
 ```
-✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 71%, ✅ tests wasm ok
+✅ vet ok, ✅ race detection ok, ✅ tests stdlib ok, ✅ coverage: 71%, ✅ tests wasm ok, ⚠️ slow: TestFoo (3.2s) (12.4s)
 ```
+
+**Partial runs:**
+- Displays individual package results when using flags.
+- Summarizes slow tests if detected.
+- Includes total execution time in parentheses.
+
+### Special Detection
+- **⚠️ slow**: Automatically reports the single slowest test if it exceeds 2.0s.
+- **⚠️ WASM**: Summarizes calls to released functions in WASM tests.
+- **(×N)**: Automatically deduplicates identical output lines for cleaner logs.
 
 **Custom flags (e.g., `gotest -run TestFoo`):**
 ```

@@ -179,6 +179,10 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		return "", fmt.Errorf("failed to init repo: %w", err)
 	}
 
+	// CRITICAL: Update git handler root to the new project directory
+	// so future commands (add, commit, push) run there.
+	gn.git.SetRootDir(targetDir)
+
 	// 6. Generate files
 	if err := GenerateREADME(opts.Name, opts.Description, targetDir); err != nil {
 		return "", err

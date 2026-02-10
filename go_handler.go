@@ -15,6 +15,7 @@ type Go struct {
 	rootDir       string
 	git           GitClient // Interface for better testing
 	log           func(...any)
+	consoleOutput func(string) // output for ConsoleFilter (fmt.Println by default)
 	backup        *DevBackup
 	retryDelay    time.Duration
 	retryAttempts int
@@ -48,7 +49,8 @@ func NewGo(gitHandler GitClient) (*Go, error) {
 		rootDir:       ".",
 		git:           gitHandler,
 		backup:        NewDevBackup(),
-		log:           func(...any) {}, // default no-op
+		log:           func(...any) {},                // default no-op
+		consoleOutput: func(s string) { fmt.Println(s) }, // real-time test output
 		retryDelay:    5 * time.Second,
 		retryAttempts: 3,
 	}, nil

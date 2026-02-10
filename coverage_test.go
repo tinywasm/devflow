@@ -137,6 +137,7 @@ func TestGoPushFailTest(t *testing.T) {
 		log: func(args ...any) {},
 	}
 	goHandler, _ := NewGo(mockGit)
+	goHandler.consoleOutput = func(string) {} // suppress subprocess output
 
 	// Create failing test
 	testContent := `package main

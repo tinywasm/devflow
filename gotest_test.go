@@ -393,3 +393,71 @@ func TestEvaluateTestResults(t *testing.T) {
 		})
 	}
 }
+
+func TestFindSlowestTest(t *testing.T) {
+	tests := []struct {
+		name      string
+		output    string
+		threshold float64
+		expName   string
+		expDur    float64
+	}{
+		{
+			name:      "Empty output",
+			output:    "",
+			threshold: 1.0,
+			expName:   "",
+			expDur:    0,
+		},
+		{
+			name: "All tests below threshold",
+			output: `=== RUN   TestSlow
+--- PASS: TestSlow (0.50s)
+=== RUN   TestFast
+--- PASS: TestFast (0.10s)`,
+			threshold: 1.0,
+			expName:   "",
+			expDur:    0,
+		},
+		{
+			name: "One test above threshold",
+			output: `=== RUN   TestSlow
+--- PASS: TestSlow (2.50s)
+=== RUN   TestFast
+--- PASS: TestFast (0.10s)`,
+			threshold: 1.0,
+			expName:   "TestSlow",
+			expDur:    2.5,
+		},
+		{
+			name: "Multiple packages, multiple slow tests",
+			output: `--- PASS: TestPkgA_Slow (3.00s)
+--- PASS: TestPkgB_Slower (4.50s)
+--- PASS: TestPkgC_Fast (0.10s)`,
+			threshold: 2.0,
+			expName:   "TestPkgB_Slower",
+			expDur:    4.5,
+		},
+		{
+			name: "Failure still counts as slow",
+			output: `=== RUN   TestFail
+--- FAIL: TestFail (5.00s)
+FAIL`,
+			threshold: 2.0,
+			expName:   "TestFail",
+			expDur:    5.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, dur := findSlowestTest(tt.output, tt.threshold)
+			if name != tt.expName {
+				t.Errorf("Expected name %q, got %q", tt.expName, name)
+			}
+			if dur != tt.expDur {
+				t.Errorf("Expected duration %f, got %f", tt.expDur, dur)
+			}
+		})
+	}
+}

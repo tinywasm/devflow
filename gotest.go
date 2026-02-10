@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Test executes the test suite for the project
@@ -45,6 +46,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 	if cache.IsCacheValid() {
 		return cache.GetCachedMessage(), nil
 	}
+
+	start := time.Now()
 
 	// Initialize Status
 	testStatus := "Failed"
@@ -134,7 +137,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 	var testErr error
 	var testOutput string
 
-	testArgs := []string{"test", "-cover", "-count=1", "./..."}
+	testArgs := []string{"test", "-v", "-cover", "-coverpkg=./...", "-count=1", "./..."}
 	if !skipRace {
 		testArgs = append(testArgs[:1], append([]string{"-race"}, testArgs[1:]...)...)
 	}
@@ -143,7 +146,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 
 	testBuffer := &bytes.Buffer{}
 
-	testFilter := NewConsoleFilter(nil)
+	testFilter := NewConsoleFilter(g.consoleOutput)
 
 	testPipe := &paramWriter{
 		write: func(p []byte) (n int, err error) {
@@ -184,16 +187,15 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 	}
 
 	// WASM Tests
+	var wasmTestOutput string
 	if enableWasmTests {
 
 		if err := g.installWasmBrowserTest(); err != nil {
 
 			addMsg(false, "WASM tests skipped (setup failed)")
 		} else {
-			execArg := "wasmbrowsertest -quiet"
-			testArgs := []string{"test", "-exec", execArg, "-cover", "./..."}
-			execArg = "wasmbrowsertest"
-			testArgs = []string{"test", "-exec", execArg, "-v", "-cover", "./..."}
+			execArg := "wasmbrowsertest"
+			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "./..."}
 
 			wasmCmd := exec.Command("go", testArgs...)
 			wasmCmd.Env = os.Environ()
@@ -201,9 +203,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 
 			var wasmOut bytes.Buffer
 
-			var wasmFilterCallback func(string)
-
-			wasmFilter := NewConsoleFilter(wasmFilterCallback)
+			wasmFilter := NewConsoleFilter(g.consoleOutput)
 			wasmPipe := &paramWriter{
 				write: func(p []byte) (n int, err error) {
 					s := string(p)
@@ -220,6 +220,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 			wasmFilter.Flush()
 
 			wOutput := wasmOut.String()
+			wasmTestOutput = wOutput
 
 			if err != nil {
 				// WASM test failure - ConsoleFilter already filtered the output in quiet mode
@@ -242,6 +243,12 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 		}
 	}
 
+	// Detect slowest test across stdlib and WASM outputs
+	allTestOutput := testOutput + "\n" + wasmTestOutput
+	if name, dur := findSlowestTest(allTestOutput, 2.0); name != "" {
+		msgs = append(msgs, fmt.Sprintf("⚠️ slow: %s (%.1fs)", name, dur))
+	}
+
 	// Badges
 
 	licenseType := "MIT"
@@ -257,7 +264,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 	}
 
 	// Return error if tests or vet failed
-	summary := strings.Join(msgs, ", ")
+	elapsed := time.Since(start).Seconds()
+	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), elapsed)
 	if testStatus == "Failed" || vetStatus == "Issues" {
 		return summary, fmt.Errorf("%s", summary)
 	}
@@ -274,6 +282,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool) (string, error) 
 // runCustomTests executes tests with custom go test flags (fast path)
 // Skips vet, badges, and cache, but runs WASM tests if detected
 func (g *Go) runCustomTests(customArgs []string, moduleName string) (string, error) {
+	start := time.Now()
 	var msgs []string
 	addMsg := func(ok bool, msg string) {
 		symbol := "✅"
@@ -310,7 +319,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string) (string, err
 	testBuffer := &bytes.Buffer{}
 
 	// CRITICAL: Keep ConsoleFilter for clean output
-	testFilter := NewConsoleFilter(nil)
+	testFilter := NewConsoleFilter(g.consoleOutput)
 	testPipe := &paramWriter{
 		write: func(p []byte) (n int, err error) {
 			s := string(p)
@@ -373,7 +382,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string) (string, err
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
 			var wasmOut bytes.Buffer
-			wasmFilter := NewConsoleFilter(nil)
+			wasmFilter := NewConsoleFilter(g.consoleOutput)
 			wasmPipe := &paramWriter{
 				write: func(p []byte) (n int, err error) {
 					s := string(p)
@@ -401,7 +410,8 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string) (string, err
 		}
 	}
 
-	summary := strings.Join(msgs, ", ")
+	elapsed := time.Since(start).Seconds()
+	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), elapsed)
 	if testStatus == "Failed" {
 		return summary, fmt.Errorf("%s", summary)
 	}
@@ -416,6 +426,31 @@ type paramWriter struct {
 
 func (p *paramWriter) Write(b []byte) (n int, err error) {
 	return p.write(b)
+}
+
+// findSlowestTest parses -v test output and returns the name and duration of the slowest individual test
+// across all packages if it exceeds the specified threshold.
+func findSlowestTest(output string, threshold float64) (string, float64) {
+	// Parse individual test timing from -v output: --- PASS: TestName (2.00s)
+	testRe := regexp.MustCompile(`--- (?:PASS|FAIL): (\S+) \((\d+(?:\.\d+)?)s\)`)
+	var slowestName string
+	var slowestTime float64
+
+	for _, match := range testRe.FindAllStringSubmatch(output, -1) {
+		t, err := strconv.ParseFloat(match[2], 64)
+		if err != nil {
+			continue
+		}
+		if t > slowestTime {
+			slowestName = match[1]
+			slowestTime = t
+		}
+	}
+
+	if slowestTime >= threshold {
+		return slowestName, slowestTime
+	}
+	return "", 0
 }
 
 func calculateAverageCoverage(output string) string {
