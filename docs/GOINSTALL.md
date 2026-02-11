@@ -25,7 +25,7 @@ The command performs the following steps:
    ```bash
    go install -ldflags="-X main.Version=<version>" ./cmd/<name>
    ```
-3. Injects the current version tag (or "dev") into each binary.
+3. Automatically detects and injects the current version tag (from git tags) into each binary. Falls back to "dev" if no tags are found.
 4. Provides a clean visual summary of the installation status for each command.
 
 ## Output Example

@@ -309,8 +309,15 @@ func (g *Go) Install(version string) (string, error) {
 
 	var installed []string
 	ldflags := ""
-	if version != "" {
-		ldflags = fmt.Sprintf("-ldflags=-X main.Version=%s", version)
+	actualVersion := version
+	if actualVersion == "" && g.git != nil {
+		if tag, err := g.git.GetLatestTag(); err == nil && tag != "" {
+			actualVersion = tag
+		}
+	}
+
+	if actualVersion != "" {
+		ldflags = fmt.Sprintf("-ldflags=-X main.Version=%s", actualVersion)
 	}
 
 	for _, cmd := range commands {
