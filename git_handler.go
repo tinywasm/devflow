@@ -257,11 +257,18 @@ func (g *Git) Commit(message string) (bool, error) {
 
 // GetLatestTag gets the latest tag
 func (g *Git) GetLatestTag() (string, error) {
-	tag, err := g.runSilent("git", "describe", "--abbrev=0", "--tags")
-	if err != nil {
+	// Use version:refname sort to get the highest semver tag, not just
+	// the closest reachable tag from HEAD (which git describe does).
+	output, err := g.runSilent("git", "tag", "-l", "--sort=-version:refname")
+	if err != nil || output == "" {
 		return "", nil
 	}
-	return tag, nil
+
+	// First line = highest version
+	if idx := strings.IndexByte(output, '\n'); idx != -1 {
+		return output[:idx], nil
+	}
+	return output, nil
 }
 
 // CreateTag creates a new tag

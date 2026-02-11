@@ -354,3 +354,61 @@ exit 1
 		t.Error("Expected Push to fail at commit step")
 	}
 }
+
+func TestGetLatestTagSemverOrder(t *testing.T) {
+	// This test reproduces the production bug where tags exist
+	// out of commit order and GetLatestTag must return the HIGHEST
+	// semver tag, not just the closest reachable from HEAD.
+	dir, cleanup := testCreateGitRepo()
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	git, _ := NewGit()
+
+	// Create commits and tags in sequence
+	exec.Command("git", "commit", "--allow-empty", "-m", "c1").Run()
+	exec.Command("git", "tag", "v0.0.88").Run()
+
+	exec.Command("git", "commit", "--allow-empty", "-m", "c2").Run()
+	exec.Command("git", "tag", "v0.1.0").Run()
+
+	exec.Command("git", "commit", "--allow-empty", "-m", "c3").Run()
+	exec.Command("git", "tag", "v0.0.89").Run()
+
+	// GetLatestTag MUST return v0.1.0 (highest semver),
+	// NOT v0.0.89 (closest to HEAD)
+	tag, err := git.GetLatestTag()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v0.1.0" {
+		t.Errorf("Expected v0.1.0 (highest semver), got %s", tag)
+	}
+}
+
+func TestGenerateNextTagWithOutOfOrderTags(t *testing.T) {
+	dir, cleanup := testCreateGitRepo()
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	git, _ := NewGit()
+
+	// Create tags out of order (simulates the production bug)
+	exec.Command("git", "commit", "--allow-empty", "-m", "c1").Run()
+	exec.Command("git", "tag", "v0.0.88").Run()
+
+	exec.Command("git", "commit", "--allow-empty", "-m", "c2").Run()
+	exec.Command("git", "tag", "v0.1.0").Run()
+
+	exec.Command("git", "commit", "--allow-empty", "-m", "c3").Run()
+	exec.Command("git", "tag", "v0.0.89").Run()
+
+	// Must generate v0.1.1 (increment from highest: v0.1.0)
+	tag, err := git.GenerateNextTag()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v0.1.1" {
+		t.Errorf("Expected v0.1.1, got %s", tag)
+	}
+}
