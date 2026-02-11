@@ -25,9 +25,10 @@
 <!-- END_SECTION:PROTOCOLS -->
 
 <!-- START_SECTION:WASM -->
-- **WebAssembly Environment:** For WebAssembly projects, use `tinywasm`. This framework runs a persistent MCP server on port 3030 for project monitoring, browser automation, and compilation (automatic with manual override).
+- **WebAssembly Environment (tinywasm):** Use `tinywasm` for WASM projects. Running it without parameters scaffolds `web/client.go` with basic code, compiles front/back in-memory, and starts an MCP server on port 3030 with hot-reload. This provides tools for monitoring, browser automation (logs, screenshots), and manual recompilation without polluting the project. **Important:** `tinywasm` is a TUI application — never run it from your own shell (it will block indefinitely). The developer starts it in their IDE terminal or an external terminal. You interact exclusively via the MCP server on port 3030.
 
 - **Frontend Go Compatibility:** If the Go code destination is the frontend (WebAssembly), maximum compatibility with TinyGo is required, as this is the focus of the framework. Consequently, the standard library should not be used for this purpose; for example, use `tinywasm/fmt` instead of `fmt`, `strings`, `strconv`, `errors`, and `path/filepath`; also use `tinywasm/time` instead of `time`, and `tinywasm/json` instead of `encoding/json`.
+
 
 - **Frontend Optimization:** Avoid using maps in WebAssembly/Frontend code if possible. TinyGo's map implementation increases binary size and runtime overhead significantly. Use structs or slices for small collections instead.
 <!-- END_SECTION:WASM -->
