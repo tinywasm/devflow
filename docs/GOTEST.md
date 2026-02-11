@@ -11,18 +11,25 @@ go install github.com/tinywasm/devflow/cmd/gotest@latest
 ## Usage
 
 ```bash
-gotest [go test flags]
+gotest [-t seconds] [go test flags]
 ```
 
 **No arguments**: Runs the full test suite (vet, race, cover, wasm, badges)
 **With arguments**: Passes flags to `go test` (fast path, no vet/wasm/badges/cache)
 
+### Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-t N` | Per-package timeout in seconds | `30` |
+
 ### Examples
 
 ```bash
-gotest              # Full suite (vet, race, cover, wasm, badges)
-gotest -v           # Show verbose output filtered
-gotest -run TestFoo # Run specific test
+gotest              # Full suite, 30s timeout
+gotest -t 120       # Full suite, 120s timeout
+gotest -run TestFoo # Run specific test, 30s timeout
+gotest -t 60 -run X # Custom args, 60s timeout
 gotest -bench .     # Run benchmarks
 ```
 
@@ -72,6 +79,7 @@ gotest -bench .     # Run benchmarks
 - Includes total execution time in parentheses.
 
 ### Special Detection
+- **❌ timeout**: Reports tests that exceeded the per-package timeout (default 30s).
 - **⚠️ slow**: Automatically reports the single slowest test if it exceeds 2.0s.
 - **⚠️ WASM**: Summarizes calls to released functions in WASM tests.
 - **(×N)**: Automatically deduplicates identical output lines for cleaner logs.
@@ -98,6 +106,24 @@ Shows only failed tests with error details, filters out passing tests. Failed ru
 
 - `0` - All tests passed
 - `1` - Tests failed, vet issues, or race conditions detected
+
+## Timeout
+
+By default, each package has a **30-second** timeout. If a test hangs or takes too long, Go's test framework kills the package and `gotest` reports the offending test:
+
+```
+❌ timeout: TestSlowOperation (exceeded 30s)
+```
+
+Override with `-t`:
+```bash
+gotest -t 120       # 120s per package
+```
+
+If you pass `-timeout` directly (Go's native flag), `gotest` respects it and does not inject its own:
+```bash
+gotest -timeout 2m  # Go-native flag, gotest won't override
+```
 
 ## Notes
 

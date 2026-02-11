@@ -461,3 +461,96 @@ FAIL`,
 		})
 	}
 }
+
+func TestHasTimeoutFlag(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected bool
+	}{
+		{"No args", nil, false},
+		{"Unrelated flags", []string{"-v", "-run", "TestFoo"}, false},
+		{"-timeout=30s", []string{"-v", "-timeout=30s"}, true},
+		{"-timeout 30s", []string{"-timeout", "30s"}, true},
+		{"-test.timeout=30s", []string{"-test.timeout=30s"}, true},
+		{"-test.timeout 30s", []string{"-test.timeout", "30s"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasTimeoutFlag(tt.args); got != tt.expected {
+				t.Errorf("hasTimeoutFlag(%v) = %v, want %v", tt.args, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFindTimedOutTests(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected []string
+	}{
+		{
+			name:     "No timeout",
+			output:   "--- PASS: TestFoo (0.01s)\nok  github.com/mod",
+			expected: nil,
+		},
+		{
+			name: "Go timeout with running tests section",
+			output: `=== RUN   TestSlowOperation
+panic: test timed out after 30s
+        running tests:
+                TestSlowOperation (30s)
+
+goroutine 1 [running]:`,
+			expected: []string{"TestSlowOperation"},
+		},
+		{
+			name: "Fallback: last RUN without PASS/FAIL",
+			output: `=== RUN   TestFastOne
+--- PASS: TestFastOne (0.01s)
+=== RUN   TestHanging
+panic: test timed out after 30s
+
+goroutine 1 [running]:`,
+			expected: []string{"TestHanging"},
+		},
+		{
+			name: "Multiple running tests",
+			output: `panic: test timed out after 30s
+        running tests:
+                TestA (30s)
+                TestB (25s)
+
+goroutine 1 [running]:`,
+			expected: []string{"TestA", "TestB"},
+		},
+		{
+			name: "Process killed (WASM): no panic message, only RUN lines",
+			output: `=== RUN   TestRenderToBody
+=== RUN   TestRenderToBody/Render_ViewRenderer_to_body`,
+			expected: []string{"TestRenderToBody/Render_ViewRenderer_to_body"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findTimedOutTests(tt.output)
+			if tt.expected == nil {
+				if got != nil {
+					t.Errorf("Expected nil, got %v", got)
+				}
+				return
+			}
+			if len(got) != len(tt.expected) {
+				t.Fatalf("Expected %d tests, got %d: %v", len(tt.expected), len(got), got)
+			}
+			for i, name := range tt.expected {
+				if got[i] != name {
+					t.Errorf("Expected [%d]=%q, got %q", i, name, got[i])
+				}
+			}
+		})
+	}
+}
