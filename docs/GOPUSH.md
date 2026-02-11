@@ -21,13 +21,14 @@ gopush 'commit message' [tag]
 3. Commits changes with your message
 4. Creates/uses tag
 5. Pushes to remote
-6. Finds dependent modules in search path
-7. For each dependent (in parallel):
+6. Automatically installs binaries with version tag (if `cmd/` exists)
+7. Finds dependent modules in search path
+8. For each dependent (in parallel):
    - Removes replace directive for published module
    - Runs `go get module@tag` and `go mod tidy`
    - If no other replaces exist: auto-push with `deps: update X to vY`
    - If other replaces exist: skip push (manual required)
-8. Executes backup (asynchronous)
+9. Executes backup (asynchronous)
 
 ```mermaid
 graph TD
@@ -37,7 +38,8 @@ graph TD
     D -- No --> E[❌ Terminate]
     D -- Yes --> F[Git Add/Commit/Tag]
     F --> G[Git Push]
-    G --> H{Recursive Call?}
+    G --> G1[Install binaries with version]
+    G1 --> H{Recursive Call?}
     H -- Yes --> M[✅ Done]
     H -- No --> I[Scan for Dependents]
     I --> J{Dependents found?}

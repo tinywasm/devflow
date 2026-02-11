@@ -49,7 +49,7 @@ func NewGo(gitHandler GitClient) (*Go, error) {
 		rootDir:       ".",
 		git:           gitHandler,
 		backup:        NewDevBackup(),
-		log:           func(...any) {},                // default no-op
+		log:           func(...any) {},                   // default no-op
 		consoleOutput: func(s string) { fmt.Println(s) }, // real-time test output
 		retryDelay:    5 * time.Second,
 		retryAttempts: 3,
@@ -130,6 +130,16 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	createdTag := pushResult.Tag
 	if createdTag == "" {
 		summary = append(summary, "Warning: no tag was created during push")
+	}
+
+	// 4.5 Install binaries (if cmd exists)
+	if createdTag != "" {
+		installSummary, err := g.Install(createdTag)
+		if err != nil {
+			summary = append(summary, fmt.Sprintf("Warning: install failed: %v", err))
+		} else if installSummary != "" {
+			summary = append(summary, installSummary)
+		}
 	}
 
 	// 5. Get module name
@@ -271,4 +281,55 @@ func (g *Go) GetCurrentVersion(moduleDir, dependencyPath string) (string, error)
 	}
 
 	return mod.Version, nil
+}
+
+// Install builds and installs all commands in the cmd/ directory
+// It injects the version using ldflags if provided
+func (g *Go) Install(version string) (string, error) {
+	cmdDir := filepath.Join(g.rootDir, "cmd")
+	if _, err := os.Stat(cmdDir); os.IsNotExist(err) {
+		return "", nil // No cmd directory, skip silently
+	}
+
+	entries, err := os.ReadDir(cmdDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read cmd directory: %w", err)
+	}
+
+	var commands []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			commands = append(commands, entry.Name())
+		}
+	}
+
+	if len(commands) == 0 {
+		return "", nil // No commands found
+	}
+
+	var installed []string
+	ldflags := ""
+	if version != "" {
+		ldflags = fmt.Sprintf("-ldflags=-X main.Version=%s", version)
+	}
+
+	for _, cmd := range commands {
+		pkg := "./cmd/" + cmd
+		args := []string{"install"}
+		if ldflags != "" {
+			args = append(args, ldflags)
+		}
+		args = append(args, pkg)
+
+		if _, err := RunCommandInDir(g.rootDir, "go", args...); err != nil {
+			return strings.Join(installed, ", "), fmt.Errorf("failed to install %s: %w", cmd, err)
+		}
+		installed = append(installed, "✅ "+cmd)
+	}
+
+	summary := strings.Join(installed, ", ")
+	if version != "" {
+		summary = fmt.Sprintf("%s (%s)", summary, version)
+	}
+	return summary, nil
 }

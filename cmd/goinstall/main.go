@@ -3,39 +3,35 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"strings"
+
+	"github.com/tinywasm/devflow"
 )
 
 func main() {
-	cmdDir := filepath.Join(".", "cmd")
-	entries, err := os.ReadDir(cmdDir)
+	git, err := devflow.NewGit()
 	if err != nil {
-		fmt.Println("Error: no cmd/ directory found")
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+	goHandler, err := devflow.NewGo(git)
+	if err != nil {
+		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
 
-	var commands []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			commands = append(commands, entry.Name())
-		}
-	}
-
-	if len(commands) == 0 {
-		fmt.Println("Error: no commands found in cmd/")
+	// standalone install defaults to "dev" or current version
+	summary, err := goHandler.Install("")
+	if err != nil {
+		fmt.Println("Install failed:", err)
 		os.Exit(1)
 	}
 
-	for _, cmd := range commands {
-		pkg := "./cmd/" + cmd
-		install := exec.Command("go", "install", pkg)
-		install.Stdout = os.Stdout
-		install.Stderr = os.Stderr
-		if err := install.Run(); err != nil {
-			fmt.Printf("❌ %s\n", cmd)
-			os.Exit(1)
+	if summary != "" {
+		// Postprocess summary to match previous output style (one per line)
+		parts := strings.Split(summary, ", ")
+		for _, p := range parts {
+			fmt.Println(p)
 		}
-		fmt.Printf("✅ %s\n", cmd)
 	}
 }

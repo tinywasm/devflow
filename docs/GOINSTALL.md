@@ -23,9 +23,10 @@ The command performs the following steps:
 1. Scans the `./cmd/` directory for subdirectories.
 2. For each subdirectory found (e.g., `gonew`, `gotest`, `gopush`), it executes:
    ```bash
-   go install ./cmd/<name>
+   go install -ldflags="-X main.Version=<version>" ./cmd/<name>
    ```
-3. Provides a clean visual summary of the installation status for each command.
+3. Injects the current version tag (or "dev") into each binary.
+4. Provides a clean visual summary of the installation status for each command.
 
 ## Output Example
 
