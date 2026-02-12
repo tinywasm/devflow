@@ -79,6 +79,7 @@ goHandler.SetLog(log.Println)
 
 ## Features
 
+- **Intelligent push** - Auto-pulls with `--rebase` on non-fast-forward rejection
 - **Zero config** - Auto-detects tests, project structure, WASM environments
 - **Minimal output** - Single-line summaries for terminals and LLMs
 - **Smart versioning** - Auto-increments tags, skips duplicates

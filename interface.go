@@ -40,7 +40,7 @@ type GitClient interface {
 	Add() error
 	Commit(message string) (bool, error)
 	CreateTag(tag string) (bool, error)
-	PushWithTags(tag string) error
+	PushWithTags(tag string) (bool, error)
 }
 
 // FolderWatcher defines interface for adding/removing directories to watch

@@ -14,7 +14,7 @@ push 'commit message' 'v1.0.0'     # Specific message and tag
 1. `git add .`
 2. `git commit -m "message"`
 3. Creates or uses tag (auto-increments patch version)
-4. `git push` and `git push origin <tag>`
+4. Intelligent `git push`: If rejection occurs (non-fast-forward), it automatically runs `git pull --rebase` and retries.
 5. Sets upstream if needed
 
 ```mermaid
@@ -38,6 +38,10 @@ graph TD
 
 ```
 ✅ Tag: v1.0.1, ✅ Pushed ok
+```
+**Auto-recovered from remote changes:**
+```
+✅ Tag: v1.0.1, 🔄 Pulled remote changes, ✅ Pushed ok
 ```
 
 **Tag already exists:**

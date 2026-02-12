@@ -362,8 +362,8 @@ func (m *MockGitClient) CreateTag(tag string) (bool, error) {
 	return true, nil
 }
 
-func (m *MockGitClient) PushWithTags(tag string) error {
-	return nil
+func (m *MockGitClient) PushWithTags(tag string) (bool, error) {
+	return false, nil
 }
 
 func (m *MockGitClient) GetConfigUserName() (string, error) {

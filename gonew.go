@@ -234,7 +234,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		if _, err := RunCommand("git", "remote", "add", "origin", repoURL); err != nil {
 			gn.log("Failed to add remote:", err)
 			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - failed to add remote", opts.Name)
-		} else if err := gn.git.PushWithTags("v0.0.1"); err != nil {
+		} else if _, err := gn.git.PushWithTags("v0.0.1"); err != nil {
 			// If push fails, warn but don't fail the whole process
 			gn.log("Push failed:", err)
 			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - push failed", opts.Name)
@@ -355,7 +355,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 	// Push
 	// We need to push current branch to main
 	// And push tags
-	if err := gn.git.PushWithTags("v0.0.1"); err != nil {
+	if _, err := gn.git.PushWithTags("v0.0.1"); err != nil {
 		// If fails, maybe we need to push plain first?
 		// Or maybe v0.0.1 doesn't exist?
 		// Try pushing HEAD

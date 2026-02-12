@@ -20,7 +20,7 @@ gopush 'commit message' [tag]
 2. Runs `gotest` (vet, tests, race, coverage, badges)
 3. Commits changes with your message
 4. Creates/uses tag
-5. Pushes to remote
+5. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead)
 6. Automatically installs binaries with version tag (if `cmd/` exists)
 7. Finds dependent modules in search path
 8. For each dependent (in parallel):
@@ -61,6 +61,11 @@ graph TD
 **Success:**
 ```
 ✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 71%, ✅ Tag: v1.0.1, ✅ Pushed ok
+```
+
+**With remote recovery:**
+```
+✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 71%, ✅ Tag: v1.0.1, 🔄 Pulled remote changes, ✅ Pushed ok
 ```
 
 **With dependents:**

@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+func isNonFastForwardError(output string) bool {
+	return strings.Contains(output, "non-fast-forward") ||
+		strings.Contains(output, "[rejected]")
+}
+
 // Git handler for Git operations
 type Git struct {
 	rootDir     string
@@ -147,11 +152,16 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 
 		if ahead {
 			// There are unpushed commits, push them without creating a new tag
-			if err := g.PushWithoutTags(); err != nil {
+			pulled, err := g.PushWithoutTags()
+			if err != nil {
 				return PushResult{}, fmt.Errorf("push failed: %w", err)
 			}
+			summary := "✅ Pushed existing commits"
+			if pulled {
+				summary = "🔄 Pulled remote changes, " + summary
+			}
 			return PushResult{
-				Summary: "✅ Pushed existing commits",
+				Summary: summary,
 				Tag:     "",
 			}, nil
 		}
@@ -189,8 +199,13 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 	}
 
 	// 5. Push commits and tag
-	if err := g.PushWithTags(finalTag); err != nil {
+	pulled, err := g.PushWithTags(finalTag)
+	if err != nil {
 		return PushResult{}, fmt.Errorf("push failed: %w", err)
+	}
+
+	if pulled {
+		summary = append(summary, "🔄 Pulled remote changes")
 	}
 	summary = append(summary, "✅ Pushed ok")
 
@@ -382,35 +397,75 @@ func (g *Git) pushTag(tag string) error {
 	return nil
 }
 
-// PushWithTags pushes commits and tag
-func (g *Git) PushWithTags(tag string) error {
+// autoPullRebase pulls changes from remote using rebase
+func (g *Git) autoPullRebase() error {
 	branch, err := g.getCurrentBranch()
 	if err != nil {
 		return err
 	}
+	_, err = g.run("git", "pull", "origin", branch, "--rebase")
+	if err != nil {
+		return fmt.Errorf("auto-rebase failed after non-fast-forward push rejection.\n"+
+			"Please resolve conflicts manually, then retry gopush.\nError: %w", err)
+	}
+	return nil
+}
+
+// pushWithAutoRebase attempts to push and pulls/retries if it fails due to non-fast-forward
+func (g *Git) pushWithAutoRebase(args ...string) (bool, error) {
+	output, pushErr := g.run("git", append([]string{"push"}, args...)...)
+	if pushErr == nil {
+		return false, nil
+	}
+
+	if !isNonFastForwardError(output) && !isNonFastForwardError(pushErr.Error()) {
+		return false, pushErr
+	}
+
+	// Auto-recover: pull --rebase then retry once
+	if pullErr := g.autoPullRebase(); pullErr != nil {
+		return false, pullErr
+	}
+
+	_, retryErr := g.run("git", append([]string{"push"}, args...)...)
+	if retryErr != nil {
+		return true, fmt.Errorf("push failed after auto-rebase: %w", retryErr)
+	}
+	return true, nil
+}
+
+// PushWithTags pushes commits and tag
+func (g *Git) PushWithTags(tag string) (bool, error) {
+	branch, err := g.getCurrentBranch()
+	if err != nil {
+		return false, err
+	}
 
 	hasUpstream, err := g.hasUpstream()
 	if err != nil {
-		return err
+		return false, err
 	}
 
+	var pulled bool
 	if !hasUpstream {
 		if err := g.setUpstream(branch); err != nil {
-			return err
+			return false, err
 		}
+		// setUpstream already does a push, but we might still need to push the tag
 	} else {
 		// Normal push
-		_, err := g.run("git", "push")
+		p, err := g.pushWithAutoRebase()
 		if err != nil {
-			return fmt.Errorf("git push failed: %w", err)
+			return false, fmt.Errorf("git push failed: %w", err)
 		}
+		pulled = p
 	}
 
 	if err := g.pushTag(tag); err != nil {
-		return err
+		return pulled, err
 	}
 
-	return nil
+	return pulled, nil
 }
 
 // GetConfigUserName gets the git user.name
@@ -455,9 +510,8 @@ func (g *Git) IsAheadOfRemote() (bool, error) {
 }
 
 // PushWithoutTags pushes commits without pushing tags
-func (g *Git) PushWithoutTags() error {
-	_, err := g.run("git", "push")
-	return err
+func (g *Git) PushWithoutTags() (bool, error) {
+	return g.pushWithAutoRebase()
 }
 
 // SetUserConfig sets git user name and email

@@ -266,7 +266,7 @@ func TestGitPushWithUpstreamLogic(t *testing.T) {
 	}
 
 	// Test pushWithTags (should set upstream)
-	err = git.PushWithTags("v0.0.1")
+	_, err = git.PushWithTags("v0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
