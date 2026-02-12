@@ -58,7 +58,7 @@ func TestExample(t *testing.T) {}
 	mockGit := &MockGitClient{}
 	goHandler, _ := NewGo(mockGit)
 
-	_, err := goHandler.Test([]string{}, false, 0, false) // quiet mode, full suite, default timeout, allow cache
+	_, err := goHandler.Test([]string{}, false, 0, false, false) // quiet mode, full suite, default timeout, allow cache, runAll=false
 	if err != nil {
 		// In test environment, tests might fail, but we check the call works
 		t.Log("Test failed as expected in test environment:", err)

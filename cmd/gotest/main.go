@@ -18,9 +18,11 @@ func main() {
 		fmt.Println("Options:")
 		fmt.Println("  -t N        Per-package timeout in seconds (default: 30)")
 		fmt.Println("  -no-cache   Force re-execution of tests, skipping cache")
+		fmt.Println("  -all        Run all tests including integration tests (sets timeout to 60s)")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  gotest              # Full suite, 30s timeout")
+		fmt.Println("  gotest -all         # Full suite + integration, 60s timeout")
 		fmt.Println("  gotest -no-cache    # Force re-run full suite")
 		fmt.Println("  gotest -t 120       # Full suite, 120s timeout")
 		fmt.Println("  gotest -run TestFoo # Run specific test, 30s timeout")
@@ -37,8 +39,9 @@ func main() {
 	}
 
 	// Extract flags
-	timeoutSec := 30
+	timeoutSec := 0
 	noCache := false
+	runAll := false
 	var customArgs []string
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
@@ -49,8 +52,19 @@ func main() {
 			i++ // skip value
 		} else if args[i] == "-no-cache" {
 			noCache = true
+		} else if args[i] == "-all" {
+			runAll = true
 		} else {
 			customArgs = append(customArgs, args[i])
+		}
+	}
+
+	// Set default timeout if not specified
+	if timeoutSec == 0 {
+		if runAll {
+			timeoutSec = 60
+		} else {
+			timeoutSec = 30
 		}
 	}
 
@@ -65,7 +79,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	summary, err := goHandler.Test(customArgs, false, timeoutSec, noCache)
+	summary, err := goHandler.Test(customArgs, false, timeoutSec, noCache, runAll)
 	if err != nil {
 		fmt.Println("Tests failed:", err)
 		os.Exit(1)

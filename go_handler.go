@@ -110,7 +110,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	// 2. Run tests (if not skipped)
 	if !skipTests {
-		testSummary, err := g.Test([]string{}, skipRace, 0, false) // Empty slice = full test suite, 0 = default timeout, false = allow cache
+		testSummary, err := g.Test([]string{}, skipRace, 0, false, false) // Empty slice = full test suite, 0 = default timeout, false = allow cache, false = runAll
 		if err != nil {
 			return "", fmt.Errorf("tests failed: %w", err)
 		}

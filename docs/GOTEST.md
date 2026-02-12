@@ -23,11 +23,13 @@ gotest [-t seconds] [go test flags]
 |------|-------------|---------|
 | `-t N` | Per-package timeout in seconds | `30` |
 | `-no-cache` | Force re-execution of tests, skipping cache | `false` |
+| `-all` | Run all tests including integration tests (sets timeout to 60s) | `false` |
 
 ### Examples
 
 ```bash
 gotest              # Full suite, 30s timeout
+gotest -all         # Full suite + integration, 60s timeout
 gotest -no-cache    # Full suite, bypass cache
 gotest -t 120       # Full suite, 120s timeout
 gotest -run TestFoo # Run specific test, 30s timeout

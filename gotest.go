@@ -15,7 +15,7 @@ import (
 
 // Test executes the test suite for the project.
 // timeoutSec sets the per-package timeout in seconds (0 = default 30s).
-func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bool) (string, error) {
+func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
 	if timeoutSec <= 0 {
 		timeoutSec = 30
 	}
@@ -38,16 +38,15 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 
 	// Branch based on whether custom args are provided
 	if hasCustomArgs {
-		return g.runCustomTests(customArgs, moduleName, timeoutSec)
+		return g.runCustomTests(customArgs, moduleName, timeoutSec, runAll)
 	}
 
 	// Full test suite (run all phases)
-	// Full test suite (run all phases)
-	return g.runFullTestSuite(moduleName, skipRace, timeoutSec, noCache)
+	return g.runFullTestSuite(moduleName, skipRace, timeoutSec, noCache, runAll)
 }
 
 // runFullTestSuite executes the complete test suite (vet, race, cover, wasm, badges)
-func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, noCache bool) (string, error) {
+func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
 	if !noCache {
 		cache := NewTestCache()
@@ -84,12 +83,21 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	// Go Vet (async)
 	go func() {
 		defer wg1.Done()
-		vetOutput, vetErr = RunCommand("go", "vet", "./...")
+		vetArgs := []string{"vet"}
+		if runAll {
+			vetArgs = append(vetArgs, "-tags=integration")
+		}
+		vetArgs = append(vetArgs, "./...")
+		vetOutput, vetErr = RunCommand("go", vetArgs...)
 	}()
 
-	// Check for WASM test files by comparing native vs WASM test file lists (async)
+	// Check for WASM test files (async)
 	go func() {
 		defer wg1.Done()
+		if runAll {
+			enableWasmTests = true
+			return
+		}
 
 		// 1. Get native test files
 		nativeCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
@@ -147,13 +155,20 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	var testOutput string
 
 	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
-	testArgs := []string{"test", "-v", "-cover", "-coverpkg=./...", "-count=1", timeoutFlag, "./..."}
+	testArgs := []string{"test", "-v", "-cover", "-coverpkg=./...", "-count=1", timeoutFlag}
+
+	if runAll {
+		testArgs = append(testArgs, "-tags=integration")
+	}
+
+	testArgs = append(testArgs, "./...")
 	if !skipRace {
 		testArgs = append(testArgs[:1], append([]string{"-race"}, testArgs[1:]...)...)
 	}
 
 	// Safety net: context kills process 10s after Go's -timeout should have fired
-	testCtx, testCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	// This ensures we get the nice panic output from Go if possible
+	testCtx, testCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 	defer testCancel()
 	testCmd := testCommand(testCtx, "go", testArgs...)
 
@@ -229,7 +244,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			// Add -count=1 to force cache bypass for WASM tests, consistent with native run
 			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1", "./..."}
 
-			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+			// Add cushion for WASM tests too
+			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
 			wasmCmd := testCommand(wasmCtx, "go", testArgs...)
 			wasmCmd.Env = os.Environ()
@@ -361,7 +377,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 // runCustomTests executes tests with custom go test flags (fast path)
 // Skips vet, badges, and cache, but runs WASM tests if detected
-func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec int) (string, error) {
+func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec int, runAll bool) (string, error) {
 	start := time.Now()
 	var msgs []string
 	addMsg := func(ok bool, msg string) {
@@ -379,6 +395,10 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		if runAll {
+			enableWasmTests = true
+			return
+		}
 		// Check for WASM test files by comparing native vs WASM test file lists
 		nativeCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
 		nativeOut, _ := nativeCmd.CombinedOutput()
@@ -399,9 +419,12 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	// Build command: go test <customArgs> ./...
 	testArgs := append([]string{"test"}, customArgs...)
+	if runAll {
+		testArgs = append(testArgs, "-tags=integration")
+	}
 	testArgs = append(testArgs, "./...")
 
-	customCtx, customCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	customCtx, customCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 	defer customCancel()
 	testCmd := testCommand(customCtx, "go", testArgs...)
 	testBuffer := &bytes.Buffer{}
@@ -506,9 +529,12 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 			}
 
 			wasmTestArgs := append([]string{"test", "-exec", "wasmbrowsertest"}, wasmArgs...)
+			if runAll {
+				wasmTestArgs = append(wasmTestArgs, "-tags=integration")
+			}
 			wasmTestArgs = append(wasmTestArgs, "./...")
 
-			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
 			wasmCmd := testCommand(wasmCtx, "go", wasmTestArgs...)
 			wasmCmd.Env = os.Environ()
