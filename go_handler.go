@@ -253,6 +253,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	if err != nil {
 		return "", fmt.Errorf("go handler init failed: %w", err)
 	}
+	depHandler.SetRootDir(depDir)
 
 	// Push with skipDependents=true and skipBackup=true to avoid infinite recursion
 	// We pass the depDir as searchPath just in case, though it's not used here since skipDependents is true
