@@ -39,6 +39,9 @@ go install github.com/tinywasm/devflow/cmd/goinstall@latest
 # Test your project
 gotest
 
+# Force re-running tests (bypass cache)
+gotest -no-cache
+
 # Create new project with specific owner
 gonew myapp "My application" -owner=cdvelop
 

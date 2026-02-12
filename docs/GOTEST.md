@@ -28,6 +28,7 @@ gotest [-t seconds] [go test flags]
 
 ```bash
 gotest              # Full suite, 30s timeout
+gotest -no-cache    # Full suite, bypass cache
 gotest -t 120       # Full suite, 120s timeout
 gotest -run TestFoo # Run specific test, 30s timeout
 gotest -t 60 -run X # Custom args, 60s timeout
