@@ -10,16 +10,18 @@ import (
 
 func main() {
 	usage := func() {
-		fmt.Println("Usage: gotest [-t seconds] [go test flags]")
+		fmt.Println("Usage: gotest [-t seconds] [-no-cache] [go test flags]")
 		fmt.Println()
 		fmt.Println("No args: Full test suite (vet, race, cover, wasm, badges)")
 		fmt.Println("With args: Pass flags to 'go test' (no vet/wasm/badges/cache)")
 		fmt.Println()
 		fmt.Println("Options:")
-		fmt.Println("  -t N    Per-package timeout in seconds (default: 30)")
+		fmt.Println("  -t N        Per-package timeout in seconds (default: 30)")
+		fmt.Println("  -no-cache   Force re-execution of tests, skipping cache")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  gotest              # Full suite, 30s timeout")
+		fmt.Println("  gotest -no-cache    # Force re-run full suite")
 		fmt.Println("  gotest -t 120       # Full suite, 120s timeout")
 		fmt.Println("  gotest -run TestFoo # Run specific test, 30s timeout")
 		fmt.Println("  gotest -bench .     # Run benchmarks")
@@ -34,8 +36,9 @@ func main() {
 		}
 	}
 
-	// Extract -t N (gotest-specific timeout flag) from args
+	// Extract flags
 	timeoutSec := 30
+	noCache := false
 	var customArgs []string
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
@@ -44,6 +47,8 @@ func main() {
 				timeoutSec = v
 			}
 			i++ // skip value
+		} else if args[i] == "-no-cache" {
+			noCache = true
 		} else {
 			customArgs = append(customArgs, args[i])
 		}
@@ -60,7 +65,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	summary, err := goHandler.Test(customArgs, false, timeoutSec)
+	summary, err := goHandler.Test(customArgs, false, timeoutSec, noCache)
 	if err != nil {
 		fmt.Println("Tests failed:", err)
 		os.Exit(1)

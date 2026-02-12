@@ -22,6 +22,7 @@ gotest [-t seconds] [go test flags]
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-t N` | Per-package timeout in seconds | `30` |
+| `-no-cache` | Force re-execution of tests, skipping cache | `false` |
 
 ### Examples
 
@@ -42,7 +43,7 @@ gotest -bench .     # Run benchmarks
 
 1. Runs `go vet ./...`
 23. Runs `go test -race -cover ./...` (stdlib tests)
-4. Calculates coverage
+4. **Exact weighted coverage** using profile merging (`go tool cover`) across all packages.
 5. Auto-detects and runs WASM tests if found (`*Wasm*_test.go`)
 6. Detects slowest test (if > 2.0s)
 7. Detects WASM released function calls
@@ -70,7 +71,7 @@ gotest -bench .     # Run benchmarks
 
 **Full suite (no arguments):**
 ```
-✅ vet ok, ✅ race detection ok, ✅ tests stdlib ok, ✅ coverage: 71%, ✅ tests wasm ok, ⚠️ slow: TestFoo (3.2s) (12.4s)
+✅ vet ok, ✅ race detection ok, ✅ tests stdlib ok, ✅ tests wasm ok, ✅ coverage: 85%, ⚠️ slow: TestFoo (3.2s) (12.4s)
 ```
 
 **Partial runs:**

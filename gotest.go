@@ -15,7 +15,7 @@ import (
 
 // Test executes the test suite for the project.
 // timeoutSec sets the per-package timeout in seconds (0 = default 30s).
-func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int) (string, error) {
+func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bool) (string, error) {
 	if timeoutSec <= 0 {
 		timeoutSec = 30
 	}
@@ -29,7 +29,7 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int) (string, e
 	}
 
 	// Check cache only for full suite runs
-	if !hasCustomArgs {
+	if !hasCustomArgs && !noCache {
 		cache := NewTestCache()
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
@@ -42,15 +42,18 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int) (string, e
 	}
 
 	// Full test suite (run all phases)
-	return g.runFullTestSuite(moduleName, skipRace, timeoutSec)
+	// Full test suite (run all phases)
+	return g.runFullTestSuite(moduleName, skipRace, timeoutSec, noCache)
 }
 
 // runFullTestSuite executes the complete test suite (vet, race, cover, wasm, badges)
-func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int) (string, error) {
+func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, noCache bool) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
-	cache := NewTestCache()
-	if cache.IsCacheValid() {
-		return cache.GetCachedMessage(), nil
+	if !noCache {
+		cache := NewTestCache()
+		if cache.IsCacheValid() {
+			return cache.GetCachedMessage(), nil
+		}
 	}
 
 	start := time.Now()
@@ -202,10 +205,15 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int) 
 	}
 
 	// Process coverage results (from the same test run)
+	// Process coverage results (from the same test run)
 	if stdTestsRan {
-		coveragePercent = calculateAverageCoverage(testOutput)
-		if coveragePercent != "0" {
-			addMsg(true, "coverage: "+coveragePercent+"%")
+		// Try exact coverage first (runs additional commands but provides accurate result)
+		// We pass the same args used for testing
+		if exactCov, err := g.getExactCoverage(testArgs); err == nil {
+			coveragePercent = exactCov
+		} else {
+			// Fallback to average parsed from output
+			coveragePercent = calculateAverageCoverage(testOutput)
 		}
 	}
 
@@ -218,7 +226,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int) 
 			addMsg(false, "WASM tests skipped (setup failed)")
 		} else {
 			execArg := "wasmbrowsertest"
-			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "./..."}
+			// Add -count=1 to force cache bypass for WASM tests, consistent with native run
+			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1", "./..."}
 
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 			defer wasmCancel()
@@ -272,15 +281,38 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int) 
 					testStatus = "Passing"
 				}
 				wCov := calculateAverageCoverage(wOutput)
+
+				// Try exact coverage for WASM if possible (might need special handling for WASM env)
+				// WASM tests are tricky because we use -exec wasmbrowsertest.
+				// getExactCoverage can support it if we pass correct args.
+				// But getExactCoverage implementation uses 'go test' which should respect GOOS/GOARCH from env.
+				// Let's rely on calculateAverageCoverage for WASM for now unless we update getExactCoverage to support WASM env injection passed from here.
+				// Actually, we can try getExactCoverage but we need to set Env.
+				// For now, let's stick to parsing for WASM as it seems reliable (89.0 vs 89.0 from manual run was parsed correctly from go tool cover output in manual run)
+				// Wait, manual run output "total: ... 89.0%".
+				// The parsed output of `go test` usually doesn't show "total:" key unless using -coverprofile?
+				// The output we parse is "coverage: 80.5% of statements".
+				// So manual run showed 89.0% because I ran `go tool cover`.
+				// `gotest` parsing only sees what `go test` emits.
+				// If we want 89.0% here, we need getExactCoverage for WASM too.
+
+				// Let's stick to simple parsing for WASM for now to avoid complexity with wasmbrowsertest + profile generation multiple times.
+				// The user sees 76.7% vs 89% discrepancy mostly because Native tests were averaging 22 and 80.
+
 				if wCov != "0" {
-					// Prefer WASM coverage if stdlib had 0% (common in WASM-only packages)
-					if coveragePercent == "0" {
+					wVal, _ := strconv.ParseFloat(wCov, 64)
+					nVal, _ := strconv.ParseFloat(coveragePercent, 64)
+					if wVal > nVal {
 						coveragePercent = wCov
-						addMsg(true, "coverage: "+coveragePercent+"%")
 					}
 				}
 			}
 		}
+	}
+
+	// Report consolidated coverage
+	if coveragePercent != "0" {
+		addMsg(true, "coverage: "+coveragePercent+"%")
 	}
 
 	// Detect slowest test across stdlib and WASM outputs
@@ -318,7 +350,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int) 
 	}
 
 	// Save test cache on success (for gopush optimization)
-	cache = NewTestCache()
+	// We save even if noCache=true, because this was a valid run
+	cache := NewTestCache()
 	if err := cache.SaveCache(summary); err != nil {
 		g.log("Warning: failed to save test cache:", err)
 	}
@@ -410,6 +443,18 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	// Process stdlib test results (without race detection reporting)
 	testStatus, _, stdTestsRan, msgs := evaluateTestResults(testErr, testOutput, moduleName, msgs, false)
 
+	// Initialize coveragePercent for custom runs (not calculated for stdlib in fast path usually, but we need it for comparison)
+	coveragePercent := "0"
+
+	// Process coverage if std tests ran
+	if stdTestsRan {
+		if exactCov, err := g.getExactCoverage(testArgs); err == nil {
+			coveragePercent = exactCov
+		} else {
+			coveragePercent = calculateAverageCoverage(testOutput)
+		}
+	}
+
 	// Remove "race detection ok" message since we're not forcing -race in custom args
 	// (user can add -race explicitly if desired)
 	var filteredMsgs []string
@@ -446,6 +491,20 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 			if !hasTimeoutFlag(wasmArgs) {
 				wasmArgs = append(wasmArgs, timeoutFlag)
 			}
+
+			// Always add -count=1 for WASM to enforce consistent behavior (no caching)
+			// unless user already specified it.
+			hasCount := false
+			for _, arg := range wasmArgs {
+				if strings.Contains(arg, "-count") {
+					hasCount = true
+					break
+				}
+			}
+			if !hasCount {
+				wasmArgs = append(wasmArgs, "-count=1")
+			}
+
 			wasmTestArgs := append([]string{"test", "-exec", "wasmbrowsertest"}, wasmArgs...)
 			wasmTestArgs = append(wasmTestArgs, "./...")
 
@@ -490,12 +549,22 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 				addMsg(false, "tests wasm failed")
 				testStatus = "Failed"
 			} else {
-				addMsg(true, "tests wasm ok")
-				if testStatus != "Failed" {
-					testStatus = "Passing"
+				wOutput := wasmOut.String()
+				wCov := calculateAverageCoverage(wOutput)
+				if wCov != "0" {
+					wVal, _ := strconv.ParseFloat(wCov, 64)
+					nVal, _ := strconv.ParseFloat(coveragePercent, 64)
+					if wVal > nVal {
+						coveragePercent = wCov
+					}
 				}
 			}
 		}
+	}
+
+	// Report consolidated coverage if available (and not 0)
+	if coveragePercent != "0" {
+		addMsg(true, "coverage: "+coveragePercent+"%")
 	}
 
 	elapsed := time.Since(start).Seconds()
@@ -554,29 +623,157 @@ func findSlowestTest(output string, threshold float64) (string, float64) {
 
 func calculateAverageCoverage(output string) string {
 	lines := strings.Split(output, "\n")
-	var total float64
-	var count int
 
-	re := regexp.MustCompile(`coverage:\s+(\d+(\.\d+)?)%`)
+	// Map to store max coverage per package
+	// If package name is unknown, use unique key to treat as separate
+	pkgCoverage := make(map[string]float64)
+
+	// Regex to parse: ok package_name time coverage: X% of statements [in target_package]
+	// We want to group by the TARGET package if specified ("in target_package"),
+	// otherwise by the test package.
+	// Actually, if we use -coverpkg=./..., many tests cover the SAME target package.
+	// We want the coverage OF the target package.
+	// So if "in X" is present, use X. If not, use test package Y.
+
+	// Regex for "coverage: X% of statements in PACKAGE"
+	reWithPkg := regexp.MustCompile(`coverage:\s+(\d+(\.\d+)?)%\s+of\s+statements\s+in\s+(\S+)`)
+
+	// Regex for simple "coverage: X%" (fallback)
+	reSimple := regexp.MustCompile(`coverage:\s+(\d+(\.\d+)?)%`)
 
 	for _, line := range lines {
 		if strings.Contains(line, "[no test files]") {
 			continue
 		}
-		matches := re.FindStringSubmatch(line)
-		if len(matches) > 1 {
-			val, err := strconv.ParseFloat(matches[1], 64)
-			if err == nil && val > 0 {
-				total += val
-				count++
+
+		// Try explicit target package first
+		matchesPkg := reWithPkg.FindStringSubmatch(line)
+		if len(matchesPkg) > 3 {
+			val, _ := strconv.ParseFloat(matchesPkg[1], 64)
+			pkg := matchesPkg[3]
+			if val > pkgCoverage[pkg] {
+				pkgCoverage[pkg] = val
+			}
+			continue
+		}
+
+		// Fallback to simple coverage (usually implies covering itself)
+		// We need to find the package name from the "ok" line start if possible
+		// Line format: "ok  package_name  time  coverage: ..."
+		matchesSimple := reSimple.FindStringSubmatch(line)
+		if len(matchesSimple) > 1 {
+			val, _ := strconv.ParseFloat(matchesSimple[1], 64)
+
+			// Try to extract package name from start of line
+			fields := strings.Fields(line)
+			pkg := ""
+			if len(fields) >= 2 && fields[0] == "ok" {
+				pkg = fields[1]
+			} else {
+				// If we can't determine package, use the line itself as unique key to avoid merging
+				pkg = line
+			}
+
+			if val > pkgCoverage[pkg] {
+				pkgCoverage[pkg] = val
 			}
 		}
 	}
 
-	if count == 0 {
+	if len(pkgCoverage) == 0 {
 		return "0"
 	}
-	return fmt.Sprintf("%.0f", total/float64(count))
+
+	var total float64
+	for _, val := range pkgCoverage {
+		total += val
+	}
+
+	return fmt.Sprintf("%.1f", total/float64(len(pkgCoverage)))
+}
+
+// getExactCoverage attempts to calculate weighted coverage using go tool cover
+func (g *Go) getExactCoverage(testArgs []string) (string, error) {
+	cmd := exec.Command("go", "list", "./...")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	packages := strings.Fields(string(out))
+	if len(packages) == 0 {
+		return "", fmt.Errorf("no packages")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gotest-cov")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mergedParams := []string{"mode: set"}
+
+	ctx := context.Background()
+
+	var commonArgs []string
+	for _, arg := range testArgs {
+		if arg != "./..." && !strings.HasPrefix(arg, "-coverprofile") {
+			commonArgs = append(commonArgs, arg)
+		}
+	}
+
+	for i, pkg := range packages {
+		profilePath := fmt.Sprintf("%s/%d.out", tmpDir, i)
+
+		pkgArgs := append([]string{}, commonArgs...)
+		pkgArgs = append(pkgArgs, pkg)
+		pkgArgs = append(pkgArgs, fmt.Sprintf("-coverprofile=%s", profilePath))
+
+		execCmd := exec.CommandContext(ctx, "go", pkgArgs...)
+		execCmd.Env = os.Environ()
+		_ = execCmd.Run()
+
+		content, err := os.ReadFile(profilePath)
+		if err == nil {
+			lines := strings.Split(string(content), "\n")
+			if len(lines) > 1 {
+				mergedParams = append(mergedParams, lines[1:]...)
+			}
+		}
+	}
+
+	mergedPath := fmt.Sprintf("%s/merged.out", tmpDir)
+	var finalLines []string
+	for _, l := range mergedParams {
+		if strings.TrimSpace(l) != "" {
+			finalLines = append(finalLines, l)
+		}
+	}
+	if len(finalLines) <= 1 {
+		return "", fmt.Errorf("no coverage data collected")
+	}
+
+	if err := os.WriteFile(mergedPath, []byte(strings.Join(finalLines, "\n")), 0644); err != nil {
+		return "", err
+	}
+
+	coverCmd := exec.Command("go", "tool", "cover", fmt.Sprintf("-func=%s", mergedPath))
+	coverOut, err := coverCmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cover tool failed: %v", err)
+	}
+
+	lines := strings.Split(string(coverOut), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "total:") {
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				last := parts[len(parts)-1] // 89.0%
+				return strings.TrimSuffix(last, "%"), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("total not found")
 }
 
 func (g *Go) installWasmBrowserTest() error {

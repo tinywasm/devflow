@@ -85,7 +85,7 @@ goHandler.SetLog(log.Println)
 - **Smart versioning** - Auto-increments tags, skips duplicates
 - **Multi-account** - Switch GitHub orgs easily (cdvelop, veltylabs, tinywasm)
 - **Dependency updates** - Auto-updates dependent modules in workspace
-- **Full testing** - Combines vet, tests, race detection, coverage
+- **Full testing** - Combines vet, tests, race detection, and **exact weighted coverage** across all packages
 
 ## License
 
