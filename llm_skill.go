@@ -104,12 +104,12 @@ func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 		configPath := filepath.Join(llm.Dir, llm.ConfigFile)
 
 		if force {
-			if err := l.forceUpdate(configPath, master); err != nil {
+			if err := l.ForceUpdate(configPath, master); err != nil {
 				return "", fmt.Errorf("failed to update %s: %w", llm.Name, err)
 			}
 			updated = append(updated, llm.Name)
 		} else {
-			changed, err := l.smartSync(configPath, master)
+			changed, err := l.SmartSync(configPath, master)
 			if err != nil {
 				return "", fmt.Errorf("failed to sync %s: %w", llm.Name, err)
 			}
@@ -136,8 +136,8 @@ func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 	return summary, nil
 }
 
-// smartSync realiza sincronización inteligente con merge de marcadores
-func (l *LLM) smartSync(configPath, masterContent string) (bool, error) {
+// SmartSync realiza sincronización inteligente con merge de marcadores
+func (l *LLM) SmartSync(configPath, masterContent string) (bool, error) {
 	// Leer contenido actual
 	currentContent, err := os.ReadFile(configPath)
 	hasExisting := err == nil
@@ -160,14 +160,14 @@ func (l *LLM) smartSync(configPath, masterContent string) (bool, error) {
 	}
 
 	// Extraer secciones del master y del archivo actual
-	masterSections := extractSections(masterContent)
-	currentSections := extractSections(current)
+	masterSections := ExtractSections(masterContent)
+	currentSections := ExtractSections(current)
 
 	// Si el archivo actual no tiene secciones (formato legacy), hacer backup y reemplazar
 	if len(currentSections) == 0 {
 		l.log("Legacy format detected, converting to sectioned format:", configPath)
 		backupPath := configPath + ".bak"
-		if err := copyFile(configPath, backupPath); err != nil {
+		if err := CopyFile(configPath, backupPath); err != nil {
 			return false, fmt.Errorf("failed to create backup: %w", err)
 		}
 		l.log("Created backup:", backupPath)
@@ -212,12 +212,12 @@ func (l *LLM) smartSync(configPath, masterContent string) (bool, error) {
 	return changed, nil
 }
 
-// forceUpdate sobrescribe completamente el archivo (con backup)
-func (l *LLM) forceUpdate(configPath, masterContent string) error {
+// ForceUpdate sobrescribe completamente el archivo (con backup)
+func (l *LLM) ForceUpdate(configPath, masterContent string) error {
 	// Crear backup si existe
 	if _, err := os.Stat(configPath); err == nil {
 		backupPath := configPath + ".bak"
-		if err := copyFile(configPath, backupPath); err != nil {
+		if err := CopyFile(configPath, backupPath); err != nil {
 			return fmt.Errorf("failed to create backup: %w", err)
 		}
 		l.log("Created backup:", backupPath)
@@ -231,8 +231,8 @@ func (l *LLM) forceUpdate(configPath, masterContent string) error {
 	return nil
 }
 
-// extractSections extrae secciones marcadas del contenido
-func extractSections(content string) map[string]string {
+// ExtractSections extrae secciones marcadas del contenido
+func ExtractSections(content string) map[string]string {
 	sections := make(map[string]string)
 	lines := strings.Split(content, "\n")
 
@@ -272,8 +272,8 @@ func extractSections(content string) map[string]string {
 	return sections
 }
 
-// copyFile copia un archivo (helper para backup)
-func copyFile(src, dst string) error {
+// CopyFile copia un archivo (helper para backup)
+func CopyFile(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err

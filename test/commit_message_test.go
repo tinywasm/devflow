@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"testing"
@@ -25,8 +27,8 @@ func TestValidateCommitMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := ValidateCommitMessage(tt.message); (err != nil) != tt.wantErr {
-				t.Errorf("ValidateCommitMessage() error = %v, wantErr %v", err, tt.wantErr)
+			if err := devflow.ValidateCommitMessage(tt.message); (err != nil) != tt.wantErr {
+				t.Errorf("devflow.ValidateCommitMessage() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -44,8 +46,8 @@ func TestFormatCommitMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := FormatCommitMessage(tt.message); got != tt.want {
-				t.Errorf("FormatCommitMessage() = %v, want %v", got, tt.want)
+			if got := devflow.FormatCommitMessage(tt.message); got != tt.want {
+				t.Errorf("devflow.FormatCommitMessage() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -67,9 +69,9 @@ func TestValidateShellSafeMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ValidateShellSafeMessage(tt.message)
+			got := devflow.ValidateShellSafeMessage(tt.message)
 			if (got != "") != tt.want {
-				t.Errorf("ValidateShellSafeMessage() = %v, want warning? %v", got, tt.want)
+				t.Errorf("devflow.ValidateShellSafeMessage() = %v, want warning? %v", got, tt.want)
 			}
 		})
 	}

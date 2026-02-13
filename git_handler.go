@@ -221,8 +221,8 @@ func (g *Git) Add() error {
 	return err
 }
 
-// hasChanges checks if there are staged changes
-func (g *Git) hasChanges() (bool, error) {
+// HasChanges checks if there are staged changes
+func (g *Git) HasChanges() (bool, error) {
 	// Check if HEAD exists
 	_, err := g.runSilent("git", "rev-parse", "HEAD")
 	if err != nil {
@@ -254,7 +254,7 @@ func (g *Git) hasChanges() (bool, error) {
 // Commit creates a commit with the given message
 // Returns true if a commit was created
 func (g *Git) Commit(message string) (bool, error) {
-	hasChanges, err := g.hasChanges()
+	hasChanges, err := g.HasChanges()
 	if err != nil {
 		return false, err
 	}
@@ -370,8 +370,8 @@ func (g *Git) getCurrentBranch() (string, error) {
 	return output, nil
 }
 
-// hasUpstream checks if the branch has upstream
-func (g *Git) hasUpstream() (bool, error) {
+// HasUpstream checks if the branch has upstream
+func (g *Git) HasUpstream() (bool, error) {
 	_, err := g.runSilent("git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "@{u}")
 	if err != nil {
 		return false, nil
@@ -441,7 +441,7 @@ func (g *Git) PushWithTags(tag string) (bool, error) {
 		return false, err
 	}
 
-	hasUpstream, err := g.hasUpstream()
+	hasUpstream, err := g.HasUpstream()
 	if err != nil {
 		return false, err
 	}

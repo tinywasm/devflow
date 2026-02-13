@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -16,8 +18,8 @@ func TestUpdateSection(t *testing.T) {
 	}
 
 	// Helper to create markdown handler
-	newMarkDown := func() *MarkDown {
-		return NewMarkDown(".", ".", func(name string, data []byte) error {
+	newMarkDown := func() *devflow.MarkDown {
+		return devflow.NewMarkDown(".", ".", func(name string, data []byte) error {
 			return os.WriteFile(name, data, 0644)
 		}).InputPath(tmpFile, func(name string) ([]byte, error) {
 			return os.ReadFile(name)

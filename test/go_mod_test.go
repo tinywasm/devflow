@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -16,7 +18,7 @@ func TestModExistsInCurrentOrParent(t *testing.T) {
 		t.Fatalf("failed to create subdir: %v", err)
 	}
 
-	g, err := NewGo(nil)
+	g, err := devflow.NewGo(nil)
 	if err != nil {
 		t.Fatalf("failed to create Go handler: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestFindProjectRoot(t *testing.T) {
 	}
 
 	t.Run("FindsRootFromRoot", func(t *testing.T) {
-		found, err := FindProjectRoot(tmp)
+		found, err := devflow.FindProjectRoot(tmp)
 		if err != nil {
 			t.Errorf("expected to find root, got error: %v", err)
 		}
@@ -88,7 +90,7 @@ func TestFindProjectRoot(t *testing.T) {
 	})
 
 	t.Run("FindsRootFromDirectChild", func(t *testing.T) {
-		found, err := FindProjectRoot(subdir1)
+		found, err := devflow.FindProjectRoot(subdir1)
 		if err != nil {
 			t.Errorf("expected to find root from child, got error: %v", err)
 		}
@@ -103,7 +105,7 @@ func TestFindProjectRoot(t *testing.T) {
 		// subdir1 parent is tmp (has go.mod).
 		// So checking subdir2 should check subdir2 and subdir1, find nothing, and fail.
 
-		_, err := FindProjectRoot(subdir2)
+		_, err := devflow.FindProjectRoot(subdir2)
 		if err == nil {
 			t.Error("expected error when searching from grandchild due to depth limit, but got success")
 		}
@@ -114,7 +116,7 @@ func TestFindProjectRoot(t *testing.T) {
 		emptySub := filepath.Join(emptyTmp, "sub")
 		os.Mkdir(emptySub, 0755)
 
-		_, err := FindProjectRoot(emptySub)
+		_, err := devflow.FindProjectRoot(emptySub)
 		if err == nil {
 			t.Error("expected error when no go.mod exists anywhere")
 		}
@@ -135,7 +137,7 @@ replace github.com/test/lib => ../lib
 
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm := NewGoModHandler()
+		gm := devflow.NewGoModHandler()
 		gm.SetRootDir(tmp)
 		// Explicit load or let RemoveReplace trigger it
 		// RemoveReplace now auto-loads.
@@ -144,8 +146,8 @@ replace github.com/test/lib => ../lib
 		if !removed {
 			t.Error("expected replace to be removed")
 		}
-		if !gm.modified {
-			t.Error("expected modified to be true")
+		if !gm.Modified {
+			t.Error("expected Modified to be true")
 		}
 
 		if err := gm.Save(); err != nil {
@@ -169,7 +171,7 @@ replace (
 
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm := NewGoModHandler()
+		gm := devflow.NewGoModHandler()
 		gm.SetRootDir(tmp)
 
 		gm.RemoveReplace("github.com/test/lib")
@@ -194,7 +196,7 @@ replace (
 
 		os.WriteFile(gomodPath, []byte(content), 0644)
 
-		gm := NewGoModHandler()
+		gm := devflow.NewGoModHandler()
 		gm.SetRootDir(tmp)
 
 		gm.RemoveReplace("github.com/test/lib")
@@ -211,12 +213,12 @@ replace (
 replace github.com/test/lib => ../lib
 replace github.com/test/other => ../other
 `
-		gm := NewGoModHandler()
+		gm := devflow.NewGoModHandler()
 		gm.SetRootDir(tmp)
-		// Manually injection of lines for test? Or standard load?
-		// The original test said: gm.lines = strings.Split(content, "\n")
+		// Manually injection of Lines for test? Or standard load?
+		// The original test said: gm.Lines = strings.Split(content, "\n")
 		// So we do the same.
-		gm.lines = strings.Split(content, "\n")
+		gm.Lines = strings.Split(content, "\n")
 
 		if !gm.HasOtherReplaces("github.com/test/lib") {
 			t.Error("expected true when other replaces exist")
@@ -228,7 +230,7 @@ replace github.com/test/other => ../other
 			}
 		}
 
-		gm.lines = []string{"module test", "go 1.20"}
+		gm.Lines = []string{"module test", "go 1.20"}
 		if gm.HasOtherReplaces("") {
 			t.Error("expected false when no replaces exist")
 		}
@@ -252,7 +254,7 @@ replace github.com/test/lib4 => ../lib4
 `
 		os.WriteFile(gomodPath, []byte(content), 0644)
 		os.WriteFile(gomodPath, []byte(content), 0644)
-		gm := NewGoModHandler()
+		gm := devflow.NewGoModHandler()
 		gm.SetRootDir(tmp)
 
 		paths, err := gm.GetReplacePaths()

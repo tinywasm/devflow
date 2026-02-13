@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"fmt"
@@ -42,7 +44,7 @@ func TestConcurrentSafeExecution(t *testing.T) {
 
 			// Execute "pwd" (linux) in the target directory
 			// Note: On Mac/Linux 'pwd' outputs the physical path.
-			output, err := RunCommandInDir(targetDir, "pwd")
+			output, err := devflow.RunCommandInDir(targetDir, "pwd")
 			if err != nil {
 				errors <- fmt.Errorf("worker %d failed: %v", idx, err)
 				return

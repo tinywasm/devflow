@@ -11,18 +11,18 @@ import (
 // TestCache provides git-based test caching to avoid re-running tests
 // when the code hasn't changed since the last successful test run.
 type TestCache struct {
-	cacheDir string
+	CacheDir string
 }
 
 // NewTestCache creates a new TestCache instance
 func NewTestCache() *TestCache {
 	return &TestCache{
-		cacheDir: filepath.Join(os.TempDir(), "gotest-cache"),
+		CacheDir: filepath.Join(os.TempDir(), "gotest-cache"),
 	}
 }
 
-// getCacheKey returns a unique key for the current module based on its path
-func (tc *TestCache) getCacheKey() (string, error) {
+// GetCacheKey returns a unique key for the current module based on its path
+func (tc *TestCache) GetCacheKey() (string, error) {
 	moduleName, err := getModuleName(".")
 	if err != nil {
 		return "", err
@@ -32,18 +32,18 @@ func (tc *TestCache) getCacheKey() (string, error) {
 	return hash[:16], nil
 }
 
-// getCachePath returns the full path to the cache file
-func (tc *TestCache) getCachePath() (string, error) {
-	key, err := tc.getCacheKey()
+// GetCachePath returns the full path to the cache file
+func (tc *TestCache) GetCachePath() (string, error) {
+	key, err := tc.GetCacheKey()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(tc.cacheDir, key), nil
+	return filepath.Join(tc.CacheDir, key), nil
 }
 
-// getGitState returns current git state: commit hash + diff hash
+// GetGitState returns current git state: commit hash + diff hash
 // This uniquely identifies the exact state of the code
-func (tc *TestCache) getGitState() (string, error) {
+func (tc *TestCache) GetGitState() (string, error) {
 	// Get current commit hash
 	commitHash, err := RunCommandSilent("git", "rev-parse", "HEAD")
 	if err != nil {
@@ -66,18 +66,18 @@ func (tc *TestCache) getGitState() (string, error) {
 
 // SaveCache saves the current git state and test message
 func (tc *TestCache) SaveCache(message string) error {
-	state, err := tc.getGitState()
+	state, err := tc.GetGitState()
 	if err != nil {
 		return err
 	}
 
-	cachePath, err := tc.getCachePath()
+	cachePath, err := tc.GetCachePath()
 	if err != nil {
 		return err
 	}
 
 	// Ensure cache directory exists
-	if err := os.MkdirAll(tc.cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(tc.CacheDir, 0755); err != nil {
 		return err
 	}
 
@@ -88,12 +88,12 @@ func (tc *TestCache) SaveCache(message string) error {
 
 // IsCacheValid checks if tests were already run successfully with the current code
 func (tc *TestCache) IsCacheValid() bool {
-	currentState, err := tc.getGitState()
+	currentState, err := tc.GetGitState()
 	if err != nil {
 		return false
 	}
 
-	cachePath, err := tc.getCachePath()
+	cachePath, err := tc.GetCachePath()
 	if err != nil {
 		return false
 	}
@@ -114,7 +114,7 @@ func (tc *TestCache) IsCacheValid() bool {
 
 // GetCachedMessage returns the cached test output message
 func (tc *TestCache) GetCachedMessage() string {
-	cachePath, err := tc.getCachePath()
+	cachePath, err := tc.GetCachePath()
 	if err != nil {
 		return ""
 	}
@@ -135,7 +135,7 @@ func (tc *TestCache) GetCachedMessage() string {
 
 // InvalidateCache removes the cache file
 func (tc *TestCache) InvalidateCache() error {
-	cachePath, err := tc.getCachePath()
+	cachePath, err := tc.GetCachePath()
 	if err != nil {
 		return err
 	}

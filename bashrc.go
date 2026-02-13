@@ -9,7 +9,7 @@ import (
 
 // Bashrc handles updates to .bashrc file using markers
 type Bashrc struct {
-	filePath string
+	FilePath string
 }
 
 // NewBashrc creates a new Bashrc handler for ~/.bashrc
@@ -19,7 +19,7 @@ func NewBashrc() *Bashrc {
 		home = "~"
 	}
 	return &Bashrc{
-		filePath: filepath.Join(home, ".bashrc"),
+		FilePath: filepath.Join(home, ".bashrc"),
 	}
 }
 
@@ -69,7 +69,7 @@ func (b *Bashrc) Get(key string) (string, error) {
 	// Extract value from export statement
 	// Content format: export KEY="value"
 	exportLine := sections[0].content
-	return b.extractValue(exportLine, key)
+	return b.ExtractValue(exportLine, key)
 }
 
 // updateSection updates or creates a section in .bashrc
@@ -137,7 +137,7 @@ func (b *Bashrc) remove(key string) error {
 
 // readFile reads .bashrc content
 func (b *Bashrc) readFile() (string, error) {
-	data, err := os.ReadFile(b.filePath)
+	data, err := os.ReadFile(b.FilePath)
 	if err != nil {
 		return "", err
 	}
@@ -146,7 +146,7 @@ func (b *Bashrc) readFile() (string, error) {
 
 // writeFile writes content to .bashrc
 func (b *Bashrc) writeFile(content string) error {
-	return os.WriteFile(b.filePath, []byte(content), 0644)
+	return os.WriteFile(b.FilePath, []byte(content), 0644)
 }
 
 type sectionInfo struct {
@@ -211,10 +211,10 @@ func (b *Bashrc) removeAllSections(content string, sections []sectionInfo) strin
 	return strings.Join(lines, "\n")
 }
 
-// extractValue extracts value from export statement
+// ExtractValue extracts value from export statement
 // Input: export KEY="value" or export KEY=value
 // Output: value
-func (b *Bashrc) extractValue(exportLine, key string) (string, error) {
+func (b *Bashrc) ExtractValue(exportLine, key string) (string, error) {
 	// Remove leading/trailing whitespace
 	line := strings.TrimSpace(exportLine)
 

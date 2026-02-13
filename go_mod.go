@@ -14,8 +14,8 @@ import (
 
 // GoModHandler represents a parsed go.mod file and handles file events
 type GoModHandler struct {
-	lines    []string // all lines of the file
-	modified bool     // track if changes were made
+	Lines    []string // all lines of the file
+	Modified bool     // track if changes were made
 
 	// Handler fields
 	rootDir       string
@@ -48,7 +48,7 @@ func (g *GoModHandler) load() error {
 		return err
 	}
 
-	g.lines = strings.Split(string(content), "\n")
+	g.Lines = strings.Split(string(content), "\n")
 	return nil
 }
 
@@ -56,18 +56,18 @@ func (g *GoModHandler) load() error {
 // Returns true if a replace was found and removed
 func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	// check if loaded
-	if len(m.lines) == 0 {
+	if len(m.Lines) == 0 {
 		if err := m.load(); err != nil {
 			return false
 		}
 	}
 
-	originalCount := len(m.lines)
+	originalCount := len(m.Lines)
 	var newLines []string
 	inReplaceBlock := false
 	removed := false
 
-	for _, line := range m.lines {
+	for _, line := range m.Lines {
 		trimmed := strings.TrimSpace(line)
 
 		// Detect start/end of replace block
@@ -98,8 +98,8 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	}
 
 	if removed || len(newLines) != originalCount {
-		m.lines = newLines
-		m.modified = true
+		m.Lines = newLines
+		m.Modified = true
 		return true
 	}
 
@@ -110,7 +110,7 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 // Relative paths are resolved starting from the directory containing go.mod.
 func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 	// check if loaded
-	if len(m.lines) == 0 {
+	if len(m.Lines) == 0 {
 		if err := m.load(); err != nil {
 			return nil, err
 		}
@@ -120,7 +120,7 @@ func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 	inReplaceBlock := false
 	rootDir := m.rootDir
 
-	for _, line := range m.lines {
+	for _, line := range m.Lines {
 		trimmed := strings.TrimSpace(line)
 
 		// Detect start/end of replace block
@@ -182,14 +182,14 @@ func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 // other than the specified module
 func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
 	// check if loaded
-	if len(m.lines) == 0 {
+	if len(m.Lines) == 0 {
 		if err := m.load(); err != nil {
 			return false
 		}
 	}
 
 	inReplaceBlock := false
-	for _, line := range m.lines {
+	for _, line := range m.Lines {
 		trimmed := strings.TrimSpace(line)
 
 		if strings.HasPrefix(trimmed, "replace (") {
@@ -213,11 +213,11 @@ func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
 
 // Save writes changes back to the file if modified
 func (m *GoModHandler) Save() error {
-	if !m.modified {
+	if !m.Modified {
 		return nil
 	}
 
-	content := strings.Join(m.lines, "\n")
+	content := strings.Join(m.Lines, "\n")
 	return os.WriteFile(filepath.Join(m.rootDir, "go.mod"), []byte(content), 0644)
 }
 
@@ -280,8 +280,8 @@ func (g *GoModHandler) NewFileEvent(fileName, extension, filePath, event string)
 		g.log("Error reading go.mod:", err)
 		return err
 	}
-	g.lines = strings.Split(string(content), "\n")
-	g.modified = false
+	g.Lines = strings.Split(string(content), "\n")
+	g.Modified = false
 
 	entries, err := g.GetReplacePaths()
 	if err != nil {
@@ -328,8 +328,8 @@ func (g *GoModHandler) reconcilePaths(entries []ReplaceEntry) {
 	g.currentPaths = newMap
 }
 
-// getModulePath gets full module path
-func (g *Go) getModulePath() (string, error) {
+// GetModulePath gets full module path
+func (g *Go) GetModulePath() (string, error) {
 	file, err := os.Open("go.mod")
 	if err != nil {
 		return "", err
@@ -347,8 +347,8 @@ func (g *Go) getModulePath() (string, error) {
 	return "", fmt.Errorf("module directive not found in go.mod")
 }
 
-// modExists checks if go.mod exists
-func (g *Go) modExists() bool {
+// ModExists checks if go.mod exists
+func (g *Go) ModExists() bool {
 	_, err := os.Stat(filepath.Join(g.rootDir, "go.mod"))
 	return err == nil
 }
@@ -356,7 +356,7 @@ func (g *Go) modExists() bool {
 // ModExistsInCurrentOrParent checks if go.mod exists in the rootDir or one directory up.
 func (g *Go) ModExistsInCurrentOrParent() bool {
 	// Check in rootDir
-	if g.modExists() {
+	if g.ModExists() {
 		return true
 	}
 	// Check in parent
@@ -392,9 +392,9 @@ func FindProjectRoot(startDir string) (string, error) {
 	return "", fmt.Errorf("could not find go.mod in %s or parent", absStart)
 }
 
-// verify verifies go.mod integrity
-func (g *Go) verify() error {
-	if !g.modExists() {
+// Verify verifies go.mod integrity
+func (g *Go) Verify() error {
+	if !g.ModExists() {
 		return fmt.Errorf("go.mod not found")
 	}
 
@@ -429,14 +429,14 @@ func (g *Go) WaitForVersionAvailable(modulePath, version string) error {
 	return fmt.Errorf("version %s not available after %d attempts", version, maxRetries)
 }
 
-// updateDependents updates modules that depend on the current one
-func (g *Go) updateDependents(modulePath, version, searchPath string) ([]string, error) {
+// UpdateDependents updates modules that depend on the current one
+func (g *Go) UpdateDependents(modulePath, version, searchPath string) ([]string, error) {
 	if searchPath == "" {
 		searchPath = ".."
 	}
 
 	// Find modules that depend on current
-	dependents, err := g.findDependentModules(modulePath, searchPath)
+	dependents, err := g.FindDependentModules(modulePath, searchPath)
 	if err != nil {
 		return nil, err
 	}
@@ -491,8 +491,8 @@ func (g *Go) updateDependents(modulePath, version, searchPath string) ([]string,
 	return results, nil
 }
 
-// findDependentModules searches for modules that have modulePath as dependency
-func (g *Go) findDependentModules(modulePath, searchPath string) ([]string, error) {
+// FindDependentModules searches for modules that have modulePath as dependency
+func (g *Go) FindDependentModules(modulePath, searchPath string) ([]string, error) {
 	var dependents []string
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
@@ -505,7 +505,7 @@ func (g *Go) findDependentModules(modulePath, searchPath string) ([]string, erro
 			return nil
 		}
 
-		if g.hasDependency(path, modulePath) {
+		if g.HasDependency(path, modulePath) {
 			dependents = append(dependents, filepath.Dir(path))
 		}
 
@@ -515,8 +515,8 @@ func (g *Go) findDependentModules(modulePath, searchPath string) ([]string, erro
 	return dependents, err
 }
 
-// hasDependency checks if a go.mod contains a specific dependency
-func (g *Go) hasDependency(gomodPath, modulePath string) bool {
+// HasDependency checks if a go.mod contains a specific dependency
+func (g *Go) HasDependency(gomodPath, modulePath string) bool {
 	content, err := os.ReadFile(gomodPath)
 	if err != nil {
 		return false
@@ -544,8 +544,8 @@ func (g *Go) hasDependency(gomodPath, modulePath string) bool {
 	return false
 }
 
-// updateModule updates a specific module to a new version
-func (g *Go) updateModule(moduleDir, dependency, version string) error {
+// UpdateModule updates a specific module to a new version
+func (g *Go) UpdateModule(moduleDir, dependency, version string) error {
 	originalDir, err := os.Getwd()
 	if err != nil {
 		return err

@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -13,7 +15,7 @@ func TestGitHasChanges(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Create file
 	os.WriteFile("test.txt", []byte("test"), 0644)
@@ -22,7 +24,7 @@ func TestGitHasChanges(t *testing.T) {
 	git.Add()
 
 	// Should have changes
-	hasChanges, err := git.hasChanges()
+	hasChanges, err := git.HasChanges()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,7 @@ func TestGitGenerateNextTag(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Initial commit
 	os.WriteFile("test.txt", []byte("test"), 0644)
@@ -75,7 +77,7 @@ func TestGitCommit(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Without changes should not fail
 	_, err := git.Commit("test")
@@ -88,7 +90,7 @@ func TestGitCommit(t *testing.T) {
 	git.Add()
 
 	// Check for changes
-	has, _ := git.hasChanges()
+	has, _ := git.HasChanges()
 	if !has {
 		t.Fatal("Should have changes before commit")
 	}
@@ -129,7 +131,7 @@ func TestGitPush(t *testing.T) {
 
 	exec.Command("git", "remote", "add", "origin", "file://"+remoteDir).Run()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 	os.WriteFile("README.md", []byte("# test"), 0644)
 
 	result, err := git.Push("initial commit", "v0.0.1")
@@ -147,7 +149,7 @@ func TestGitPushRejectsLowerTag(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Setup dummy remote for CheckRemoteAccess
 	remoteDir, _ := os.MkdirTemp("", "gitgo-remote-reject-")
@@ -184,7 +186,7 @@ func TestGitPushAcceptsHigherTag(t *testing.T) {
 
 	exec.Command("git", "remote", "add", "origin", "file://"+remoteDir).Run()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 	os.WriteFile("test.txt", []byte("initial"), 0644)
 	git.Add()
 	git.Commit("initial")
@@ -208,7 +210,7 @@ func TestGitGenerateNextTagErrors(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Test with invalid tag format
 	// Force a tag with invalid format
@@ -243,7 +245,7 @@ func TestGitPushWithUpstreamLogic(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Add remote
 	exec.Command("git", "remote", "add", "origin", "file://"+remoteDir).Run()
@@ -257,7 +259,7 @@ func TestGitPushWithUpstreamLogic(t *testing.T) {
 	git.CreateTag("v0.0.1")
 
 	// Test hasUpstream (should be false)
-	has, err := git.hasUpstream()
+	has, err := git.HasUpstream()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +274,7 @@ func TestGitPushWithUpstreamLogic(t *testing.T) {
 	}
 
 	// Now should have upstream
-	has, err = git.hasUpstream()
+	has, err = git.HasUpstream()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +289,7 @@ func TestGitCreateTagExists(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Initial commit needed for tagging
 	exec.Command("git", "commit", "--allow-empty", "-m", "init").Run()
@@ -318,7 +320,7 @@ func TestGitAddError(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Corrupt .git/index
 	os.WriteFile(".git/index", []byte("garbage"), 0000)
@@ -335,7 +337,7 @@ func TestGitPushCommitFailure(t *testing.T) {
 
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Stage file
 	os.WriteFile("test.txt", []byte("content"), 0644)
@@ -363,7 +365,7 @@ func TestGetLatestTagSemverOrder(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Create commits and tags in sequence
 	exec.Command("git", "commit", "--allow-empty", "-m", "c1").Run()
@@ -391,7 +393,7 @@ func TestGenerateNextTagWithOutOfOrderTags(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	git, _ := NewGit()
+	git, _ := devflow.NewGit()
 
 	// Create tags out of order (simulates the production bug)
 	exec.Command("git", "commit", "--allow-empty", "-m", "c1").Run()

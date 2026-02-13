@@ -118,7 +118,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		wasmOut, _ := wasmCmd.CombinedOutput()
 
 		// 3. Decision logic
-		enableWasmTests = shouldEnableWasm(string(nativeOut), string(wasmOut))
+		enableWasmTests = ShouldEnableWasm(string(nativeOut), string(wasmOut))
 	}()
 
 	wg1.Wait()
@@ -202,7 +202,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Detect process-level timeout (killed by context)
 	if testCtx.Err() == context.DeadlineExceeded {
-		timedOut := findTimedOutTests(testOutput)
+		timedOut := FindTimedOutTests(testOutput)
 		if len(timedOut) > 0 {
 			for _, name := range timedOut {
 				addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
@@ -215,7 +215,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Process test results
 	var stdTestsRan bool
-	testStatus, raceStatus, stdTestsRan, msgs = evaluateTestResults(testErr, testOutput, moduleName, msgs, skipRace)
+	testStatus, raceStatus, stdTestsRan, msgs = EvaluateTestResults(testErr, testOutput, moduleName, msgs, skipRace)
 
 	// If no stdlib tests ran but we see exclusions, consider enabling WASM (if not already enabled)
 	if !stdTestsRan {
@@ -282,7 +282,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 			// Detect process-level timeout for WASM tests
 			if wasmCtx.Err() == context.DeadlineExceeded {
-				timedOut := findTimedOutTests(wOutput)
+				timedOut := FindTimedOutTests(wOutput)
 				if len(timedOut) == 0 {
 					// wasmbrowsertest buffers output: retry individually to find culprit
 					timedOut = g.findWasmTimeoutCulprit(timeoutSec)
@@ -341,12 +341,12 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Detect slowest test across stdlib and WASM outputs
 	allTestOutput := testOutput + "\n" + wasmTestOutput
-	if name, dur := findSlowestTest(allTestOutput, 2.0); name != "" {
+	if name, dur := FindSlowestTest(allTestOutput, 2.0); name != "" {
 		msgs = append(msgs, fmt.Sprintf("⚠️ slow: %s (%.1fs)", name, dur))
 	}
 
 	// Detect timed out tests
-	if timedOut := findTimedOutTests(allTestOutput); len(timedOut) > 0 {
+	if timedOut := FindTimedOutTests(allTestOutput); len(timedOut) > 0 {
 		for _, name := range timedOut {
 			addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
 		}
@@ -358,7 +358,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	if checkFileExists("LICENSE") {
 		// naive check
 	}
-	goVer := getGoVersion()
+	goVer := GetGoVersion()
 
 	bh := NewBadges()
 	bh.SetLog(g.log)
@@ -424,12 +424,12 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
 
-		enableWasmTests = shouldEnableWasm(string(nativeOut), string(wasmOut))
+		enableWasmTests = ShouldEnableWasm(string(nativeOut), string(wasmOut))
 	}()
 
 	// Inject timeout if user didn't already pass -timeout
 	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
-	if !hasTimeoutFlag(customArgs) {
+	if !HasTimeoutFlag(customArgs) {
 		customArgs = append(customArgs, timeoutFlag)
 	}
 
@@ -465,7 +465,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	// Detect process-level timeout
 	if customCtx.Err() == context.DeadlineExceeded {
-		timedOut := findTimedOutTests(testOutput)
+		timedOut := FindTimedOutTests(testOutput)
 		if len(timedOut) > 0 {
 			for _, name := range timedOut {
 				addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
@@ -473,14 +473,14 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		} else {
 			addMsg(false, fmt.Sprintf("timeout: tests exceeded %ds", timeoutSec))
 		}
-		// Will be caught by evaluateTestResults as a failure
+		// Will be caught by EvaluateTestResults as a failure
 	}
 
 	// Wait for WASM detection to complete
 	wg.Wait()
 
 	// Process stdlib test results (without race detection reporting)
-	testStatus, _, stdTestsRan, msgs := evaluateTestResults(testErr, testOutput, moduleName, msgs, false)
+	testStatus, _, stdTestsRan, msgs := EvaluateTestResults(testErr, testOutput, moduleName, msgs, false)
 
 	// Initialize coveragePercent for custom runs (not calculated for stdlib in fast path usually, but we need it for comparison)
 	coveragePercent := "0"
@@ -527,7 +527,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 				}
 			}
 			// Inject timeout for WASM tests too
-			if !hasTimeoutFlag(wasmArgs) {
+			if !HasTimeoutFlag(wasmArgs) {
 				wasmArgs = append(wasmArgs, timeoutFlag)
 			}
 
@@ -575,7 +575,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 			if wasmCtx.Err() == context.DeadlineExceeded {
 				wOutput := wasmOut.String()
-				timedOut := findTimedOutTests(wOutput)
+				timedOut := FindTimedOutTests(wOutput)
 				if len(timedOut) == 0 {
 					timedOut = g.findWasmTimeoutCulprit(timeoutSec)
 				}
@@ -638,9 +638,9 @@ func (p *paramWriter) Write(b []byte) (n int, err error) {
 	return p.write(b)
 }
 
-// findSlowestTest parses -v test output and returns the name and duration of the slowest individual test
+// FindSlowestTest parses -v test output and returns the name and duration of the slowest individual test
 // across all packages if it exceeds the specified threshold.
-func findSlowestTest(output string, threshold float64) (string, float64) {
+func FindSlowestTest(output string, threshold float64) (string, float64) {
 	// Parse individual test timing from -v output: --- PASS: TestName (2.00s)
 	testRe := regexp.MustCompile(`--- (?:PASS|FAIL): (\S+) \((\d+(?:\.\d+)?)s\)`)
 	var slowestName string
@@ -830,13 +830,13 @@ func (g *Go) installWasmBrowserTest() error {
 	return nil
 }
 
-// shouldEnableWasm decides if WASM tests should be run based on go list output differences
-func shouldEnableWasm(nativeOut, wasmOut string) bool {
-	// fmt.Printf("DEBUG: shouldEnableWasm check starting\n")
+// ShouldEnableWasm decides if WASM tests should be run based on go list output differences
+func ShouldEnableWasm(nativeOut, wasmOut string) bool {
+	// fmt.Printf("DEBUG: ShouldEnableWasm check starting\n")
 	nativeFiles := parseGoListFiles(nativeOut)
-	// fmt.Printf("DEBUG: shouldEnableWasm - Native files found: %d\n", len(nativeFiles))
+	// fmt.Printf("DEBUG: ShouldEnableWasm - Native files found: %d\n", len(nativeFiles))
 	wasmFiles := parseGoListFiles(wasmOut)
-	// fmt.Printf("DEBUG: shouldEnableWasm - WASM files found: %d\n", len(wasmFiles))
+	// fmt.Printf("DEBUG: ShouldEnableWasm - WASM files found: %d\n", len(wasmFiles))
 
 	// Activation condition: at least one test file in WASM that is NOT in Native
 	// This means it has a //go:build wasm tag or similar.
@@ -889,9 +889,9 @@ func parseGoListFiles(output string) map[string]bool {
 	return fileMap
 }
 
-// evaluateTestResults analyzes the output of go test and decides the outcome
+// EvaluateTestResults analyzes the output of go test and decides the outcome
 // This function is pure and can be easily tested.
-func evaluateTestResults(err error, output, moduleName string, msgs []string, skipRace bool) (testStatus, raceStatus string, stdTestsRan bool, newMsgs []string) {
+func EvaluateTestResults(err error, output, moduleName string, msgs []string, skipRace bool) (testStatus, raceStatus string, stdTestsRan bool, newMsgs []string) {
 	testStatus = "Failed"
 	raceStatus = "Detected"
 	if skipRace {
@@ -987,8 +987,8 @@ func evaluateTestResults(err error, output, moduleName string, msgs []string, sk
 	return
 }
 
-// hasTimeoutFlag checks if -timeout is already present in the args
-func hasTimeoutFlag(args []string) bool {
+// HasTimeoutFlag checks if -timeout is already present in the args
+func HasTimeoutFlag(args []string) bool {
 	for _, arg := range args {
 		if arg == "-timeout" || strings.HasPrefix(arg, "-timeout=") ||
 			arg == "-test.timeout" || strings.HasPrefix(arg, "-test.timeout=") {
@@ -998,11 +998,11 @@ func hasTimeoutFlag(args []string) bool {
 	return false
 }
 
-// findTimedOutTests parses go test output and extracts test names that timed out.
+// FindTimedOutTests parses go test output and extracts test names that timed out.
 // Handles two scenarios:
 // 1. Go's native timeout: "panic: test timed out after Ns\n  running tests:\n    TestName (Ns)"
 // 2. Process killed externally (context.WithTimeout): finds the last "=== RUN" without a matching "--- PASS/FAIL"
-func findTimedOutTests(output string) []string {
+func FindTimedOutTests(output string) []string {
 	// Try Go's native timeout format: "running tests:" section
 	if strings.Contains(output, "running tests:") {
 		re := regexp.MustCompile(`(?m)^\s+(\S+)\s+\(\d+`)

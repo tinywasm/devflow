@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -9,7 +11,7 @@ import (
 
 func TestGitIgnoreAdd(t *testing.T) {
 	tmp := t.TempDir()
-	g, err := NewGit()
+	g, err := devflow.NewGit()
 	if err != nil {
 		t.Fatalf("failed to create Git: %v", err)
 	}

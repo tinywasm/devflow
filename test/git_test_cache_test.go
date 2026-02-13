@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -7,12 +9,18 @@ import (
 )
 
 func TestTestCache_SaveAndValidate(t *testing.T) {
-	// Skip if not in a git repository
-	if _, err := RunCommandSilent("git", "rev-parse", "HEAD"); err != nil {
-		t.Skip("Not in a git repository")
-	}
+	dir, cleanup := testCreateGoModule("example.com/test")
+	defer cleanup()
+	defer testChdir(t, dir)()
 
-	cache := NewTestCache()
+	// Init git
+	devflow.RunCommand("git", "init")
+	devflow.RunCommand("git", "config", "user.name", "Test")
+	devflow.RunCommand("git", "config", "user.email", "test@test.com")
+	devflow.RunCommand("git", "add", ".")
+	devflow.RunCommand("git", "commit", "-m", "init")
+
+	cache := devflow.NewTestCache()
 	testMsg := "✅ vet ok, ✅ tests ok"
 
 	// Clean up any existing cache
@@ -43,11 +51,18 @@ func TestTestCache_SaveAndValidate(t *testing.T) {
 }
 
 func TestTestCache_InvalidateCache(t *testing.T) {
-	if _, err := RunCommandSilent("git", "rev-parse", "HEAD"); err != nil {
-		t.Skip("Not in a git repository")
-	}
+	dir, cleanup := testCreateGoModule("example.com/test")
+	defer cleanup()
+	defer testChdir(t, dir)()
 
-	cache := NewTestCache()
+	// Init git
+	devflow.RunCommand("git", "init")
+	devflow.RunCommand("git", "config", "user.name", "Test")
+	devflow.RunCommand("git", "config", "user.email", "test@test.com")
+	devflow.RunCommand("git", "add", ".")
+	devflow.RunCommand("git", "commit", "-m", "init")
+
+	cache := devflow.NewTestCache()
 
 	// Save cache
 	if err := cache.SaveCache("test message"); err != nil {
@@ -69,9 +84,13 @@ func TestTestCache_InvalidateCache(t *testing.T) {
 }
 
 func TestTestCache_CacheKey(t *testing.T) {
-	cache := NewTestCache()
+	dir, cleanup := testCreateGoModule("example.com/test")
+	defer cleanup()
+	defer testChdir(t, dir)()
 
-	key, err := cache.getCacheKey()
+	cache := devflow.NewTestCache()
+
+	key, err := cache.GetCacheKey()
 	if err != nil {
 		t.Fatalf("Failed to get cache key: %v", err)
 	}
@@ -81,20 +100,20 @@ func TestTestCache_CacheKey(t *testing.T) {
 	}
 
 	// Key should be consistent
-	key2, _ := cache.getCacheKey()
+	key2, _ := cache.GetCacheKey()
 	if key != key2 {
 		t.Error("Cache key should be consistent across calls")
 	}
 }
 
 func TestTestCache_GitState(t *testing.T) {
-	if _, err := RunCommandSilent("git", "rev-parse", "HEAD"); err != nil {
+	if _, err := devflow.RunCommandSilent("git", "rev-parse", "HEAD"); err != nil {
 		t.Skip("Not in a git repository")
 	}
 
-	cache := NewTestCache()
+	cache := devflow.NewTestCache()
 
-	state, err := cache.getGitState()
+	state, err := cache.GetGitState()
 	if err != nil {
 		t.Fatalf("Failed to get git state: %v", err)
 	}
@@ -110,18 +129,18 @@ func TestTestCache_GitState(t *testing.T) {
 	}
 
 	// State should be consistent when code hasn't changed
-	state2, _ := cache.getGitState()
+	state2, _ := cache.GetGitState()
 	if state != state2 {
 		t.Error("Git state should be consistent when code hasn't changed")
 	}
 }
 
 func TestTestCache_CacheDirectory(t *testing.T) {
-	cache := NewTestCache()
+	cache := devflow.NewTestCache()
 
 	expectedDir := filepath.Join(os.TempDir(), "gotest-cache")
-	if cache.cacheDir != expectedDir {
-		t.Errorf("Cache dir should be %s, got %s", expectedDir, cache.cacheDir)
+	if cache.CacheDir != expectedDir {
+		t.Errorf("Cache dir should be %s, got %s", expectedDir, cache.CacheDir)
 	}
 }
 

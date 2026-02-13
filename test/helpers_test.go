@@ -1,4 +1,5 @@
-package devflow
+package devflow_test
+
 
 import (
 	"os"

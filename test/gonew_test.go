@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -10,43 +12,43 @@ import (
 func TestProjectTemplates(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Test ValidateRepoName
-	if err := ValidateRepoName("valid-name_123"); err != nil {
-		t.Errorf("ValidateRepoName failed for valid name: %v", err)
+	// Test devflow.ValidateRepoName
+	if err := devflow.ValidateRepoName("valid-name_123"); err != nil {
+		t.Errorf("devflow.ValidateRepoName failed for valid name: %v", err)
 	}
-	if err := ValidateRepoName("invalid name"); err == nil {
-		t.Error("ValidateRepoName should fail for invalid name")
-	}
-
-	// Test ValidateDescription
-	if err := ValidateDescription("valid desc"); err != nil {
-		t.Errorf("ValidateDescription failed for valid desc: %v", err)
-	}
-	if err := ValidateDescription(""); err == nil {
-		t.Error("ValidateDescription should fail for empty desc")
+	if err := devflow.ValidateRepoName("invalid name"); err == nil {
+		t.Error("devflow.ValidateRepoName should fail for invalid name")
 	}
 
-	// Test GenerateREADME
-	if err := GenerateREADME("my-repo", "desc", tmpDir); err != nil {
+	// Test devflow.ValidateDescription
+	if err := devflow.ValidateDescription("valid desc"); err != nil {
+		t.Errorf("devflow.ValidateDescription failed for valid desc: %v", err)
+	}
+	if err := devflow.ValidateDescription(""); err == nil {
+		t.Error("devflow.ValidateDescription should fail for empty desc")
+	}
+
+	// Test devflow.GenerateREADME
+	if err := devflow.GenerateREADME("my-repo", "desc", tmpDir); err != nil {
 		t.Fatal(err)
 	}
 	content, _ := os.ReadFile(filepath.Join(tmpDir, "README.md"))
 	if string(content) != "# my-repo\n\ndesc\n" {
-		t.Errorf("GenerateREADME content mismatch: %s", string(content))
+		t.Errorf("devflow.GenerateREADME content mismatch: %s", string(content))
 	}
 
-	// Test GenerateLicense
-	if err := GenerateLicense("Owner", tmpDir); err != nil {
+	// Test devflow.GenerateLicense
+	if err := devflow.GenerateLicense("Owner", tmpDir); err != nil {
 		t.Fatal(err)
 	}
 	// Check content contains owner
 	content, _ = os.ReadFile(filepath.Join(tmpDir, "LICENSE"))
 	if !strings.Contains(string(content), "Owner") {
-		t.Errorf("GenerateLicense content should contain 'Owner', got:\n%s", string(content))
+		t.Errorf("devflow.GenerateLicense content should contain 'Owner', got:\n%s", string(content))
 	}
 
-	// Test GenerateHandlerFile
-	if err := GenerateHandlerFile("my-repo", tmpDir); err != nil {
+	// Test devflow.GenerateHandlerFile
+	if err := devflow.GenerateHandlerFile("my-repo", tmpDir); err != nil {
 		t.Fatal(err)
 	}
 	content, _ = os.ReadFile(filepath.Join(tmpDir, "my-repo.go"))
@@ -59,7 +61,7 @@ func New() *MyRepo {
 }
 `
 	if string(content) != expected {
-		t.Errorf("GenerateHandlerFile content mismatch. Got:\n%s\nExpected:\n%s", string(content), expected)
+		t.Errorf("devflow.GenerateHandlerFile content mismatch. Got:\n%s\nExpected:\n%s", string(content), expected)
 	}
 }
 
@@ -75,8 +77,8 @@ func TestKebabToCamel(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if got := kebabToCamel(test.input); got != test.expected {
-			t.Errorf("kebabToCamel(%q) = %q, want %q", test.input, got, test.expected)
+		if got := devflow.KebabToCamel(test.input); got != test.expected {
+			t.Errorf("devflow.KebabToCamel(%q) = %q, want %q", test.input, got, test.expected)
 		}
 	}
 }
@@ -93,7 +95,7 @@ func TestGoNewCreateLocalOnly(t *testing.T) {
 	// Mock Git config
 	// We can set it globally or locally?
 	// NewGit checks if git is installed.
-	git, err := NewGit()
+	git, err := devflow.NewGit()
 	if err != nil {
 		t.Skip("git not installed")
 	}
@@ -112,21 +114,21 @@ func TestGoNewCreateLocalOnly(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, ".gitconfig"), []byte(gitConfig), 0644)
 	// We also need to make sure git picks it up. Git looks at HOME.
 
-	goHandler, _ := NewGo(git)
+	goHandler, _ := devflow.NewGo(git)
 
 	// Mock GitHub (nil or real?)
 	// For local-only, we can pass nil if we handle it?
-	// But NewGoNew expects *GitHub.
-	// We can create one but we can't easily mock RunCommand.
+	// But devflow.NewGoNew expects *GitHub.
+	// We can create one but we can't easily mock devflow.RunCommand.
 	// So let's create a real one (it just calls gh).
 	// If gh is not installed, NewGitHub returns error.
 	// If we want to test local-only, we should be able to do it even without gh.
 	// In the CLI we pass nil if gh fails.
 	// So let's pass nil here and see if Create handles it (we implemented checks).
 
-	gn := NewGoNew(git, nil, goHandler)
+	gn := devflow.NewGoNew(git, nil, goHandler)
 
-	opts := NewProjectOptions{
+	opts := devflow.NewProjectOptions{
 		Name:        "test-project",
 		Description: "A test project",
 		LocalOnly:   true,
@@ -165,7 +167,7 @@ func TestGoNewWithCustomOwner(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	git, err := NewGit()
+	git, err := devflow.NewGit()
 	if err != nil {
 		t.Skip("git not installed")
 	}
@@ -178,11 +180,11 @@ func TestGoNewWithCustomOwner(t *testing.T) {
 `
 	os.WriteFile(filepath.Join(tmpDir, ".gitconfig"), []byte(gitConfig), 0644)
 
-	goHandler, _ := NewGo(git)
-	gn := NewGoNew(git, nil, goHandler)
+	goHandler, _ := devflow.NewGo(git)
+	gn := devflow.NewGoNew(git, nil, goHandler)
 
 	// Test with custom owner
-	opts := NewProjectOptions{
+	opts := devflow.NewProjectOptions{
 		Name:        "test-project",
 		Description: "A test project",
 		Owner:       "cdvelop",

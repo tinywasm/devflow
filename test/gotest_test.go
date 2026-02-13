@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"fmt"
@@ -7,8 +9,8 @@ import (
 )
 
 func TestGo_SetLog(t *testing.T) {
-	git, _ := NewGit()
-	g, _ := NewGo(git)
+	git, _ := devflow.NewGit()
+	g, _ := devflow.NewGo(git)
 
 	// Test that SetLog works
 	called := false
@@ -17,7 +19,7 @@ func TestGo_SetLog(t *testing.T) {
 	})
 
 	// Call log to verify it works
-	g.log("test")
+	g.GetLog()("test")
 
 	if !called {
 		t.Error("Expected log function to be called")
@@ -25,14 +27,14 @@ func TestGo_SetLog(t *testing.T) {
 }
 
 func TestGo_NewGo(t *testing.T) {
-	git, _ := NewGit()
-	g, _ := NewGo(git)
+	git, _ := devflow.NewGit()
+	g, _ := devflow.NewGo(git)
 
 	if g == nil {
 		t.Fatal("Expected NewGo to return non-nil")
 	}
 
-	if g.git != git {
+	if g.GetGit() != git {
 		t.Error("Expected git handler to be set")
 	}
 }
@@ -196,7 +198,7 @@ FAIL`,
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var output []string
-			filter := NewConsoleFilter(func(s string) {
+			filter := devflow.NewConsoleFilter(func(s string) {
 				output = append(output, s)
 			})
 
@@ -261,7 +263,7 @@ func TestShouldEnableWasm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := shouldEnableWasm(tt.nativeOut, tt.wasmOut)
+			result := devflow.ShouldEnableWasm(tt.nativeOut, tt.wasmOut)
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
@@ -360,7 +362,7 @@ func TestEvaluateTestResults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			status, _, ran, msgs := evaluateTestResults(tt.err, tt.output, "testmod", nil, tt.skipRace)
+			status, _, ran, msgs := devflow.EvaluateTestResults(tt.err, tt.output, "testmod", nil, tt.skipRace)
 			if status != tt.expected {
 				t.Errorf("Expected status %s, got %s", tt.expected, status)
 			}
@@ -451,7 +453,7 @@ FAIL`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			name, dur := findSlowestTest(tt.output, tt.threshold)
+			name, dur := devflow.FindSlowestTest(tt.output, tt.threshold)
 			if name != tt.expName {
 				t.Errorf("Expected name %q, got %q", tt.expName, name)
 			}
@@ -478,8 +480,8 @@ func TestHasTimeoutFlag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := hasTimeoutFlag(tt.args); got != tt.expected {
-				t.Errorf("hasTimeoutFlag(%v) = %v, want %v", tt.args, got, tt.expected)
+			if got := devflow.HasTimeoutFlag(tt.args); got != tt.expected {
+				t.Errorf("devflow.HasTimeoutFlag(%v) = %v, want %v", tt.args, got, tt.expected)
 			}
 		})
 	}
@@ -536,7 +538,7 @@ goroutine 1 [running]:`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := findTimedOutTests(tt.output)
+			got := devflow.FindTimedOutTests(tt.output)
 			if tt.expected == nil {
 				if got != nil {
 					t.Errorf("Expected nil, got %v", got)

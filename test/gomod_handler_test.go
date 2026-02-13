@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -42,7 +44,7 @@ func TestGoModHandler(t *testing.T) {
 	os.WriteFile(gomodPath, []byte(content), 0644)
 
 	watcher := &GoModMockWatcher{}
-	handler := NewGoModHandler()
+	handler := devflow.NewGoModHandler()
 	handler.SetRootDir(rootDir)
 	handler.SetFolderWatcher(watcher)
 
