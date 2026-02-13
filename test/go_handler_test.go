@@ -239,15 +239,12 @@ func TestUpdateDependentModule(t *testing.T) {
 
 	defer testChdir(t, neutralDir)() // Move out of real repo just in case
 
+	// Disable proxy so "go get" fails instantly without network requests (~4s → <100ms)
+	t.Setenv("GOPROXY", "off")
+
 	mockGit := &MockGitClient{}
 	g, _ := devflow.NewGo(mockGit)
-	// Optimize test speed by disabling retries
 	g.SetRetryConfig(time.Millisecond, 1)
-
-	// This will fail in real life because "go get github.com/test/mylib@v0.0.1" won't find the module
-	// So we'll mock the devflow.RunCommand to accept "go get" and "go mod tidy"
-	// Actually, we can't easily mock devflow.RunCommand globally without more effort.
-	// But we can check if it fails exactly where we expect.
 
 	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1")
 

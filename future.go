@@ -10,7 +10,7 @@ type Future struct {
 
 // NewFuture starts async initialization with the given function.
 func NewFuture(initFn func() (any, error)) *Future {
-	f := &Future{done: make(chan bool)}
+	f := &Future{done: make(chan bool, 1)}
 	go func() {
 		f.result, f.err = initFn()
 		f.done <- true

@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var semverTagRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+
 // Test executes the test suite for the project.
 // timeoutSec sets the per-package timeout in seconds (0 = default 30s).
 func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
@@ -163,7 +165,10 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	var testOutput string
 
 	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
-	testArgs := []string{"test", "-v", "-cover", "-coverpkg=./...", "-count=1", timeoutFlag}
+	tmpCovDir, _ := os.MkdirTemp("", "gotest-cov")
+	defer os.RemoveAll(tmpCovDir)
+	coverProfilePath := fmt.Sprintf("%s/cover.out", tmpCovDir)
+	testArgs := []string{"test", "-v", "-cover", "-coverpkg=./...", fmt.Sprintf("-coverprofile=%s", coverProfilePath), "-count=1", timeoutFlag}
 
 	if runAll {
 		testArgs = append(testArgs, "-tags=integration")
@@ -227,15 +232,11 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 	}
 
-	// Process coverage results (from the same test run)
-	// Process coverage results (from the same test run)
+	// Process coverage results from the profile generated during the test run above
 	if stdTestsRan {
-		// Try exact coverage first (runs additional commands but provides accurate result)
-		// We pass the same args used for testing
-		if exactCov, err := g.getExactCoverage(testArgs); err == nil {
-			coveragePercent = exactCov
+		if cov := exactCoverageFromProfile(coverProfilePath); cov != "" {
+			coveragePercent = cov
 		} else {
-			// Fallback to average parsed from output
 			coveragePercent = calculateAverageCoverage(testOutput)
 		}
 	}
@@ -366,6 +367,13 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	}
 
+	// Append current semver tag if available
+	if g.git != nil {
+		if tag, err := g.git.GetLatestTag(); err == nil && semverTagRe.MatchString(tag) {
+			msgs = append(msgs, tag)
+		}
+	}
+
 	// Return error if tests or vet failed
 	elapsed := time.Since(start).Seconds()
 	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), elapsed)
@@ -485,13 +493,9 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	// Initialize coveragePercent for custom runs (not calculated for stdlib in fast path usually, but we need it for comparison)
 	coveragePercent := "0"
 
-	// Process coverage if std tests ran
+	// Process coverage if std tests ran (fast path: use average from output)
 	if stdTestsRan {
-		if exactCov, err := g.getExactCoverage(testArgs); err == nil {
-			coveragePercent = exactCov
-		} else {
-			coveragePercent = calculateAverageCoverage(testOutput)
-		}
+		coveragePercent = calculateAverageCoverage(testOutput)
 	}
 
 	// Remove "race detection ok" message since we're not forcing -race in custom args
@@ -734,88 +738,21 @@ func calculateAverageCoverage(output string) string {
 	return fmt.Sprintf("%.1f", total/float64(len(pkgCoverage)))
 }
 
-// getExactCoverage attempts to calculate weighted coverage using go tool cover
-func (g *Go) getExactCoverage(testArgs []string) (string, error) {
-	cmd := exec.Command("go", "list", "./...")
-	out, err := cmd.CombinedOutput()
+// exactCoverageFromProfile reads a coverage profile and returns the total percentage.
+func exactCoverageFromProfile(profilePath string) string {
+	out, err := exec.Command("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
 	if err != nil {
-		return "", err
+		return ""
 	}
-	packages := strings.Fields(string(out))
-	if len(packages) == 0 {
-		return "", fmt.Errorf("no packages")
-	}
-
-	tmpDir, err := os.MkdirTemp("", "gotest-cov")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(tmpDir)
-
-	mergedParams := []string{"mode: set"}
-
-	ctx := context.Background()
-
-	var commonArgs []string
-	for _, arg := range testArgs {
-		if arg != "./..." && !strings.HasPrefix(arg, "-coverprofile") {
-			commonArgs = append(commonArgs, arg)
-		}
-	}
-
-	for i, pkg := range packages {
-		profilePath := fmt.Sprintf("%s/%d.out", tmpDir, i)
-
-		pkgArgs := append([]string{}, commonArgs...)
-		pkgArgs = append(pkgArgs, pkg)
-		pkgArgs = append(pkgArgs, fmt.Sprintf("-coverprofile=%s", profilePath))
-
-		execCmd := exec.CommandContext(ctx, "go", pkgArgs...)
-		execCmd.Env = os.Environ()
-		_ = execCmd.Run()
-
-		content, err := os.ReadFile(profilePath)
-		if err == nil {
-			lines := strings.Split(string(content), "\n")
-			if len(lines) > 1 {
-				mergedParams = append(mergedParams, lines[1:]...)
-			}
-		}
-	}
-
-	mergedPath := fmt.Sprintf("%s/merged.out", tmpDir)
-	var finalLines []string
-	for _, l := range mergedParams {
-		if strings.TrimSpace(l) != "" {
-			finalLines = append(finalLines, l)
-		}
-	}
-	if len(finalLines) <= 1 {
-		return "", fmt.Errorf("no coverage data collected")
-	}
-
-	if err := os.WriteFile(mergedPath, []byte(strings.Join(finalLines, "\n")), 0644); err != nil {
-		return "", err
-	}
-
-	coverCmd := exec.Command("go", "tool", "cover", fmt.Sprintf("-func=%s", mergedPath))
-	coverOut, err := coverCmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("cover tool failed: %v", err)
-	}
-
-	lines := strings.Split(string(coverOut), "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(string(out), "\n") {
 		if strings.Contains(line, "total:") {
 			parts := strings.Fields(line)
 			if len(parts) > 0 {
-				last := parts[len(parts)-1] // 89.0%
-				return strings.TrimSuffix(last, "%"), nil
+				return strings.TrimSuffix(parts[len(parts)-1], "%")
 			}
 		}
 	}
-
-	return "", fmt.Errorf("total not found")
+	return ""
 }
 
 func (g *Go) installWasmBrowserTest() error {
