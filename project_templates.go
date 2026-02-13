@@ -97,7 +97,7 @@ go.work
 // GenerateHandlerFile generates the main handler file
 func GenerateHandlerFile(repoName, targetDir string) error {
 	// Convert repo-name to RepoName
-	structName := kebabToCamel(repoName)
+	structName := KebabToCamel(repoName)
 	// Convert RepoName to r (first letter lowercase)
 	// Actually spec says: First letter lowercase of struct name
 	// But it says: Variable: First letter lowercase of struct name (e.g., m := &MyRepo{})
@@ -121,8 +121,8 @@ func New() *%s {
 	return os.WriteFile(filepath.Join(targetDir, filename), []byte(content), 0644)
 }
 
-// kebabToCamel converts kebab-case or snake_case to CamelCase
-func kebabToCamel(s string) string {
+// KebabToCamel converts kebab-case or snake_case to CamelCase
+func KebabToCamel(s string) string {
 	parts := strings.FieldsFunc(s, func(r rune) bool {
 		return r == '-' || r == '_'
 	})

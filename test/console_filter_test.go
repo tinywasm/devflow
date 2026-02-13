@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"strings"
@@ -11,7 +13,7 @@ func TestConsoleFilter_Quiet(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// Case 1: Passing test
 	cf.Add("=== RUN   TestPass\n")
@@ -105,7 +107,7 @@ func TestConsoleFilter_FilterNoise(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// Test filtering of various noise messages
 	cf.Add("go: warning: \"./...\" matched no packages\n")
@@ -137,7 +139,7 @@ func TestConsoleFilter_ErrorMessageWithoutKeywords(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// Error message WITHOUT keywords like "fail", "error", "panic", "race"
 	cf.Add("=== RUN   TestFormatTimeWithNumericString\n")
@@ -167,7 +169,7 @@ func TestConsoleFilter_AlwaysShowDebug(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// DEBUG message should NOT be filtered even if the test passes
 	cf.Add("=== RUN   TestDebug\n")
@@ -194,7 +196,7 @@ func TestConsoleFilter_BufferFragmentation(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// Simulate fragmented writes WITH newlines
 	// Write "=== RUN TestFrag\n"
@@ -221,7 +223,7 @@ func TestConsoleFilter_OrphanedPassLine(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// Simulate an orphaned PASS line (e.g. RUN line was flushed earlier or missing)
 	// The filter should still remove this line even if it can't find the RUN line.
@@ -239,7 +241,7 @@ func TestConsoleFilter_PanicMode(t *testing.T) {
 		output = append(output, s)
 	}
 
-	cf := NewConsoleFilter(record)
+	cf := devflow.NewConsoleFilter(record)
 
 	// 1. Normal filtering phase: "goroutine" lines are normally noise
 	cf.Add("goroutine 1 [running]:\n")

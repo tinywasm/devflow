@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -63,12 +65,12 @@ func TestAsyncUpdateFlow(t *testing.T) {
 
 	// 4. Initialize Handler on Main
 
-	// Mock ExecCommand to prevent actual go get network calls that fail with "repository not found"
+	// Mock devflow.ExecCommand to prevent actual go get network calls that fail with "repository not found"
 	// We restore it at the end of the test
-	originalExec := ExecCommand
-	defer func() { ExecCommand = originalExec }()
+	originalExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = originalExec }()
 
-	ExecCommand = func(name string, args ...string) *exec.Cmd {
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
 		// Mock go get, go mod tidy, and go list for our fake modules
 		if name == "go" {
 			// Join args to inspect
@@ -124,8 +126,8 @@ func TestAsyncUpdateFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	git, _ := NewGit()
-	g, err := NewGo(git)
+	git, _ := devflow.NewGit()
+	g, err := devflow.NewGo(git)
 	if err != nil {
 		t.Fatalf("NewGo failed: %v", err)
 	}
@@ -162,11 +164,11 @@ func TestAsyncUpdateFlow(t *testing.T) {
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
-	// Use ExecCommand for consistency with mocking if needed,
+	// Use devflow.ExecCommand for consistency with mocking if needed,
 	// though runGit is for setup where we might prefer real git.
 	// Using generic exec.Command for setup is safer if our mock is too aggressive.
 	// But our mock passes through unknown commands.
-	cmd := ExecCommand("git", args...)
+	cmd := devflow.ExecCommand("git", args...)
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
 		t.Logf("git %v in %s failed: %v", args, dir, err)

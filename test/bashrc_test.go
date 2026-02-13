@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -12,7 +14,7 @@ func TestBashrc_SetAndGet(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, ".bashrc")
 
-	b := &Bashrc{filePath: tmpFile}
+	b := &devflow.Bashrc{FilePath: tmpFile}
 
 	t.Run("SetNewVariable", func(t *testing.T) {
 		err := b.Set("TEST_VAR", "test_value")
@@ -112,7 +114,7 @@ func TestBashrc_FileNotExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, ".bashrc")
 
-	b := &Bashrc{filePath: tmpFile}
+	b := &devflow.Bashrc{FilePath: tmpFile}
 
 	t.Run("SetCreatesFile", func(t *testing.T) {
 		err := b.Set("NEW_VAR", "value")
@@ -134,7 +136,7 @@ func TestBashrc_MultipleSections(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, ".bashrc")
 
-	b := &Bashrc{filePath: tmpFile}
+	b := &devflow.Bashrc{FilePath: tmpFile}
 
 	// Create duplicate sections manually
 	content := `# START_DEVFLOW:DUP_VAR
@@ -170,7 +172,7 @@ export DUP_VAR="second"
 }
 
 func TestBashrc_ExtractValue(t *testing.T) {
-	b := &Bashrc{}
+	b := &devflow.Bashrc{}
 
 	tests := []struct {
 		name        string
@@ -213,7 +215,7 @@ func TestBashrc_ExtractValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			value, err := b.extractValue(tt.exportLine, tt.key)
+			value, err := b.ExtractValue(tt.exportLine, tt.key)
 			if tt.shouldError {
 				if err == nil {
 					t.Error("Expected error but got none")
@@ -234,7 +236,7 @@ func TestBashrc_NoChangeWhenSame(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, ".bashrc")
 
-	b := &Bashrc{filePath: tmpFile}
+	b := &devflow.Bashrc{FilePath: tmpFile}
 
 	// Set initial value
 	b.Set("SAME_VAR", "same_value")
@@ -264,7 +266,7 @@ alias ll='ls -la'
 `
 	os.WriteFile(tmpFile, []byte(existing), 0644)
 
-	b := &Bashrc{filePath: tmpFile}
+	b := &devflow.Bashrc{FilePath: tmpFile}
 
 	// Add devflow variable
 	b.Set("DEV_VAR", "dev_value")

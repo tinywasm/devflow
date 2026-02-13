@@ -80,6 +80,21 @@ func (g *Go) SetLog(fn func(...any)) {
 	}
 }
 
+// SetConsoleOutput sets the function for console output (used by ConsoleFilter)
+func (g *Go) SetConsoleOutput(fn func(string)) {
+	g.consoleOutput = fn
+}
+
+// GetLog returns the logger function
+func (g *Go) GetLog() func(...any) {
+	return g.log
+}
+
+// GetGit returns the git client
+func (g *Go) GetGit() GitClient {
+	return g.git
+}
+
 // Push executes the complete workflow for Go projects
 // Parameters:
 //
@@ -104,7 +119,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	summary := []string{}
 
 	// 1. Verify go.mod
-	if err := g.verify(); err != nil {
+	if err := g.Verify(); err != nil {
 		return "", fmt.Errorf("go mod verify failed: %w", err)
 	}
 
@@ -143,7 +158,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	}
 
 	// 5. Get module name
-	modulePath, err := g.getModulePath()
+	modulePath, err := g.GetModulePath()
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: could not get module path: %v", err))
 		return strings.Join(summary, ", "), nil
@@ -151,7 +166,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	// 6. Update dependent modules (only if we have a valid tag)
 	if !skipDependents && createdTag != "" {
-		updateResults, err := g.updateDependents(modulePath, createdTag, searchPath)
+		updateResults, err := g.UpdateDependents(modulePath, createdTag, searchPath)
 		if err != nil {
 			summary = append(summary, fmt.Sprintf("Warning: failed to scan dependents: %v", err))
 		}

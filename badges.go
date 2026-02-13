@@ -224,7 +224,7 @@ func (h *Badges) GoHandler() *Go {
 	return h.goH
 }
 
-func getGoVersion() string {
+func GetGoVersion() string {
 	out, err := RunCommand("go", "version")
 	if err != nil {
 		return "unknown"
@@ -236,7 +236,7 @@ func getGoVersion() string {
 	return "unknown"
 }
 
-func getBadgeColor(typ, value string) string {
+func GetBadgeColor(typ, value string) string {
 	switch typ {
 	case "license", "go":
 		return "#007acc"
@@ -293,12 +293,12 @@ func checkFileExists(path string) bool {
 
 func (h *Badges) updateBadges(readmeFile, licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus string, quiet bool) error {
 	// Colors
-	licenseColor := getBadgeColor("license", licenseType)
-	goColor := getBadgeColor("go", goVer)
-	testColor := getBadgeColor("tests", testStatus)
-	coverageColor := getBadgeColor("coverage", coveragePercent)
-	raceColor := getBadgeColor("race", raceStatus)
-	vetColor := getBadgeColor("vet", vetStatus)
+	licenseColor := GetBadgeColor("license", licenseType)
+	goColor := GetBadgeColor("go", goVer)
+	testColor := GetBadgeColor("tests", testStatus)
+	coverageColor := GetBadgeColor("coverage", coveragePercent)
+	raceColor := GetBadgeColor("race", raceStatus)
+	vetColor := GetBadgeColor("vet", vetStatus)
 
 	badgeArgs := []string{
 		"readmefile:" + readmeFile,

@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import "testing"
 
@@ -19,9 +21,9 @@ func TestCompareVersions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := CompareVersions(tt.v1, tt.v2)
+		got := devflow.CompareVersions(tt.v1, tt.v2)
 		if got != tt.want {
-			t.Errorf("CompareVersions(%q, %q) = %d; want %d", tt.v1, tt.v2, got, tt.want)
+			t.Errorf("devflow.CompareVersions(%q, %q) = %d; want %d", tt.v1, tt.v2, got, tt.want)
 		}
 	}
 }

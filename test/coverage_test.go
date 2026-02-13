@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -17,7 +19,7 @@ func TestGoPushFlags(t *testing.T) {
 		log:       func(args ...any) {},
 	}
 
-	goHandler, err := NewGo(mockGit)
+	goHandler, err := devflow.NewGo(mockGit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,13 +67,13 @@ func TestGoUpdateDependentsNoSearchPath(t *testing.T) {
 		log: func(args ...any) {},
 	}
 
-	goHandler, err := NewGo(mockGit)
+	goHandler, err := devflow.NewGo(mockGit)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// It should not fail, just find nothing
-	results, err := goHandler.updateDependents("github.com/test/repo", "v0.0.1", "")
+	results, err := goHandler.UpdateDependents("github.com/test/repo", "v0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +90,11 @@ func TestGoFailures(t *testing.T) {
 	mockGit := &MockGitClient{
 		log: func(args ...any) {},
 	}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Test Verify Failure (delete go.mod)
 	os.Remove("go.mod")
-	err := goHandler.verify()
+	err := goHandler.Verify()
 	if err == nil {
 		t.Error("Expected verify to fail when go.mod is missing")
 	}
@@ -102,7 +104,7 @@ func TestGoFailures(t *testing.T) {
 
 	// Test GetModulePath Failure (corrupt go.mod)
 	os.WriteFile("go.mod", []byte("invalid content"), 0644)
-	_, err = goHandler.getModulePath()
+	_, err = goHandler.GetModulePath()
 	if err == nil {
 		t.Error("Expected getModulePath to fail with invalid content")
 	}
@@ -116,13 +118,13 @@ func TestGoUpdateModuleFail(t *testing.T) {
 	mockGit := &MockGitClient{
 		log: func(args ...any) {},
 	}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetRetryConfig(10*time.Millisecond, 2)
 
 	// Try to update a module in current dir (which is not a valid dependent in this context, or just fails `go get`)
 	// We try to run updateModule on the current directory for a non-existent dependency
 
-	err := goHandler.updateModule(".", "github.com/nonexistent/dep", "v1.0.0")
+	err := goHandler.UpdateModule(".", "github.com/nonexistent/dep", "v1.0.0")
 	if err == nil {
 		t.Error("Expected updateModule to fail")
 	}
@@ -136,8 +138,8 @@ func TestGoPushFailTest(t *testing.T) {
 	mockGit := &MockGitClient{
 		log: func(args ...any) {},
 	}
-	goHandler, _ := NewGo(mockGit)
-	goHandler.consoleOutput = func(string) {} // suppress subprocess output
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetConsoleOutput(func(string) {}) // suppress subprocess output
 
 	// Create failing test
 	testContent := `package main
@@ -155,7 +157,7 @@ func TestFail(t *testing.T) { t.Fatal("fail") }
 // Add one more test case for edge cases in executor
 func TestExecutorErrors(t *testing.T) {
 	// Run invalid command
-	_, err := RunCommand("invalid_command_xyz")
+	_, err := devflow.RunCommand("invalid_command_xyz")
 	if err == nil {
 		t.Error("Expected error for invalid command")
 	}

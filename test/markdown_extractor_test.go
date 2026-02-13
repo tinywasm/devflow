@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -61,7 +63,7 @@ func noCache() {
 	}
 
 	// Create MarkDown instance (provide writer and reader functions)
-	m := NewMarkDown(tmp, outputDir, writerWithDirCreation()).
+	m := devflow.NewMarkDown(tmp, outputDir, writerWithDirCreation()).
 		InputPath("templates/server.md", func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(tmp, name)) })
 
 	// Ensure output file doesn't exist yet
@@ -122,7 +124,7 @@ func TestExtractDoesNotOverwriteIfSame(t *testing.T) {
 	}
 
 	// Create MarkDown instance (provide writer and reader functions)
-	m := NewMarkDown(tmp, outputDir, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
+	m := devflow.NewMarkDown(tmp, outputDir, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
 		InputPath("templates/test.md", func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(tmp, name)) })
 
 	// First extraction
@@ -181,7 +183,7 @@ func TestExtractOverwritesIfDifferent(t *testing.T) {
 	}
 
 	// Extract (should overwrite)
-	m := NewMarkDown(tmp, outputDir, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
+	m := devflow.NewMarkDown(tmp, outputDir, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
 		InputPath("templates/test.md", func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(tmp, name)) })
 	if err := m.Extract("test.go"); err != nil {
 		t.Fatalf("extract failed: %v", err)
@@ -207,7 +209,7 @@ func TestExtractConcatenatesMultipleBlocks(t *testing.T) {
 	// Markdown with multiple Go blocks
 	md := "Some text\n```go\npackage main\n\nfunc A(){}\n```\nMore\n```go\nfunc B(){}\n```\n"
 
-	m := NewMarkDown(tmp, tmp, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
+	m := devflow.NewMarkDown(tmp, tmp, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
 		InputByte([]byte(md))
 
 	// Extract using byte slice
@@ -234,7 +236,7 @@ func TestExtractConcatenatesMultipleBlocks(t *testing.T) {
 
 func TestExtractWithByteSlice(t *testing.T) {
 	tmp := t.TempDir()
-	m := NewMarkDown(tmp, tmp, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
+	m := devflow.NewMarkDown(tmp, tmp, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
 		InputByte([]byte("# Test\n```go\npackage test\n```"))
 
 	if err := m.Extract("test.go"); err != nil {

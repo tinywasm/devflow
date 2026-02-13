@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"fmt"
@@ -16,9 +18,9 @@ func TestGoGetModulePath(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
-	path, err := goHandler.getModulePath()
+	path, err := goHandler.GetModulePath()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +36,9 @@ func TestGoModVerify(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
-	err := goHandler.verify()
+	err := goHandler.Verify()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +58,7 @@ func TestExample(t *testing.T) {}
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
 	_, err := goHandler.Test([]string{}, false, 0, false, false) // quiet mode, full suite, default timeout, allow cache, runAll=false
 	if err != nil {
@@ -92,10 +94,10 @@ require github.com/test/main v0.0.1
 	os.WriteFile(indepDir+"/go.mod", []byte("module github.com/test/indep\n\ngo 1.20\n"), 0644)
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Search dependents
-	dependents, err := goHandler.findDependentModules("github.com/test/main", tmpDir)
+	dependents, err := goHandler.FindDependentModules("github.com/test/main", tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,15 +124,15 @@ require github.com/tinywasm/devflow v0.0.1
 	os.WriteFile(gomodPath, []byte(content), 0644)
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Should find the dependency
-	if !goHandler.hasDependency(gomodPath, "github.com/tinywasm/devflow") {
+	if !goHandler.HasDependency(gomodPath, "github.com/tinywasm/devflow") {
 		t.Error("Expected to find dependency")
 	}
 
 	// Should not find this one
-	if goHandler.hasDependency(gomodPath, "github.com/other/repo") {
+	if goHandler.HasDependency(gomodPath, "github.com/other/repo") {
 		t.Error("Should not find non-existent dependency")
 	}
 }
@@ -147,7 +149,7 @@ func TestGoPush(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	goHandler, err := NewGo(mockGit)
+	goHandler, err := devflow.NewGo(mockGit)
 	if err != nil {
 		t.Fatalf("NewGo failed: %v", err)
 	}
@@ -238,13 +240,13 @@ func TestUpdateDependentModule(t *testing.T) {
 	defer testChdir(t, neutralDir)() // Move out of real repo just in case
 
 	mockGit := &MockGitClient{}
-	g, _ := NewGo(mockGit)
+	g, _ := devflow.NewGo(mockGit)
 	// Optimize test speed by disabling retries
 	g.SetRetryConfig(time.Millisecond, 1)
 
 	// This will fail in real life because "go get github.com/test/mylib@v0.0.1" won't find the module
-	// So we'll mock the RunCommand to accept "go get" and "go mod tidy"
-	// Actually, we can't easily mock RunCommand globally without more effort.
+	// So we'll mock the devflow.RunCommand to accept "go get" and "go mod tidy"
+	// Actually, we can't easily mock devflow.RunCommand globally without more effort.
 	// But we can check if it fails exactly where we expect.
 
 	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1")
@@ -273,13 +275,13 @@ func TestGoInstall(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "cmd/tool2/main.go"), []byte("package main\nfunc main() {}\n"), 0644)
 
 	mockGit := &MockGitClient{}
-	g, _ := NewGo(mockGit)
+	g, _ := devflow.NewGo(mockGit)
 	g.SetRootDir(tmpDir)
 
 	// Test installation logic
 	// Note: go install will fail in a temp directory without a real module or GOPATH setup for these files,
 	// but we want to verify it attempts to run the commands.
-	// Since we can't easily mock RunCommandInDir without refactoring executor.go,
+	// Since we can't easily mock devflow.RunCommandInDir without refactoring executor.go,
 	// we'll check if it fails for the right reasons or at least doesn't panic.
 	summary, err := g.Install("v1.2.3")
 
@@ -313,18 +315,18 @@ func (m *MockGitClient) CheckRemoteAccess() error {
 	return m.checkAccessErr
 }
 
-func (m *MockGitClient) Push(message, tag string) (PushResult, error) {
+func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
 	if m.checkAccessErr != nil {
-		return PushResult{}, m.checkAccessErr
+		return devflow.PushResult{}, m.checkAccessErr
 	}
 	if m.pushErr != nil {
-		return PushResult{}, m.pushErr
+		return devflow.PushResult{}, m.pushErr
 	}
 	resultTag := m.createdTag
 	if resultTag == "" {
 		resultTag = "v0.0.1" // Default test tag
 	}
-	return PushResult{
+	return devflow.PushResult{
 		Summary: "Mock push ok",
 		Tag:     resultTag,
 	}, nil
@@ -389,7 +391,7 @@ func TestGoPush_RemoteAccessFailure(t *testing.T) {
 		log:            func(args ...any) {},
 	}
 
-	goHandler, _ := NewGo(mockGit)
+	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Attempt push
 	// Skip tests (true), skip race (true), skip dependents (true), skip backup (true), no search path

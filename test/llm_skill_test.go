@@ -1,4 +1,6 @@
-package devflow
+package devflow_test
+
+import "github.com/tinywasm/devflow"
 
 import (
 	"os"
@@ -8,7 +10,7 @@ import (
 )
 
 func TestLLM_GetMasterContent(t *testing.T) {
-	llm := NewLLM()
+	llm := devflow.NewLLM()
 	content, err := llm.GetMasterContent()
 	if err != nil {
 		t.Fatalf("failed to get master content: %v", err)
@@ -43,7 +45,7 @@ func TestLLM_DetectInstalledLLMs(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
 
-	llm := NewLLM()
+	llm := devflow.NewLLM()
 
 	// Caso 1: No hay LLMs instalados
 	installed := llm.DetectInstalledLLMs()
@@ -90,10 +92,10 @@ func TestLLM_SmartSync_NewFile(t *testing.T) {
 Test content
 <!-- END_SECTION:TEST -->`
 
-	llm := NewLLM()
-	changed, err := llm.smartSync(configPath, masterContent)
+	llm := devflow.NewLLM()
+	changed, err := llm.SmartSync(configPath, masterContent)
 	if err != nil {
-		t.Fatalf("smartSync failed: %v", err)
+		t.Fatalf("SmartSync failed: %v", err)
 	}
 
 	if !changed {
@@ -124,10 +126,10 @@ Test content
 		t.Fatal(err)
 	}
 
-	llm := NewLLM()
-	changed, err := llm.smartSync(configPath, masterContent)
+	llm := devflow.NewLLM()
+	changed, err := llm.SmartSync(configPath, masterContent)
 	if err != nil {
-		t.Fatalf("smartSync failed: %v", err)
+		t.Fatalf("SmartSync failed: %v", err)
 	}
 
 	if changed {
@@ -162,10 +164,10 @@ New core content
 		t.Fatal(err)
 	}
 
-	llm := NewLLM()
-	changed, err := llm.smartSync(configPath, masterContent)
+	llm := devflow.NewLLM()
+	changed, err := llm.SmartSync(configPath, masterContent)
 	if err != nil {
-		t.Fatalf("smartSync failed: %v", err)
+		t.Fatalf("SmartSync failed: %v", err)
 	}
 
 	if !changed {
@@ -209,10 +211,10 @@ New sectioned content
 		t.Fatal(err)
 	}
 
-	llm := NewLLM()
-	changed, err := llm.smartSync(configPath, masterContent)
+	llm := devflow.NewLLM()
+	changed, err := llm.SmartSync(configPath, masterContent)
 	if err != nil {
-		t.Fatalf("smartSync failed: %v", err)
+		t.Fatalf("SmartSync failed: %v", err)
 	}
 
 	if !changed {
@@ -256,10 +258,10 @@ func TestLLM_ForceUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	llm := NewLLM()
-	err := llm.forceUpdate(configPath, masterContent)
+	llm := devflow.NewLLM()
+	err := llm.ForceUpdate(configPath, masterContent)
 	if err != nil {
-		t.Fatalf("forceUpdate failed: %v", err)
+		t.Fatalf("ForceUpdate failed: %v", err)
 	}
 
 	// Verificar backup
@@ -288,7 +290,7 @@ func TestLLM_Sync_NoLLMs(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
 
-	llm := NewLLM()
+	llm := devflow.NewLLM()
 	summary, err := llm.Sync("", false)
 	if err != nil {
 		t.Fatalf("Sync failed: %v", err)
@@ -311,7 +313,7 @@ func TestLLM_Sync_SpecificLLM(t *testing.T) {
 	os.Mkdir(claudeDir, 0755)
 	os.Mkdir(geminiDir, 0755)
 
-	llm := NewLLM()
+	llm := devflow.NewLLM()
 
 	// Sync solo Claude
 	summary, err := llm.Sync("claude", false)
@@ -344,7 +346,7 @@ func TestLLM_Sync_NonExistentLLM(t *testing.T) {
 
 	os.Mkdir(filepath.Join(tmpDir, ".claude"), 0755)
 
-	llm := NewLLM()
+	llm := devflow.NewLLM()
 	_, err := llm.Sync("copilot", false)
 	if err == nil {
 		t.Error("expected error for non-existent LLM")
@@ -365,7 +367,7 @@ func TestLLM_Sync_MultipleUpdated(t *testing.T) {
 	os.Mkdir(filepath.Join(tmpDir, ".claude"), 0755)
 	os.Mkdir(filepath.Join(tmpDir, ".gemini"), 0755)
 
-	llm := NewLLM()
+	llm := devflow.NewLLM()
 	summary, err := llm.Sync("", false)
 	if err != nil {
 		t.Fatalf("Sync failed: %v", err)
@@ -397,7 +399,7 @@ Content of section 2
 Multiple lines here
 <!-- END_SECTION:SECTION2 -->`
 
-	sections := extractSections(content)
+	sections := devflow.ExtractSections(content)
 
 	if len(sections) != 2 {
 		t.Fatalf("expected 2 sections, got %d", len(sections))
@@ -416,7 +418,7 @@ Multiple lines here
 
 func TestExtractSections_Empty(t *testing.T) {
 	content := "No sections here"
-	sections := extractSections(content)
+	sections := devflow.ExtractSections(content)
 
 	if len(sections) != 0 {
 		t.Errorf("expected 0 sections, got %d", len(sections))
@@ -433,8 +435,8 @@ func TestCopyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := copyFile(src, dst); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
+	if err := devflow.CopyFile(src, dst); err != nil {
+		t.Fatalf("devflow.CopyFile failed: %v", err)
 	}
 
 	dstContent, err := os.ReadFile(dst)
