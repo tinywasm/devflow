@@ -94,17 +94,25 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	// Check for WASM test files (async)
 	go func() {
 		defer wg1.Done()
-		if runAll {
-			enableWasmTests = true
-			return
-		}
+		// Check for WASM test files
+		// We do NOT return early for runAll anymore, we scan to see if actual WASM files exist.
 
 		// 1. Get native test files
-		nativeCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		nativeArgs := []string{"list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}"}
+		if runAll {
+			nativeArgs = append(nativeArgs, "-tags=integration")
+		}
+		nativeArgs = append(nativeArgs, "./...")
+		nativeCmd := exec.Command("go", nativeArgs...)
 		nativeOut, _ := nativeCmd.CombinedOutput()
 
 		// 2. Get WASM test files
-		wasmCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		wasmArgs := []string{"list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}"}
+		if runAll {
+			wasmArgs = append(wasmArgs, "-tags=integration")
+		}
+		wasmArgs = append(wasmArgs, "./...")
+		wasmCmd := exec.Command("go", wasmArgs...)
 		wasmCmd.Env = os.Environ()
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
@@ -395,15 +403,23 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if runAll {
-			enableWasmTests = true
-			return
-		}
 		// Check for WASM test files by comparing native vs WASM test file lists
-		nativeCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		// if runAll is set, we still check existence but include integration tags in detection
+
+		nativeArgs := []string{"list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}"}
+		if runAll {
+			nativeArgs = append(nativeArgs, "-tags=integration")
+		}
+		nativeArgs = append(nativeArgs, "./...")
+		nativeCmd := exec.Command("go", nativeArgs...)
 		nativeOut, _ := nativeCmd.CombinedOutput()
 
-		wasmCmd := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}", "./...")
+		wasmArgs := []string{"list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}"}
+		if runAll {
+			wasmArgs = append(wasmArgs, "-tags=integration")
+		}
+		wasmArgs = append(wasmArgs, "./...")
+		wasmCmd := exec.Command("go", wasmArgs...)
 		wasmCmd.Env = os.Environ()
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
