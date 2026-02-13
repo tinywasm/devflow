@@ -9,22 +9,22 @@ import (
 )
 
 func main() {
-	fs := flag.NewFlagSet("devllm", flag.ExitOnError)
+	fs := flag.NewFlagSet("llmskill", flag.ExitOnError)
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `devllm - Sync LLM configuration files
+		fmt.Fprintf(os.Stderr, `llmskill - Sync LLM configuration files
 
 Usage:
-    devllm              Sync all installed LLMs
-    devllm -l claude    Sync only Claude
-    devllm -f           Force overwrite (with backup)
-    devllm -h           Show this help
+    llmskill              Sync all installed LLMs
+    llmskill -l claude    Sync only Claude
+    llmskill -f           Force overwrite (with backup)
+    llmskill -h           Show this help
 
 Detects LLMs by directory:
     ~/.claude/CLAUDE.md
     ~/.gemini/GEMINI.md
 
-Master template: devflow/DEFAULT_GLOBAL_LLM_SKILLS.md
+Master template: devflow/DEFAULT_LLM_SKILL.md
 `)
 	}
 

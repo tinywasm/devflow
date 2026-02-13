@@ -1,36 +1,36 @@
-# devllm - LLM Configuration Sync
+# llmskill - LLM Configuration Sync
 
 Synchronizes LLM configuration files from a master template.
 
 ## Installation
 
 ```bash
-go install github.com/tinywasm/devflow/cmd/devllm@latest
+go install github.com/tinywasm/devflow/cmd/llmskill@latest
 ```
 
 ## Usage
 
 ### Sync all installed LLMs
 ```bash
-devllm
+llmskill
 ```
 
 ### Sync specific LLM
 ```bash
-devllm -l claude
-devllm --llm gemini
+llmskill -l claude
+llmskill --llm gemini
 ```
 
 ### Force overwrite (creates backup)
 ```bash
-devllm -f
-devllm --force
+llmskill -f
+llmskill --force
 ```
 
 ### Show help
 ```bash
-devllm -h
-devllm --help
+llmskill -h
+llmskill --help
 ```
 
 ## How it works
@@ -44,7 +44,7 @@ devllm --help
    - Preserves `USER_CUSTOM` section with your personal configs
    - Skips files that are already up-to-date
 
-3. **Master template**: Embedded in devflow as `DEFAULT_GLOBAL_LLM_SKILLS.md`
+3. **Master template**: Embedded in devflow as `DEFAULT_LLM_SKILL.md`
 
 ## Configuration
 
@@ -56,7 +56,7 @@ The master template is divided into sections:
 - `WASM`: WebAssembly specific rules
 - `USER_CUSTOM`: Your personal customizations (preserved during sync)
 
-When you run `devllm`, it updates the standard sections while keeping your custom content intact.
+When you run `llmskill`, it updates the standard sections while keeping your custom content intact.
 
 ### Adding Custom Rules
 
@@ -125,32 +125,32 @@ for _, config := range supported {
 ### First time setup
 Creates config files with master template:
 ```bash
-$ devllm
+$ llmskill
 ✅ Updated: [claude gemini]
 ```
 
 ### Subsequent runs (no changes)
 ```bash
-$ devllm
+$ llmskill
 ⏭️  Skipped (up-to-date): [claude gemini]
 ```
 
 ### After master template update
 When you update devflow and the master template changes:
 ```bash
-$ devllm
+$ llmskill
 ✅ Updated: [claude gemini]
 ```
 
 ### Sync only Claude
 ```bash
-$ devllm -l claude
+$ llmskill -l claude
 ✅ Updated: [claude]
 ```
 
 ### Force overwrite with backup
 ```bash
-$ devllm -f
+$ llmskill -f
 ✅ Updated: [claude gemini]
 ```
 
@@ -159,9 +159,9 @@ This creates backups:
 - `~/.gemini/GEMINI.md.bak`
 
 ### Migration from legacy format
-If your config files don't have section markers (created before devllm):
+If your config files don't have section markers (created before llmskill):
 ```bash
-$ devllm
+$ llmskill
 ✅ Updated: [claude gemini]
 ```
 
@@ -192,11 +192,11 @@ Automatic backups are created:
 
 ### With gopush
 
-You can integrate `devllm` into your workflow:
+You can integrate `llmskill` into your workflow:
 
 ```bash
 # Sync LLM configs before pushing
-devllm && gopush "feat: new feature"
+llmskill && gopush "feat: new feature"
 ```
 
 ### In Go Projects
@@ -239,7 +239,7 @@ If a section isn't updating as expected:
 1. Check that section markers are intact in your file
 2. Use `--force` to reset:
    ```bash
-   devllm -f
+   llmskill -f
    ```
 3. Check backup file (.bak) if needed
 
@@ -267,3 +267,4 @@ Want to add more? Open an issue or PR on GitHub.
 - [gotest](GOTEST.md) - Run tests with coverage and badges
 - [push](PUSH.md) - Git workflow automation
 - [gopush](GOPUSH.md) - Complete workflow: test + push + update
+- [llmskill](LLMSKILL.md) - Sync LLM configuration files

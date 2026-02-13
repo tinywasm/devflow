@@ -11,8 +11,17 @@
 <!-- START_SECTION:TESTING -->
 - **Testing:** For Go tests, always use `gotest` (`github.com/tinywasm/devflow/cmd/gotest`). It automatically runs `vet`, standard tests with `-race` and `-cover`, and detects/runs WASM tests. It features intelligent caching (based on git state) for instant feedback on unchanged code, and updates README badges automatically.
 
-- **Publishing:** If all tests pass when using `gotest`, you can publish changes using `gopush` (`github.com/tinywasm/devflow/cmd/gopush`). This command runs tests, commits, tags, pushes, and updates dependent modules automatically.
+- **Publishing:** Before publishing, you MUST update the documentation (see **Documentation Standards**). If all tests pass when using `gotest`, you can publish changes using `gopush` (`github.com/tinywasm/devflow/cmd/gopush`). This command runs tests, commits, tags, pushes, and updates dependent modules automatically.
 <!-- END_SECTION:TESTING -->
+
+<!-- START_SECTION:DOCUMENTATION -->
+- **Documentation Standards:**
+    - **Documentation First:** You MUST update the documentation *before* suggesting or executing `push` or `gopush`. Since APIs usually change during development, the documentation must reflect the current state.
+    - **Modular Docs:** Large requirements must be split into multiple `.md` files in the `docs/` folder.
+    - **Naming Convention:** Files in `docs/` must use the format `DOC_NAME.md` (UPPERCASE, separated by underscores). Example: `docs/BUS_ARCHITECTURE.md`.
+    - **Readme Indexing:** The `README.md` must act as an index. Every file in `docs/` must be linked from the `README.md` to avoid saturating it with too much information.
+    - **SKILL.md:** On demand, you may be asked to generate a `docs/SKILL.md` file. This file should provide a precise, non-redundant, and comprehensive summary of the library's operation for an LLM to have complete context. It must also be linked from the `README.md`.
+<!-- END_SECTION:DOCUMENTATION -->
 
 <!-- START_SECTION:PROTOCOLS -->
 - **Language Protocol:** Plans must always be in **English**, while chat conversation must be in **Spanish**.
