@@ -16,8 +16,8 @@ github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsT
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/tinywasm/context v0.0.11 h1:k+IeEPihgORcwp+2n2qygBzfh61fMouFzOEhBwvVIrI=
 github.com/tinywasm/context v0.0.11/go.mod h1:xEk6ZfbF3Jx8JnM4UqUJxfM0WM87q8JC3wOA99tccV8=
-github.com/tinywasm/fmt v0.17.0 h1:CTqXfyL1ZwtjiAkZyzQvCNrXQoQ5dRae2UsQ8S4zTFQ=
-github.com/tinywasm/fmt v0.17.0/go.mod h1:L2GCAi6asgytPV6TVvGrRq5Ml+DkUt1Ijo5i/2J1jOY=
+github.com/tinywasm/fmt v0.17.3 h1:CV8tU9XI0HxOZpXq/JDUBbYPGaJ1zZ2S+WTZXO3QwMc=
+github.com/tinywasm/fmt v0.17.3/go.mod h1:L2GCAi6asgytPV6TVvGrRq5Ml+DkUt1Ijo5i/2J1jOY=
 github.com/tinywasm/wizard v0.0.14 h1:8ywDPi1HN0ybsb3marVcnbIXn0y/y7KhMpv0xiRd2ms=
 github.com/tinywasm/wizard v0.0.14/go.mod h1:pUsgdR2vS/fNJDWhP9ZXlfUzCPClAyqJRSZlaUcEoMg=
 github.com/zalando/go-keyring v0.2.6 h1:r7Yc3+H+Ux0+M72zacZoItR3UDxeWfKTcabvkI8ua9s=
