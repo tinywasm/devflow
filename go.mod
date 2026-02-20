@@ -9,7 +9,7 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/tinywasm/context v0.0.11
-	github.com/tinywasm/fmt v0.18.2 // indirect
+	github.com/tinywasm/fmt v0.18.4 // indirect
 	github.com/tinywasm/wizard v0.0.14
 	golang.org/x/sys v0.26.0 // indirect
 )
