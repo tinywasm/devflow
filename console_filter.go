@@ -13,7 +13,6 @@ type ConsoleFilter struct {
 	releasedFuncCalls int
 	incompleteLine string
 	inPanicMode    bool // true when we detect a panic/timeout
-	panicLines     int  // lines remaining to show after panic
 }
 
 func NewConsoleFilter(output func(string)) *ConsoleFilter {
@@ -51,6 +50,18 @@ func (cf *ConsoleFilter) addLine(line string) {
 	if strings.HasPrefix(line, "panic:") || strings.Contains(line, "test timed out") {
 		cf.inPanicMode = true
 		cf.Flush() // Flush any pending buffer content to preserve context
+	}
+
+	// Global markers - reset panic mode and flush buffer (package boundary).
+	// MUST come before the inPanicMode check so package boundaries always reset state,
+	// preventing panic mode from leaking into subsequent packages.
+	if strings.HasPrefix(line, "FAIL\t") ||
+		strings.HasPrefix(line, "ok\t") ||
+		strings.HasPrefix(line, "coverage:") ||
+		strings.HasPrefix(line, "pkg:") {
+		cf.inPanicMode = false
+		cf.Flush()
+		return
 	}
 
 	// If in panic mode, show everything to aid debugging
@@ -139,15 +150,6 @@ func (cf *ConsoleFilter) addLine(line string) {
 
 	// Skip function calls with memory addresses like TestNilPointer(0xc0000a6b60)
 	if strings.Contains(line, "(0x") && !strings.Contains(line, ".go:") {
-		return
-	}
-
-	// Global markers - flush buffer and skip the marker itself
-	if strings.HasPrefix(line, "FAIL\t") ||
-		strings.HasPrefix(line, "ok\t") ||
-		strings.HasPrefix(line, "coverage:") ||
-		strings.HasPrefix(line, "pkg:") {
-		cf.Flush()
 		return
 	}
 
