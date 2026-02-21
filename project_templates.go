@@ -73,9 +73,11 @@ SOFTWARE.
 // GenerateGitignore generates .gitignore for Go
 func GenerateGitignore(targetDir string) error {
 	content := `# Binaries for programs and plugins
+.env
 *.exe
 *.exe~
 *.dll
+*.log
 
 # Test binary, built with 'go test -c'
 *.test
@@ -89,6 +91,7 @@ coverage.html
 
 # Go workspace file
 *.code-workspace
+.vscode
 go.work
 `
 	return os.WriteFile(filepath.Join(targetDir, ".gitignore"), []byte(content), 0644)
