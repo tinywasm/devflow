@@ -62,6 +62,8 @@
         - **Format**: Markdown files (`*.md`) containing Mermaid code.
         - **Location**: `docs/diagrams/`.
         - **Referencing**: MUST be linked from `ARQUITECTURE.md` and `IMPLEMENTATION.md`.
+        - **Simplicity**: Always use simple, vertical, linear flowcharts (`flowchart TD`). **NEVER** use `subgraph` as it makes the diagram too complex and unreadable in the TUI terminal.
+        - **Readability**: Do not quote the text of the nodes in Mermaid unless strictly necessary (e.g., to escape parentheses like `["Text (with parens)"]`). Quoting all text disables automatic word wrapping and causes the diagram to render too small. Use `<br/>` if manual line breaks are required.
 
     - **Readme Indexing:** The `README.md` must act as an index. Every file in `docs/` must be linked from the `README.md` to avoid saturating it with too much information.
     - **SKILL.md:** On demand, you may be asked to generate a `docs/SKILL.md` file. This file should provide a precise, non-redundant, and comprehensive summary of the library's operation for an LLM to have complete context. It must also be linked from the `README.md`.
