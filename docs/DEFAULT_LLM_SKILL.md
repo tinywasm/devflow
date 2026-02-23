@@ -1,4 +1,3 @@
-
 <!-- START_SECTION:CORE_PRINCIPLES -->
 - **Single Responsibility Principle (SRP):** Every file (CSS, Go, JS) must have a single, well-defined purpose. This must be reflected in both the file's content and its naming convention.
 
@@ -8,85 +7,71 @@
     - **Composition:** Main structs must hold these interfaces.
     - **Injection:** `cmd/<app_name>/main.go` is the ONLY place where "Real" implementations are injected.
 
-- **Framework-less Development:** For HTML/Web projects, use only the **Standard Library**. No external frameworks or libraries are allowed.
-
+- **Framework-less Development:** For Web projects, use only the **Standard Library** (HTML/CSS/JS). No external frameworks or libraries are allowed.
 - **CSS-First Interactivity:** Minimize JavaScript usage. All UI interactivity (toggles, menus, states) must be implemented using pure CSS whenever possible.
-
 - **Minimalist JS:** Use JavaScript only as a last resort for logic that cannot be handled by CSS or the Go backend.
 
 - **Strict File Structure:**
     - **Flat Hierarchy:** Go libraries must avoid subdirectories. Keep files in the root.
     - **Max 500 lines:** Files exceeding 500 lines MUST be subdivided and renamed by domain.
-    - **Test Organization:** If >5 test files exist in root, move **ALL** tests to `tests/`.
+    - **Test Organization:** If >5 test files exist in the root, move **ALL** tests to a `tests/` directory.
 <!-- END_SECTION:CORE_PRINCIPLES -->
 
 <!-- START_SECTION:TESTING -->
-- **Testing:** For Go tests, always use `gotest` (`github.com/tinywasm/devflow/cmd/gotest`). It automatically runs `vet`, standard tests with `-race` and `-cover`, and detects/runs WASM tests. It features intelligent caching (based on git state) for instant feedback on unchanged code, and updates README badges automatically.
-  
-- **Diagram-Driven Testing (DDT):**
-    - **Flow Coverage:** If a logic flow exists in a `docs/diagrams/*.md` (e.g. `PROCESS_FLOW.md`), it **MUST** have a corresponding Integration Test covering every branch (diamonds) and failure mode (timeouts/errors).
+- **Testing Runner (`gotest`):** For Go tests, ALWAYS use the globally installed `gotest` CLI command. **DO NOT** use `go test` directly, and **DO NOT** invoke it via `go run github.com/tinywasm/devflow/cmd/gotest`. Simply type `gotest` (no arguments) for the full suite, or `gotest -run TestName`. It automatically handles `-vet`, `-race`, `-cover`, WASM tests, and README badges.
+- **Publishing (`gopush`):** If tests pass and docs are updated, ALWAYS use the globally installed `gopush 'your commit message'` CLI command to deploy. **DO NOT** use standard `git commit` / `git push`, and **DO NOT** invoke it via `go run`. It handles testing, tagging, pushing, and updating dependencies automatically.
 
-- **Standard Library Only:** **NEVER** use external assertion libraries (`testify`, `gomega`). Use only `testing`, `net/http/httptest`, `reflect`.
+- **Standard Library Only:** **NEVER** use external assertion libraries (e.g., `testify`, `gomega`). Use only the standard `testing`, `net/http/httptest`, and `reflect` APIs.
+- **Mocking (No I/O):** Tests MUST use Mocks for all external interfaces to remain fast, deterministic, and side-effect free.
 
-- **Mandatory Dependency Injection & Mocking:**
-    - Since we avoid global state, tests **MUST** use Mocks for all external interfaces (`Keyring`, `Downloader`, etc.).
-    - This ensures tests are fast (no I/O), deterministic, and safe (no side effects).
+- **WASM/Stlib Dual Testing Pattern:**
+    - **Separation:** Use build tags for isomorphic code (`frontWasm_test.go` -> `//go:build wasm`, `backStlib_test.go` -> `//go:build !wasm`).
+    - **Shared Logic:** Both files MUST call a shared test runner (e.g., `RunAPITests(t)`) to avoid duplication.
+    - **Unified Setup:** Use a single `setup_test.go` to initialize the library/test server once.
 
-- **WASM/Stlib Dual Testing Pattern (Backend vs Frontend):**
-    - **Separate Implementation:** Use build tags to separate logic.
-        - `frontWasm_test.go` -> `//go:build wasm`
-        - `backStlib_test.go` -> `//go:build !wasm`
-    - **Shared Runner:** Both files MUST call a shared test runner (e.g., `RunAPITests(t)`) to avoid code duplication.
-    - **Unified Setup:** Use a single `setup_test.go` to initialize the library/test server once for all tests.
-
-- **Publishing:** Before publishing, you MUST update the documentation (see **Documentation Standards**). If all tests pass when using `gotest`, you can publish changes using `gopush` (`github.com/tinywasm/devflow/cmd/gopush`). This command runs tests, commits, tags, pushes, and updates dependent modules automatically.
+- **Diagram-Driven Testing (DDT) & Black-Box Validation:**
+    - **Flow Coverage:** Logic flows defined in `docs/diagrams/*.md` MUST have corresponding Integration Tests covering all branches/diamonds.
+    - **Visual/Binary Outputs:** Never write tests that perform exact string/byte matching on complex binary formats (e.g., PDFs, SVGs). Floating-point variations make them brittle. Use black-box integration testing that outputs a file to disk (`os.WriteFile`) to be verified visually by the developer.
 <!-- END_SECTION:TESTING -->
 
 <!-- START_SECTION:DOCUMENTATION -->
-- **Documentation Standards:**
-    - **Documentation First:** You MUST update the documentation *before* suggesting or executing `push` or `gopush`. Since APIs usually change during development, the documentation must reflect the current state.
-    
-    - **Context-Aware Rule Compilation:**
-        - Every `IMPLEMENTATION.md` **MUST** start with a **"Development Rules"** section.
-        - This section **MUST** copy/paste the **relevant** rules from `DEFAULT_LLM_SKILL.md` (e.g., if Backend, include DI/StartLib/DDT; if Frontend, include WASM rules).
-        - **Goal**: Ensure the LLM has the specific constraints for *that* specific project explicitly in context.
+- **Documentation First:** You MUST update the documentation *before* coding or running `gopush`.
+- **Context-Aware Rule Compilation:** Every `IMPLEMENTATION.md` MUST start with a "Development Rules" section that copies/pastes the relevant constraints from this skill file (e.g., WASM restrictions, DI rules).
 
-    - **Standard Documents:**
-        - **`docs/ARQUITECTURE.md`**: Defines **WHAT** & **WHY**. abstract design, diagrams, contracts, constraints. NO implementation code.
-        - **`docs/IMPLEMENTATION.md`**: Defines **HOW**. Steps, reference code, config examples, test strategy.
-    
-    - **Modular Docs:** Large requirements must be split into multiple `.md` files in the `docs/` folder.
-    - **Naming Convention:** Files in `docs/` must use the format `DOC_NAME.md` (UPPERCASE, separated by underscores). Example: `docs/BUS_ARCHITECTURE.md`.
-    
-    - **Diagram Standards:**
-        - **Format**: Markdown files (`*.md`) containing Mermaid code.
-        - **Location**: `docs/diagrams/`.
-        - **Referencing**: MUST be linked from `ARQUITECTURE.md` and `IMPLEMENTATION.md`.
-        - **Simplicity**: Always use simple, vertical, linear flowcharts (`flowchart TD`). **NEVER** use `subgraph` as it makes the diagram too complex and unreadable in the TUI terminal.
-        - **Readability**: Do not quote the text of the nodes in Mermaid unless strictly necessary (e.g., to escape parentheses like `["Text (with parens)"]`). Quoting all text disables automatic word wrapping and causes the diagram to render too small. Use `<br/>` if manual line breaks are required.
+- **Standard Documents:**
+    - **`docs/ARQUITECTURE.md`:** Defines WHAT & WHY (abstract design, constraints). NO implementation code.
+    - **`docs/IMPLEMENTATION.md`:** Defines HOW (steps, reference code, test strategy).
+    - **`docs/SKILL.md`:** (On demand) Provides an LLM-friendly, highly condensed summary of the library's context and constraints.
+    - **Modular Docs:** Split large requirements into multiple uppercase, underscore-separated files (e.g., `docs/BUS_ARCHITECTURE.md`). The central plan orchestrates these files.
 
-    - **Readme Indexing:** The `README.md` must act as an index. Every file in `docs/` must be linked from the `README.md` to avoid saturating it with too much information.
-    - **SKILL.md:** On demand, you may be asked to generate a `docs/SKILL.md` file. This file should provide a precise, non-redundant, and comprehensive summary of the library's operation for an LLM to have complete context. It must also be linked from the `README.md`.
+- **Diagram Standards:**
+    - **Format & Location:** Markdown files (`*.md`) containing Mermaid code, stored in `docs/diagrams/` and linked from the architecture documents.
+    - **Simplicity:** Use simple, vertical, linear flowcharts (`flowchart TD`). **NEVER** use the `subgraph` directive (ruins TUI rendering). Use `<br/>` for line breaks inside standard nodes instead of quoting text strings.
+
+- **Readme Indexing:** The `README.md` must act as an index. Every file in `docs/` must be linked from `README.md` to avoid saturating it.
 <!-- END_SECTION:DOCUMENTATION -->
 
 <!-- START_SECTION:PROTOCOLS -->
-- **Language Protocol:** Plans must always be in **English**, while chat conversation must be in **Spanish**.
-
-- **Strategic Justification:** In planning mode, always provide the rationale for the solution. Justify it based on best practices and current industry standards. Provide alternatives, select the best option, and explain why it is the best fit for the context.
-
-- **Modular Documentation:** If the requirement is large, split it into multiple `.md` files in the format/location `[LIBRARY_NAME]/docs/[PLAN_NAME].md` of the involved library. The central plan must orchestrate these files.
-
-- **Explicit Execution:** Never start coding unless explicitly told to "execute the plan","ok" or "ejecuta" (in English or Spanish).
+- **Language Protocol:** Plans and documentation must be generated in **English**, while chat conversations with the user must be in **Spanish**.
+- **Strategic Justification:** Always provide the rationale for your chosen solution based on best practices, offering alternatives and explaining why the selection fits the context.
+- **Explicit Execution:** Never start writing/modifying actual codebase source code unless explicitly told to "execute the plan", "ok", or "ejecuta".
 <!-- END_SECTION:PROTOCOLS -->
 
 <!-- START_SECTION:WASM -->
-- **WebAssembly Environment (tinywasm):** Use `tinywasm` for WASM projects. Running it without parameters scaffolds `web/client.go` with basic code, compiles front/back in-memory, and starts an MCP server on port 3030 with hot-reload. This provides tools for monitoring, browser automation (logs, screenshots), and manual recompilation without polluting the project. **Important:** `tinywasm` is a TUI application — never run it from your own shell (it will block indefinitely). The developer starts it in their IDE terminal or an external terminal. You interact exclusively via the MCP server on port 3030.
-
-- **Frontend Go Compatibility:** If the Go code destination is the frontend (WebAssembly), maximum compatibility with TinyGo is required, as this is the focus of the framework. Consequently, the standard library should not be used for this purpose; for example, use `tinywasm/fmt` instead of `fmt`, `strings`, `strconv`, `errors`, and `path/filepath`; also use `tinywasm/time` instead of `time`, and `tinywasm/json` instead of `encoding/json`.
-
-
-- **Frontend Optimization:** Avoid using maps in WebAssembly/Frontend code if possible. TinyGo's map implementation increases binary size and runtime overhead significantly. Use structs or slices for small collections instead.
+- **WebAssembly Environment (`tinywasm`):**
+    - **Global MCP Server:** The LLM interacts with projects exclusively via the global MCP server on port 3030. If it is not running, the LLM must start it using the `tinywasm -mcp` command.
+    - **Starting Development:** Use the `start_development` MCP tool to run the project compiler and file watcher in the background (headless mode). **Do NOT** run `tinywasm` directly in a shell yourself to start a project.
+    - **TUI Client (Human):** The human developer attaches to live logs by running `tinywasm` in their terminal (acting as a view-only SSE client). If they press `Ctrl+C`, the TUI closes but the project continues compiling/running in the background for you. To fully stop the active project, they press `q`.
+- **Frontend Go Compatibility:** Use standard library replacements for tinygo compatibility. Use `tinywasm/fmt` instead of `fmt`/`strings`/`strconv`/`errors`; `tinywasm/time` instead of `time`; and `tinywasm/json` instead of `encoding/json`.
+- **Frontend Optimization:** Avoid using `map` declarations in WASM code to prevent binary bloat. Use structs or slices for small collections instead.
 <!-- END_SECTION:WASM -->
+
+<!-- START_SECTION:LLM_COLLABORATION -->
+- **Guiding Other LLMs (e.g., Jules):**
+    - **Master Prompt:** When planning a large task for another LLM to execute, create a comprehensive master prompt file (e.g., `docs/PROMPT_REFACTOR.md`). It MUST contain the global context, explicit resolutions to known architectural inconsistencies (preventing hallucinations), and a strict sequential execution plan.
+    - **Modular Context:** Avoid massive, monolithic instruction files. Break down instructions by domain into separate, focused implementation guides (e.g., `CHART_BAR_IMPL.md`).
+    - **Legacy Reference Code:** If porting established logic (e.g., mathematics or physics formulas), append snippets of the legacy reference code at the bottom of the modular context files. Explicitly instruct the downstream LLM on which logic to recycle and which legacy dependencies to replace with the new architecture calls.
+<!-- END_SECTION:LLM_COLLABORATION -->
 
 <!-- START_SECTION:USER_CUSTOM -->
 <!-- This section is preserved during sync. Add your custom LLM instructions here. -->
