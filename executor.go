@@ -61,6 +61,20 @@ func RunShellCommandAsync(command string) error {
 	return cmd.Start()
 }
 
+// RunCommandWithStdin executes a command with the given string piped to stdin.
+// Use this instead of passing secrets as CLI args to avoid leaking them in error messages.
+func RunCommandWithStdin(input, name string, args ...string) (string, error) {
+	cmd := ExecCommand(name, args...)
+	cmd.Stdin = strings.NewReader(input)
+	outputBytes, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(outputBytes))
+	if err != nil {
+		cmdStr := name + " " + strings.Join(args, " ")
+		return output, fmt.Errorf("command failed: %s\nError: %w\nOutput: %s", cmdStr, err, output)
+	}
+	return output, nil
+}
+
 // RunCommandInDir executes a command in a specific directory
 func RunCommandInDir(dir, name string, args ...string) (string, error) {
 	cmd := ExecCommand(name, args...)

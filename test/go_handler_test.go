@@ -377,6 +377,10 @@ func (m *MockGitClient) InitRepo(dir string) error {
 	return nil
 }
 
+func (m *MockGitClient) HasPendingChanges() (bool, error) {
+	return false, nil
+}
+
 func TestGoPush_RemoteAccessFailure(t *testing.T) {
 	// Isolate execution in a temp directory to avoid recursive testing of the current project
 	dir, cleanup := testCreateGoModule("github.com/test/repo")

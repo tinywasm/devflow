@@ -1,0 +1,51 @@
+name: Jules Agent Automation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+
+jobs:
+  agent-trigger:
+    runs-on: ubuntu-slim
+    # Refer to RUNNER_BEST_PRACTICES.md for justification of ubuntu-slim
+    
+    env:
+      AGENT_NAME: "JULES"
+      INSTRUCTIONS_PATH: "docs/ISSUE_JULES.md"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Instructions File
+        shell: bash
+        run: |
+          if [ ! -f "${{ env.INSTRUCTIONS_PATH }}" ]; then
+            echo "Error: Required instruction file ${{ env.INSTRUCTIONS_PATH }} not found."
+            exit 1
+          fi
+          if [ ! -s "${{ env.INSTRUCTIONS_PATH }}" ]; then
+            echo "Error: Instruction file is empty."
+            exit 1
+          fi
+          echo "Instructions found. Proceeding with Agent ${{ env.AGENT_NAME }}."
+
+      - name: Notify Jules via API
+        shell: bash
+        run: |
+          # Jules API call using the referenced instructions file
+          curl -X POST "https://jules.googleapis.com/v1alpha/sessions" \
+            -H "Content-Type: application/json" \
+            -H "X-Goog-Api-Key: ${{ secrets.JULES_API_KEY }}" \
+            -d '{
+              "title": "Automated Task from CI",
+              "prompt": "Please execute the instructions found in: ${{ env.INSTRUCTIONS_PATH }}",
+              "sourceContext": {
+                "source": "sources/github/${{ github.repository }}",
+                "githubRepoContext": { "startingBranch": "main" }
+              },
+              "automationMode": "AUTO_CREATE_PR"
+            }'

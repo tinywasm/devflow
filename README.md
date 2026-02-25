@@ -15,6 +15,7 @@ Complete Go development automation: project init, testing, versioning, updates, 
 - **[badges](docs/BADGES.md)** - Generate SVG badges for README (test status, coverage, etc.)
 - **[devllm](docs/DEVLLM.md)** - Sync LLM configuration files from master template
 - **[goinstall](docs/GOINSTALL.md)** - Install all devflow commands at once
+- **[codejob](docs/CODEJOB.md)** - Send coding tasks to AI agents (Jules, etc.)
 
 ## Configuration
 
@@ -23,62 +24,11 @@ Complete Go development automation: project init, testing, versioning, updates, 
 ## Installation
 
 ```bash
-go install github.com/tinywasm/devflow/cmd/gonew@latest
-go install github.com/tinywasm/devflow/cmd/gotest@latest
-go install github.com/tinywasm/devflow/cmd/push@latest
-go install github.com/tinywasm/devflow/cmd/gopush@latest
-go install github.com/tinywasm/devflow/cmd/devbackup@latest
-go install github.com/tinywasm/devflow/cmd/badges@latest
-go install github.com/tinywasm/devflow/cmd/devllm@latest
-go install github.com/tinywasm/devflow/cmd/goinstall@latest
+# Install all commands at once (includes codejob and all other tools)
+go install github.com/tinywasm/devflow/cmd/goinstall@latest && goinstall
 ```
 
-## Quick Start
-
-```bash
-# Test your project
-gotest
-
-# Force re-running tests (bypass cache)
-gotest -no-cache
-
-# Create new project with specific owner
-gonew myapp "My application" -owner=cdvelop
-
-# Push changes 
-push "fix: bug correction"
-
-# Test + push + update dependents + backup
-gopush "feat: new feature"
-
-# Generate badges
-badges
-
-# Sync LLM configs
-devllm
-
-# Install all devflow commands
-goinstall
-
-```
-
-## Library Usage
-
-```go
-import "github.com/tinywasm/devflow"
-
-// Git workflow
-git := devflow.NewGit()
-summary, _ := git.Push("commit message", "v1.0.0")
-
-// Go project workflow
-goHandler := devflow.NewGo(git)
-summary, _ := goHandler.Push("commit message", "", false, false, false, false, "..")
-
-// Optional: Enable logging for debugging
-git.SetLog(log.Println)
-goHandler.SetLog(log.Println)
-```
+Or install a single command — see each tool's doc linked above.
 
 ## Features
 

@@ -42,7 +42,7 @@
     - **`docs/ARQUITECTURE.md`:** Defines WHAT & WHY (abstract design, constraints). NO implementation code.
     - **`docs/IMPLEMENTATION.md`:** Defines HOW (steps, reference code, test strategy).
     - **`docs/SKILL.md`:** (On demand) Provides an LLM-friendly, highly condensed summary of the library's context and constraints.
-    - **Modular Docs:** Split large requirements into multiple uppercase, underscore-separated files (e.g., `docs/BUS_ARCHITECTURE.md`). The central plan orchestrates these files.
+    - **Modular Docs:** If `ARQUITECTURE.md` or `IMPLEMENTATION.md` become too large, they must be divided into domain-specific, uppercase, underscore-separated files (e.g., `docs/BUS_ARCHITECTURE.md`).
 
 - **Diagram Standards:**
     - **Format & Location:** Markdown files (`*.md`) containing Mermaid code, stored in `docs/diagrams/` and linked from the architecture documents.
@@ -66,9 +66,18 @@
 - **Frontend Optimization:** Avoid using `map` declarations in WASM code to prevent binary bloat. Use structs or slices for small collections instead.
 <!-- END_SECTION:WASM -->
 
+<!-- START_SECTION:CLAUDE_CODE -->
+- **Claude Code Plan Mode:**
+    - **Plan Mirroring:** When Plan Mode creates a plan file at `~/.claude/plans/`, you MUST ALSO create or update `docs/PLAN.md` inside the active project's repository with the same final plan content. The system plan file is infrastructure; `docs/PLAN.md` is the canonical source of truth for execution agents.
+    - **Plan Location Priority:** Always prefer writing plans inside the project repository. If Plan Mode forces a system path, treat it as a draft and mirror the final content to the project before requesting approval via `ExitPlanMode`.
+<!-- END_SECTION:CLAUDE_CODE -->
+
 <!-- START_SECTION:LLM_COLLABORATION -->
 - **Guiding Other LLMs (e.g., Jules):**
-    - **Master Prompt:** When planning a large task for another LLM to execute, create a comprehensive master prompt file (e.g., `docs/PROMPT_REFACTOR.md`). It MUST contain the global context, explicit resolutions to known architectural inconsistencies (preventing hallucinations), and a strict sequential execution plan.
+    - **Universal Planning Location:** NEVER store implementation plans in agent-specific internal directories (e.g., Antigravity's `.gemini` folders). All plans MUST be saved directly within the project's repository.
+    - **The Master Prompt (`docs/PLAN.md`):** Whenever a project has pending tasks, there MUST ALWAYS be an `PLAN.md` file. This acts as the entry point for execution agents. It is the master orchestrator and MUST link to all other relevant documents (`README.md`, `ARQUITECTURE.md`, `IMPLEMENTATION.md`, or modular docs).
+    - **Planning Process (Conversational First):** Execution agents don't always know where to start or what to check. Therefore, the creation of `PLAN.md` MUST be done in structured, sequential steps. The planning agent MUST first perform a Q&A process with the user in the chat (asking targeted questions and offering suggestions) to define the full scope and make architectural decisions. 
+    - **Final Resolutions Only:** The Q&A discussion MUST remain in the chat. The `PLAN.md` file must ONLY contain the final resolutions, structured into clear, sequential execution steps. It must not contain the conversational history.
     - **Modular Context:** Avoid massive, monolithic instruction files. Break down instructions by domain into separate, focused implementation guides (e.g., `CHART_BAR_IMPL.md`).
     - **Legacy Reference Code:** If porting established logic (e.g., mathematics or physics formulas), append snippets of the legacy reference code at the bottom of the modular context files. Explicitly instruct the downstream LLM on which logic to recycle and which legacy dependencies to replace with the new architecture calls.
 <!-- END_SECTION:LLM_COLLABORATION -->

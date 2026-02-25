@@ -509,6 +509,21 @@ func (g *Git) IsAheadOfRemote() (bool, error) {
 	return true, nil
 }
 
+// HasPendingChanges returns true if there are uncommitted or unpushed changes.
+// Used by CodeJob to ensure the file is visible to Jules before dispatching.
+func (g *Git) HasPendingChanges() (bool, error) {
+	// Uncommitted changes (staged or unstaged)
+	out, err := g.runSilent("git", "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(out) != "" {
+		return true, nil
+	}
+	// Unpushed commits
+	return g.IsAheadOfRemote()
+}
+
 // PushWithoutTags pushes commits without pushing tags
 func (g *Git) PushWithoutTags() (bool, error) {
 	return g.pushWithAutoRebase()

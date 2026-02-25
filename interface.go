@@ -41,12 +41,33 @@ type GitClient interface {
 	Commit(message string) (bool, error)
 	CreateTag(tag string) (bool, error)
 	PushWithTags(tag string) (bool, error)
+	HasPendingChanges() (bool, error)
 }
 
 // FolderWatcher defines interface for adding/removing directories to watch
 type FolderWatcher interface {
 	AddDirectoriesToWatch(paths ...string) error
 	RemoveDirectoriesFromWatcher(paths ...string) error
+}
+
+// RepoSync checks whether the local repository is in sync with the remote.
+// CodeJob uses this to refuse dispatch when local changes haven't been pushed yet.
+type RepoSync interface {
+	HasPendingChanges() (bool, error)
+}
+
+// CodeJobDriver defines the contract for an external AI coding agent.
+// Implementations: JulesDriver, (future: OllamaDriver, etc.)
+type CodeJobDriver interface {
+	Name() string
+	SetLog(fn func(...any))
+	Send(prompt string) (string, error)
+}
+
+// SessionProvider is implemented by CodeJobDrivers that return a session ID
+// after a successful Send(). CodeJob uses this to persist to .env.
+type SessionProvider interface {
+	SessionID() string
 }
 
 // GoModInterface defines interface for go.mod handling

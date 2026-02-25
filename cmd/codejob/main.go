@@ -1,0 +1,95 @@
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/tinywasm/devflow"
+)
+
+func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			runInit()
+			return
+		}
+	}
+
+	env := devflow.NewDotEnv(".env")
+	if val, ok := env.Get("CODEJOB"); ok {
+		runQueryState(env, val)
+		return
+	}
+
+	path := devflow.DefaultIssuePromptPath
+	if len(os.Args) > 1 {
+		path = os.Args[1]
+	}
+
+	runDispatch(path)
+}
+
+func runQueryState(env *devflow.DotEnv, val string) {
+	parts := strings.SplitN(val, ":", 2)
+	if len(parts) != 2 {
+		fmt.Fprintln(os.Stderr, "Error: invalid CODEJOB value in .env:", val)
+		return
+	}
+	driverName := parts[0]
+	sessionID := parts[1]
+
+	if driverName != "jules" {
+		fmt.Fprintln(os.Stderr, "Error: unsupported driver in .env:", driverName)
+		return
+	}
+
+	auth, _ := devflow.NewJulesAuth()
+	apiKey, err := auth.EnsureAPIKey()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return
+	}
+
+	msg, done, err := devflow.JulesSessionState(sessionID, apiKey, &http.Client{})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return
+	}
+
+	fmt.Println(msg)
+
+	if done {
+		git, _ := devflow.NewGit()
+		if err := devflow.HandleDone(env, git); err != nil {
+			fmt.Fprintln(os.Stderr, "Cleanup error:", err)
+		}
+	}
+}
+
+func runDispatch(path string) {
+	job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}))
+	if git, err := devflow.NewGit(); err == nil {
+		job.SetRepoSync(git)
+	}
+	result, err := job.Send(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	fmt.Println(result)
+}
+
+func runInit() {
+	auth, err := devflow.NewJulesAuth()
+	if err == nil && auth.HasKey() {
+		fmt.Println("Already initialized (Jules API key found in keyring).")
+		return
+	}
+	if err := devflow.NewCodeJobInitWizard().Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+}
