@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // JulesSessionState polls the Jules API for session status.
@@ -120,7 +121,20 @@ func MergePR() error {
 	}
 
 	// 1. merge PR and delete Jules branch
-	if out, err := RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch"); err != nil {
+	var out string
+	var err error
+	for i := 0; i < 5; i++ {
+		out, err = RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		if err == nil {
+			break
+		}
+		if strings.Contains(out, "is not mergeable") || strings.Contains(err.Error(), "is not mergeable") {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		break
+	}
+	if err != nil {
 		return fmt.Errorf("gh pr merge failed: %w\n%s", err, out)
 	}
 
@@ -170,8 +184,21 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 	}
 
 	// 1. merge PR and delete Jules branch on GitHub
-	if out, err := RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch"); err != nil {
-		return PushResult{}, fmt.Errorf("gh pr merge failed: %w\n%s", err, out)
+	var mergeOut string
+	var mergeErr error
+	for i := 0; i < 5; i++ {
+		mergeOut, mergeErr = RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		if mergeErr == nil {
+			break
+		}
+		if strings.Contains(mergeOut, "is not mergeable") || strings.Contains(mergeErr.Error(), "is not mergeable") {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		break
+	}
+	if mergeErr != nil {
+		return PushResult{}, fmt.Errorf("gh pr merge failed: %w\n%s", mergeErr, mergeOut)
 	}
 
 	// 2. pull the merged commit locally
