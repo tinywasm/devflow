@@ -35,6 +35,48 @@ func TestGitHasChanges(t *testing.T) {
 	}
 }
 
+func TestGitHasPendingChanges_IgnoresEnvAndGitignore(t *testing.T) {
+	dir, cleanup := testCreateGitRepo()
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	git, _ := devflow.NewGit()
+	// commit initial state
+	os.WriteFile("README.md", []byte("# test"), 0644)
+	git.Add()
+	git.Commit("initial")
+
+	// Case 1: Modify only .env -> Should return FALSE
+	os.WriteFile(".env", []byte("foo=bar"), 0644)
+	has, err := git.HasPendingChanges()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("Expected HasPendingChanges to be false when only .env is modified")
+	}
+
+	// Case 2: Modify only .gitignore -> Should return FALSE
+	os.WriteFile(".gitignore", []byte("bin/"), 0644)
+	has, err = git.HasPendingChanges()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("Expected HasPendingChanges to be false when only .gitignore is modified")
+	}
+
+	// Case 3: Modify .env AND a real file -> Should return TRUE
+	os.WriteFile("main.go", []byte("package main"), 0644)
+	has, err = git.HasPendingChanges()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("Expected HasPendingChanges to be true when a real file is modified")
+	}
+}
+
 func TestGitGenerateNextTag(t *testing.T) {
 	dir, cleanup := testCreateGitRepo()
 	defer cleanup()
