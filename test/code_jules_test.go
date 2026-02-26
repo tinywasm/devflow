@@ -45,11 +45,11 @@ func TestJulesDriverSendSuccess(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(&mockHTTPClient{statusCode: 200, body: `{"id":"S123"}`})
 
-	result, err := d.Send("Execute the implementation plan described in docs/PLAN.md")
+	result, err := d.Send("Execute the implementation plan described in docs/PLAN.md", "user/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result, "→ Jules: S123") {
+	if !strings.Contains(result, "jules: S123") {
 		t.Errorf("unexpected result: %s", result)
 	}
 	if d.SessionID() != "S123" {
@@ -61,7 +61,7 @@ func TestJulesDriverSendNon200(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(&mockHTTPClient{statusCode: 403, body: "forbidden"})
 
-	_, err := d.Send("Execute the implementation plan described in docs/PLAN.md")
+	_, err := d.Send("Execute the implementation plan described in docs/PLAN.md", "")
 	if err == nil {
 		t.Fatal("expected error on non-200 response")
 	}
@@ -75,7 +75,7 @@ func TestJulesDriverSendUsesProvidedAPIKey(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
 
-	d.Send("Execute the implementation plan described in docs/PLAN.md")
+	d.Send("Execute the implementation plan described in docs/PLAN.md", "")
 
 	if mock.lastReq == nil {
 		t.Fatal("no request was made")
@@ -91,7 +91,7 @@ func TestJulesDriverSendUsesReceivedPrompt(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
 
-	d.Send(customPrompt)
+	d.Send(customPrompt, "")
 
 	if mock.lastBody == nil {
 		t.Fatal("no request body captured")
@@ -108,5 +108,39 @@ func TestJulesDriverSendUsesReceivedPrompt(t *testing.T) {
 	}
 	if got != customPrompt {
 		t.Errorf("driver must use the prompt it received\nwant: %q\n got: %q", customPrompt, got)
+	}
+}
+
+func TestJulesDriverSendUsesTitle(t *testing.T) {
+	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
+	d := devflow.NewJulesDriver(testJulesConfig())
+	d.SetHTTPClient(mock)
+
+	d.Send("Execute the plan", "myorg/myrepo")
+
+	var payload map[string]any
+	if err := json.Unmarshal(mock.lastBody, &payload); err != nil {
+		t.Fatalf("could not decode request body: %v", err)
+	}
+	if got, _ := payload["title"].(string); got != "myorg/myrepo" {
+		t.Errorf("expected title %q in request body, got %q", "myorg/myrepo", got)
+	}
+}
+
+func TestJulesDriverSendConfigTitleOverrides(t *testing.T) {
+	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
+	cfg := testJulesConfig()
+	cfg.SessionTitle = "custom title"
+	d := devflow.NewJulesDriver(cfg)
+	d.SetHTTPClient(mock)
+
+	d.Send("Execute the plan", "myorg/myrepo") // title arg should be ignored
+
+	var payload map[string]any
+	if err := json.Unmarshal(mock.lastBody, &payload); err != nil {
+		t.Fatalf("could not decode request body: %v", err)
+	}
+	if got, _ := payload["title"].(string); got != "custom title" {
+		t.Errorf("expected config SessionTitle to override, got %q", got)
 	}
 }

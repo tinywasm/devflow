@@ -66,11 +66,12 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 	}
 
 	prompt := "Execute the implementation plan described in " + issuePromptPath
+	title := autoDetectTitle()
 
 	var lastErr error
 	for _, d := range c.drivers {
 		d.SetLog(c.log)
-		result, err := d.Send(prompt)
+		result, err := d.Send(prompt, title)
 		if err == nil {
 			// Try to persist session ID to .env
 			if sp, ok := d.(SessionProvider); ok {
@@ -88,33 +89,42 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 	return "", fmt.Errorf("all agents failed, last error: %w", lastErr)
 }
 
-// TryDispatch dispatches CodeJob if PLAN.md exists and no active session is in .env.
-// It returns a non-empty string on successful dispatch, or "" if nothing was done.
-func TryDispatch(sync RepoSync) string {
+// autoDetectTitle returns "owner/repo" for the current git repository,
+// or "" if detection fails (non-fatal; driver will use its own fallback).
+func autoDetectTitle() string {
+	owner, repo, err := autoDetectOwnerRepo()
+	if err != nil {
+		return ""
+	}
+	return owner + "/" + repo
+}
+
+// DispatchCodeJob dispatches CodeJob if PLAN.md exists and no active session is in .env.
+// Returns ("", nil) when there is nothing to dispatch (active session or missing PLAN.md).
+// Returns ("", error) when dispatch was attempted but failed.
+// Returns (result, nil) on successful dispatch.
+// If no drivers are provided, defaults to NewJulesDriver(JulesConfig{}).
+func DispatchCodeJob(sync RepoSync, drivers ...CodeJobDriver) (string, error) {
 	env := NewDotEnv(".env")
 	if _, ok := env.Get("CODEJOB"); ok {
-		return "" // already active
+		return "", nil // already active
 	}
 
 	if _, err := os.Stat(DefaultIssuePromptPath); os.IsNotExist(err) {
-		return "" // no plan to dispatch
+		return "", nil // no plan to dispatch
 	}
 
-	job := NewCodeJob(NewJulesDriver(JulesConfig{}))
+	if len(drivers) == 0 {
+		drivers = []CodeJobDriver{NewJulesDriver(JulesConfig{})}
+	}
+
+	job := NewCodeJob(drivers...)
 	job.SetRepoSync(sync)
 
 	result, err := job.Send(DefaultIssuePromptPath)
 	if err != nil {
-		return "" // silent failure for try dispatch
+		return "", err
 	}
 
-	// Read back from env because result might be verbose, but we want the persisted session id
-	if val, ok := env.Get("CODEJOB"); ok {
-		parts := strings.SplitN(val, ":", 2)
-		if len(parts) == 2 {
-			return "→ Jules: " + parts[1]
-		}
-	}
-
-	return result
+	return result, nil
 }

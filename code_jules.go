@@ -76,9 +76,9 @@ type julesGithubCtx struct {
 	StartingBranch string `json:"startingBranch"`
 }
 
-// Send creates a Jules session using the prompt string resolved by CodeJob.
+// Send creates a Jules session using the prompt and title resolved by CodeJob.
 // Jules accesses the referenced file directly from the repository via its GitHub App access.
-func (d *JulesDriver) Send(prompt string) (string, error) {
+func (d *JulesDriver) Send(prompt, title string) (string, error) {
 	apiKey, err := d.resolveAPIKey()
 	if err != nil {
 		return "", err
@@ -94,9 +94,11 @@ func (d *JulesDriver) Send(prompt string) (string, error) {
 		return "", err
 	}
 
-	title := d.config.SessionTitle
+	if d.config.SessionTitle != "" {
+		title = d.config.SessionTitle // config override takes precedence
+	}
 	if title == "" {
-		title = "CodeJob Task"
+		title = "CodeJob Task" // ultimate fallback
 	}
 
 	body := julesSessionRequest{
@@ -141,7 +143,7 @@ func (d *JulesDriver) Send(prompt string) (string, error) {
 	_ = json.Unmarshal(respBody, &julesResp)
 	d.sessionID = julesResp.ID
 
-	return fmt.Sprintf("→ Jules: %s", d.sessionID), nil
+	return fmt.Sprintf("jules: %s", d.sessionID), nil
 }
 
 // resolveAPIKey returns config.APIKey or fetches it from keyring/prompt.

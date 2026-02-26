@@ -12,13 +12,14 @@ import (
 
 // Go handler for Go operations
 type Go struct {
-	rootDir       string
-	git           GitClient // Interface for better testing
-	log           func(...any)
-	consoleOutput func(string) // output for ConsoleFilter (fmt.Println by default)
-	backup        *DevBackup
-	retryDelay    time.Duration
-	retryAttempts int
+	rootDir        string
+	git            GitClient // Interface for better testing
+	log            func(...any)
+	consoleOutput  func(string) // output for ConsoleFilter (fmt.Println by default)
+	backup         *DevBackup
+	retryDelay     time.Duration
+	retryAttempts  int
+	codeJobDrivers []CodeJobDriver
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.
@@ -83,6 +84,12 @@ func (g *Go) SetLog(fn func(...any)) {
 // SetConsoleOutput sets the function for console output (used by ConsoleFilter)
 func (g *Go) SetConsoleOutput(fn func(string)) {
 	g.consoleOutput = fn
+}
+
+// SetCodeJobDrivers injects AI agent drivers for CodeJob dispatch.
+// If not set, Push() defaults to NewJulesDriver(JulesConfig{}).
+func (g *Go) SetCodeJobDrivers(drivers ...CodeJobDriver) {
+	g.codeJobDrivers = drivers
 }
 
 // GetLog returns the logger function
@@ -182,6 +189,14 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		} else if backupMsg != "" {
 			summary = append(summary, backupMsg)
 		}
+	}
+
+	// 8. Dispatch CodeJob if docs/PLAN.md exists and no active session.
+	// Runs after git.Push() guarantees a clean, synced repo — pre-flight always passes.
+	if result, err := DispatchCodeJob(g.git, g.codeJobDrivers...); err != nil {
+		summary = append(summary, fmt.Sprintf("⚠️ CodeJob: %v", err))
+	} else if result != "" {
+		summary = append(summary, result)
 	}
 
 	return strings.Join(summary, ", "), nil

@@ -58,10 +58,11 @@ type RepoSync interface {
 
 // CodeJobDriver defines the contract for an external AI coding agent.
 // Implementations: JulesDriver, (future: OllamaDriver, etc.)
+// title is the human-readable job name (e.g. "owner/repo"), derived by CodeJob.
 type CodeJobDriver interface {
 	Name() string
 	SetLog(fn func(...any))
-	Send(prompt string) (string, error)
+	Send(prompt, title string) (string, error)
 }
 
 // SessionProvider is implemented by CodeJobDrivers that return a session ID

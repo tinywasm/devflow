@@ -72,6 +72,10 @@ Examples:
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
+
+	auth := devflow.NewGitHubAuth()
+	git.SetAuthRetrier(auth)
+
 	goHandler, err := devflow.NewGo(git)
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -86,9 +90,4 @@ Examples:
 	}
 
 	fmt.Println(summary)
-
-	// Auto-dispatch CodeJob if docs/PLAN.md exists and no active session.
-	if line := devflow.TryDispatch(git); line != "" {
-		fmt.Println(line)
-	}
 }

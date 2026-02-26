@@ -71,6 +71,9 @@ Workflow:
 		os.Exit(1)
 	}
 
+	auth := devflow.NewGitHubAuth()
+	git.SetAuthRetrier(auth)
+
 	result, err := git.Push(message, tag)
 
 	if result.Summary != "" {
@@ -80,11 +83,6 @@ Workflow:
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
-	}
-
-	// Auto-dispatch CodeJob if docs/PLAN.md exists and no active session.
-	if line := devflow.TryDispatch(git); line != "" {
-		fmt.Println(line)
 	}
 
 	os.Exit(0)

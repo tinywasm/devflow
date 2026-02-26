@@ -18,7 +18,7 @@ type mockCodeJobDriver struct {
 
 func (m *mockCodeJobDriver) Name() string                  { return m.name }
 func (m *mockCodeJobDriver) SetLog(_ func(...any))         {}
-func (m *mockCodeJobDriver) Send(_ string) (string, error) { return m.result, m.err }
+func (m *mockCodeJobDriver) Send(_, _ string) (string, error) { return m.result, m.err }
 
 // writeTempFile creates a temp file with content and registers cleanup.
 func writeTempFile(t *testing.T, content string) string {
@@ -193,5 +193,78 @@ func TestCodeJobSendSkipsGitCheckWithNoClient(t *testing.T) {
 	}
 	if got != "ok" {
 		t.Errorf("expected %q, got %q", "ok", got)
+	}
+}
+
+// --- DispatchCodeJob tests ---
+
+func TestDispatchCodeJob_NoPlanFile_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+	// docs/PLAN.md does not exist → nothing to dispatch
+
+	driver := &mockCodeJobDriver{name: "mock", result: "should-not-run"}
+	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result when no PLAN.md, got: %q", result)
+	}
+}
+
+func TestDispatchCodeJob_ActiveSession_SkipsDispatch(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	os.WriteFile(".env", []byte("CODEJOB=jules:existing-session\n"), 0644)
+	os.MkdirAll("docs", 0755)
+	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
+
+	driver := &mockCodeJobDriver{name: "mock", result: "should-not-run"}
+	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result when session active, got: %q", result)
+	}
+}
+
+func TestDispatchCodeJob_DriverError_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	os.MkdirAll("docs", 0755)
+	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
+
+	driver := &mockCodeJobDriver{name: "mock", err: errors.New("api down")}
+	_, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
+
+	if err == nil {
+		t.Fatal("expected error when driver fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "api down") {
+		t.Errorf("expected original error wrapped, got: %v", err)
+	}
+}
+
+func TestDispatchCodeJob_Success_ReturnsResult(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	os.MkdirAll("docs", 0755)
+	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
+
+	driver := &mockCodeJobDriver{name: "mock", result: "dispatched-ok"}
+	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "dispatched-ok" {
+		t.Errorf("expected %q, got: %q", "dispatched-ok", result)
 	}
 }

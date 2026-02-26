@@ -16,6 +16,7 @@ type Git struct {
 	rootDir     string
 	shouldWrite func() bool
 	log         func(...any)
+	authRetrier GitHubAuthenticator
 }
 
 // NewGit creates a new Git handler and verifies git is available
@@ -66,24 +67,45 @@ func (g *Git) SetLog(fn func(...any)) {
 	}
 }
 
-// CheckRemoteAccess verifies connectivity to the remote repository
+// SetAuthRetrier injects an authenticator to use for auto-recovery on access errors
+func (g *Git) SetAuthRetrier(a GitHubAuthenticator) {
+	g.authRetrier = a
+}
+
+// CheckRemoteAccess verifies connectivity to the remote repository.
+// If an auth error is detected and an authRetrier is configured, it triggers
+// the Device Flow auth automatically and retries once.
 func (g *Git) CheckRemoteAccess() error {
-	// git ls-remote origin checks access without needing upstream configured
 	_, err := g.runSilent("git", "ls-remote", "origin")
-	if err != nil {
-		// Try to provide a helpful error message
-		if strings.Contains(err.Error(), "Authentication failed") || strings.Contains(err.Error(), "Could not read from remote repository") {
-			return fmt.Errorf("❌ Authentication failed. Please check your git credentials or use 'git push' manually to authenticate")
-		}
-		if strings.Contains(err.Error(), "Could not resolve host") {
-			return fmt.Errorf("❌ Network error. Please check your internet connection")
-		}
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
-			return fmt.Errorf("❌ Remote 'origin' not found. Please add a remote using 'git remote add origin <url>'")
-		}
-		return fmt.Errorf("❌ checking remote access failed: %w", err)
+	if err == nil {
+		return nil
 	}
-	return nil
+
+	isAuthErr := strings.Contains(err.Error(), "Authentication failed") ||
+		strings.Contains(err.Error(), "Could not read from remote repository")
+
+	if isAuthErr && g.authRetrier != nil {
+		g.log("🔑 Access denied. Restarting authentication...")
+		if authErr := g.authRetrier.EnsureGitHubAuth(); authErr != nil {
+			return fmt.Errorf("❌ authentication failed: %w", authErr)
+		}
+		// Retry once after successful re-auth
+		if _, retryErr := g.runSilent("git", "ls-remote", "origin"); retryErr != nil {
+			return fmt.Errorf("❌ remote access denied after re-authentication: %w", retryErr)
+		}
+		return nil
+	}
+
+	if isAuthErr {
+		return fmt.Errorf("❌ Authentication failed. Please check your git credentials or use 'git push' manually to authenticate")
+	}
+	if strings.Contains(err.Error(), "Could not resolve host") {
+		return fmt.Errorf("❌ Network error. Please check your internet connection")
+	}
+	if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+		return fmt.Errorf("❌ Remote 'origin' not found. Please add a remote using 'git remote add origin <url>'")
+	}
+	return fmt.Errorf("❌ checking remote access failed: %w", err)
 }
 
 // PushResult contains the results of a Git push operation

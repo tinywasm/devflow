@@ -3,6 +3,7 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -379,6 +380,110 @@ func (m *MockGitClient) InitRepo(dir string) error {
 
 func (m *MockGitClient) HasPendingChanges() (bool, error) {
 	return false, nil
+}
+
+func TestGoPush_TriggersCodeJobWhenPlanExists(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	os.MkdirAll("docs", 0755)
+	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("implement feature X"), 0644)
+	defer os.Remove(".env")
+
+	os.WriteFile("main_test.go", []byte("package main\nimport \"testing\"\nfunc TestEx(t *testing.T) {}\n"), 0644)
+
+	mockGit := &MockGitClient{latestTag: "v0.0.0", log: func(args ...any) {}}
+	driver := &mockCodeJobDriver{name: "mock", result: "jules-dispatched"}
+
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCodeJobDrivers(driver)
+
+	summary, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+	if !strings.Contains(summary, "jules-dispatched") {
+		t.Errorf("expected summary to contain codejob result, got: %s", summary)
+	}
+}
+
+func TestGoPush_SkipsCodeJobWhenNoPlan(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	// No docs/PLAN.md
+	os.WriteFile("main_test.go", []byte("package main\nimport \"testing\"\nfunc TestEx(t *testing.T) {}\n"), 0644)
+
+	mockGit := &MockGitClient{latestTag: "v0.0.0", log: func(args ...any) {}}
+	driver := &mockCodeJobDriver{name: "mock", result: "should-not-appear"}
+
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCodeJobDrivers(driver)
+
+	summary, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+	if strings.Contains(summary, "should-not-appear") {
+		t.Errorf("expected CodeJob NOT triggered when no PLAN.md, but found its result in summary: %s", summary)
+	}
+}
+
+func TestGoPush_CodeJobErrorAppearsInSummary(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	os.MkdirAll("docs", 0755)
+	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("implement feature X"), 0644)
+
+	os.WriteFile("main_test.go", []byte("package main\nimport \"testing\"\nfunc TestEx(t *testing.T) {}\n"), 0644)
+
+	mockGit := &MockGitClient{latestTag: "v0.0.0", log: func(args ...any) {}}
+	driver := &mockCodeJobDriver{name: "mock", err: errors.New("api unreachable")}
+
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCodeJobDrivers(driver)
+
+	summary, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, "")
+	if err != nil {
+		t.Fatalf("Push must succeed even when CodeJob fails, got: %v", err)
+	}
+	if !strings.Contains(summary, "⚠️ CodeJob:") {
+		t.Errorf("expected summary to contain CodeJob warning, got: %s", summary)
+	}
+	if !strings.Contains(summary, "api unreachable") {
+		t.Errorf("expected summary to contain error message, got: %s", summary)
+	}
+}
+
+func TestGoPush_SkipsCodeJobWhenActiveSession(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	os.MkdirAll("docs", 0755)
+	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
+	os.WriteFile(".env", []byte("CODEJOB=jules:existing-session\n"), 0644)
+	defer os.Remove(".env")
+
+	os.WriteFile("main_test.go", []byte("package main\nimport \"testing\"\nfunc TestEx(t *testing.T) {}\n"), 0644)
+
+	mockGit := &MockGitClient{latestTag: "v0.0.0", log: func(args ...any) {}}
+	driver := &mockCodeJobDriver{name: "mock", result: "should-not-dispatch"}
+
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCodeJobDrivers(driver)
+
+	summary, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+	if strings.Contains(summary, "should-not-dispatch") {
+		t.Errorf("expected CodeJob skipped when active session, but found result in summary: %s", summary)
+	}
 }
 
 func TestGoPush_RemoteAccessFailure(t *testing.T) {

@@ -4,7 +4,7 @@ go 1.25.2
 
 require github.com/zalando/go-keyring v0.2.6
 
-require golang.org/x/term v0.40.0 // indirect
+require golang.org/x/term v0.40.0
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
