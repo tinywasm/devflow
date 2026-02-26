@@ -546,15 +546,28 @@ func (g *Git) IsAheadOfRemote() (bool, error) {
 
 // HasPendingChanges returns true if there are uncommitted or unpushed changes.
 // Used by CodeJob to ensure the file is visible to Jules before dispatching.
+// It ignores changes to .env and .gitignore files.
 func (g *Git) HasPendingChanges() (bool, error) {
 	// Uncommitted changes (staged or unstaged)
 	out, err := g.runSilent("git", "status", "--porcelain")
 	if err != nil {
 		return false, err
 	}
-	if strings.TrimSpace(out) != "" {
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Ignore .env and .gitignore changes
+		if strings.HasSuffix(line, ".env") || strings.HasSuffix(line, ".gitignore") {
+			continue
+		}
+		// Found a change that is not ignored
 		return true, nil
 	}
+
 	// Unpushed commits
 	return g.IsAheadOfRemote()
 }

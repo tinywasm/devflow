@@ -89,7 +89,8 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 		return "", err
 	}
 
-	sourceID, err := d.resolveSourceID()
+	// Resolve candidate source IDs (might be multiple if rename occurred)
+	candidateSourceIDs, err := d.resolveSourceID()
 	if err != nil {
 		return "", err
 	}
@@ -106,26 +107,24 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 		title = "CodeJob Task" // ultimate fallback
 	}
 
-	body := julesSessionRequest{
-		Title:  title,
-		Prompt: prompt,
-		SourceContext: julesSource{
-			Source: sourceID,
-			GithubRepoContext: julesGithubCtx{
-				StartingBranch: branch,
+	// Helper to attempt creation with a specific sourceID
+	attemptCreate := func(sourceID string) (int, []byte, error) {
+		body := julesSessionRequest{
+			Title:  title,
+			Prompt: prompt,
+			SourceContext: julesSource{
+				Source: sourceID,
+				GithubRepoContext: julesGithubCtx{
+					StartingBranch: branch,
+				},
 			},
-		},
-		AutomationMode: "AUTO_CREATE_PR",
-	}
+			AutomationMode: "AUTO_CREATE_PR",
+		}
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return 0, nil, fmt.Errorf("could not encode request: %w", err)
+		}
 
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("could not encode request: %w", err)
-	}
-
-	// doPost sends the session creation request. Uses bytes.NewReader so
-	// the same payload slice can be re-read on each retry attempt.
-	doPost := func() (int, []byte, error) {
 		req, err := http.NewRequest(http.MethodPost,
 			"https://jules.googleapis.com/v1alpha/sessions", bytes.NewReader(payload))
 		if err != nil {
@@ -142,27 +141,47 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 		return resp.StatusCode, b, nil
 	}
 
-	code, respBody, err := doPost()
-	if err != nil {
-		return "", err
+	// Try candidates in order
+	var lastCode int
+	var lastResp []byte
+	var activeSourceID string
+
+	for i, sourceID := range candidateSourceIDs {
+		activeSourceID = sourceID
+		code, respBody, err := attemptCreate(sourceID)
+		if err != nil {
+			return "", err
+		}
+		lastCode = code
+		lastResp = respBody
+
+		if code == http.StatusOK {
+			return d.parseSessionID(respBody)
+		}
+
+		// If 404 and we have another candidate, try next
+		if code == http.StatusNotFound && i < len(candidateSourceIDs)-1 {
+			d.log(fmt.Sprintf("Jules: 404 on %s, falling back to next candidate...", sourceID))
+			continue
+		}
+
+		// If failure (non-404) or last candidate, stop loop and handle error/polling
+		break
 	}
 
-	if code == http.StatusOK {
-		return d.parseSessionID(respBody)
+	if lastCode != http.StatusNotFound {
+		return "", fmt.Errorf("Jules API returned %d: %s", lastCode, strings.TrimSpace(string(lastResp)))
 	}
 
-	if code != http.StatusNotFound {
-		return "", fmt.Errorf("Jules API returned %d: %s", code, strings.TrimSpace(string(respBody)))
-	}
-
+	// Fallback Polling Logic (using activeSourceID - the last one tried)
 	// 404: check whether the source is simply not indexed yet.
-	indexed, err := d.isSourceIndexed(sourceID, apiKey)
+	indexed, err := d.isSourceIndexed(activeSourceID, apiKey)
 	if err != nil {
 		return "", fmt.Errorf("Jules source check failed: %w", err)
 	}
 	if indexed {
 		// Source exists in Jules but the API still returned 404 — real error.
-		return "", fmt.Errorf("Jules API returned 404: %s", strings.TrimSpace(string(respBody)))
+		return "", fmt.Errorf("Jules API returned 404: %s", strings.TrimSpace(string(lastResp)))
 	}
 
 	// Source not indexed yet — poll until it appears or timeout is exceeded.
@@ -174,12 +193,12 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 	if interval == 0 {
 		interval = 10 * time.Second
 	}
-	d.log("Jules: source not indexed yet, waiting for", sourceID)
+	d.log("Jules: source not indexed yet, waiting for", activeSourceID)
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
 		time.Sleep(interval)
-		found, err := d.isSourceIndexed(sourceID, apiKey)
+		found, err := d.isSourceIndexed(activeSourceID, apiKey)
 		if err != nil {
 			return "", fmt.Errorf("Jules source check failed: %w", err)
 		}
@@ -188,7 +207,7 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 			continue
 		}
 		d.log("Jules: source now indexed, retrying session...")
-		code, respBody, err = doPost()
+		code, respBody, err := attemptCreate(activeSourceID)
 		if err != nil {
 			return "", err
 		}
@@ -200,7 +219,7 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 	}
 
 	return "", fmt.Errorf("Jules source %q not indexed after %s — add the repo to Jules and retry",
-		sourceID, timeout)
+		activeSourceID, timeout)
 }
 
 // parseSessionID extracts the session ID from a Jules 200 response body.
@@ -269,11 +288,12 @@ func (d *JulesDriver) resolveAPIKey() (string, error) {
 }
 
 // resolveSourceID returns config.SourceID or auto-detects via gh CLI.
-func (d *JulesDriver) resolveSourceID() (string, error) {
+// Returns a list of candidate source IDs to try (primary + fallback).
+func (d *JulesDriver) resolveSourceID() ([]string, error) {
 	if d.config.SourceID != "" {
-		return d.config.SourceID, nil
+		return []string{d.config.SourceID}, nil
 	}
-	return autoDetectSourceID()
+	return getCandidateOrigins()
 }
 
 // resolveBranch returns config.StartBranch or auto-detects via git.
@@ -282,6 +302,89 @@ func (d *JulesDriver) resolveBranch() (string, error) {
 		return d.config.StartBranch, nil
 	}
 	return autoDetectBranch()
+}
+
+// getLocalGitOrigin parses `git remote -v` to find the fetch URL for origin.
+// Supports:
+//   - HTTPS: https://github.com/owner/repo.git
+//   - SSH:   git@github.com:owner/repo.git
+func getLocalGitOrigin() (owner, repo string, err error) {
+	out, err := RunCommandSilent("git", "remote", "-v")
+	if err != nil {
+		return "", "", fmt.Errorf("git remote failed: %w", err)
+	}
+
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		// Expect: origin  https://github.com/owner/repo.git (fetch)
+		if !strings.Contains(line, "origin") || !strings.Contains(line, "(fetch)") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		url := parts[1]
+
+		// Cleanup .git suffix
+		url = strings.TrimSuffix(url, ".git")
+
+		// Parse HTTPS
+		if strings.HasPrefix(url, "https://github.com/") {
+			path := strings.TrimPrefix(url, "https://github.com/")
+			parts := strings.Split(path, "/")
+			if len(parts) == 2 {
+				return parts[0], parts[1], nil
+			}
+		}
+
+		// Parse SSH
+		if strings.HasPrefix(url, "git@github.com:") {
+			path := strings.TrimPrefix(url, "git@github.com:")
+			parts := strings.Split(path, "/")
+			if len(parts) == 2 {
+				return parts[0], parts[1], nil
+			}
+		}
+	}
+	return "", "", fmt.Errorf("could not parse origin URL from: %s", out)
+}
+
+// getCandidateOrigins returns a list of source IDs.
+// 1. Primary: From `gh repo view` (API source of truth).
+// 2. Fallback: From `git remote -v` (Local config, may differ after rename).
+func getCandidateOrigins() ([]string, error) {
+	candidates := []string{}
+
+	// 1. Try gh repo view (Primary)
+	ghOwner, ghRepo, ghErr := autoDetectOwnerRepo()
+	if ghErr == nil {
+		id := "sources/github/" + ghOwner + "/" + ghRepo
+		candidates = append(candidates, id)
+	}
+
+	// 2. Try git remote -v (Fallback)
+	gitOwner, gitRepo, gitErr := getLocalGitOrigin()
+	if gitErr == nil {
+		id := "sources/github/" + gitOwner + "/" + gitRepo
+		// Only append if different from primary
+		isDuplicate := false
+		for _, c := range candidates {
+			if c == id {
+				isDuplicate = true
+				break
+			}
+		}
+		if !isDuplicate {
+			candidates = append(candidates, id)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("could not detect any GitHub repo source. gh error: %v, git error: %v", ghErr, gitErr)
+	}
+
+	return candidates, nil
 }
 
 // autoDetectOwnerRepo uses gh CLI to return the GitHub owner and repo name.
@@ -301,15 +404,6 @@ func autoDetectOwnerRepo() (owner, repo string, err error) {
 		return "", "", fmt.Errorf("incomplete repo info from gh: %s", out)
 	}
 	return r.Owner.Login, r.Name, nil
-}
-
-// autoDetectSourceID uses gh CLI to build the Jules source path.
-func autoDetectSourceID() (string, error) {
-	owner, repo, err := autoDetectOwnerRepo()
-	if err != nil {
-		return "", err
-	}
-	return "sources/github/" + owner + "/" + repo, nil
 }
 
 // autoDetectBranch uses git to get the current branch name.

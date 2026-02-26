@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +266,59 @@ func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not indexed after") {
 		t.Errorf("expected 'not indexed after' in error, got: %v", err)
+	}
+}
+
+func TestJulesDriverResolvesCandidates(t *testing.T) {
+	// Mock ExecCommand to simulate gh repo view and git remote -v
+	origExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = origExec }()
+
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		full := name + " " + strings.Join(args, " ")
+		if name == "gh" && strings.Contains(full, "repo view") {
+			// Simulate GH returning new repo name
+			return exec.Command("echo", `{"owner":{"login":"neworg"},"name":"newrepo"}`)
+		}
+		if name == "git" && strings.Contains(full, "remote -v") {
+			// Simulate git returning old repo name
+			return exec.Command("echo", `origin	https://github.com/oldorg/oldrepo.git (fetch)
+origin	https://github.com/oldorg/oldrepo.git (push)`)
+		}
+		if name == "git" && strings.Contains(full, "branch --show-current") {
+			return exec.Command("echo", "main")
+		}
+		return exec.Command("true")
+	}
+
+	// Mock HTTP client to verify which sourceID is used
+	// We expect first attempt (neworg/newrepo) to 404,
+	// then fallback (oldorg/oldrepo) to 200.
+	mock := &mockHTTPClientSeq{
+		responses: []seqResponse{
+			{404, "not found"},      // [0] neworg/newrepo -> 404
+			{200, `{"id":"S999"}`},  // [1] oldorg/oldrepo -> 200
+		},
+	}
+
+	cfg := devflow.JulesConfig{
+		APIKey:      "test-key",
+		StartBranch: "main",
+		// No SourceID provided, so it must auto-detect
+	}
+	d := devflow.NewJulesDriver(cfg)
+	d.SetHTTPClient(mock)
+
+	result, err := d.Send("Execute plan", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "jules: S999") {
+		t.Errorf("expected session ID S999, got: %s", result)
+	}
+
+	// Verify that we actually made two requests
+	if mock.calls != 2 {
+		t.Errorf("expected 2 HTTP calls (primary + fallback), got %d", mock.calls)
 	}
 }
