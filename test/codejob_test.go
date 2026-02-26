@@ -9,16 +9,16 @@ import (
 	"github.com/tinywasm/devflow"
 )
 
-// mockCodeJobDriver is a test double for devflow.CodeJobDriver.
-type mockCodeJobDriver struct {
+// renamed to avoid conflict with mockCodeJobDriver in codejob_dispatch_test.go
+type mockDriver struct {
 	name   string
 	result string
 	err    error
 }
 
-func (m *mockCodeJobDriver) Name() string                  { return m.name }
-func (m *mockCodeJobDriver) SetLog(_ func(...any))         {}
-func (m *mockCodeJobDriver) Send(_, _ string) (string, error) { return m.result, m.err }
+func (m *mockDriver) Name() string                  { return m.name }
+func (m *mockDriver) SetLog(_ func(...any))         {}
+func (m *mockDriver) Send(_, _ string) (string, error) { return m.result, m.err }
 
 // writeTempFile creates a temp file with content and registers cleanup.
 func writeTempFile(t *testing.T, content string) string {
@@ -35,7 +35,7 @@ func writeTempFile(t *testing.T, content string) string {
 
 func TestCodeJobSendFirstDriverSuccess(t *testing.T) {
 	path := writeTempFile(t, "some plan")
-	d := &mockCodeJobDriver{name: "mock", result: "ok"}
+	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
 
 	// mock doesn't implement SessionProvider, so no persistence expected
@@ -49,7 +49,7 @@ func TestCodeJobSendFirstDriverSuccess(t *testing.T) {
 }
 
 type mockSessionDriver struct {
-	mockCodeJobDriver
+	mockDriver
 	sessionID string
 }
 
@@ -61,8 +61,8 @@ func TestCodeJobSendPersistsSession(t *testing.T) {
 	defer os.Remove(envPath)
 
 	d := &mockSessionDriver{
-		mockCodeJobDriver: mockCodeJobDriver{name: "jules", result: "ok"},
-		sessionID:         "S123",
+		mockDriver: mockDriver{name: "jules", result: "ok"},
+		sessionID:  "S123",
 	}
 	job := devflow.NewCodeJob(d)
 
@@ -82,8 +82,8 @@ func TestCodeJobSendPersistsSession(t *testing.T) {
 
 func TestCodeJobSendFallsBackToSecondDriver(t *testing.T) {
 	path := writeTempFile(t, "some plan")
-	d1 := &mockCodeJobDriver{name: "fail", err: errors.New("down")}
-	d2 := &mockCodeJobDriver{name: "ok", result: "fallback"}
+	d1 := &mockDriver{name: "fail", err: errors.New("down")}
+	d2 := &mockDriver{name: "ok", result: "fallback"}
 	job := devflow.NewCodeJob(d1, d2)
 
 	got, err := job.Send(path)
@@ -98,8 +98,8 @@ func TestCodeJobSendFallsBackToSecondDriver(t *testing.T) {
 func TestCodeJobSendAllDriversFail(t *testing.T) {
 	path := writeTempFile(t, "some plan")
 	errB := errors.New("err b")
-	d1 := &mockCodeJobDriver{name: "a", err: errors.New("err a")}
-	d2 := &mockCodeJobDriver{name: "b", err: errB}
+	d1 := &mockDriver{name: "a", err: errors.New("err a")}
+	d2 := &mockDriver{name: "b", err: errB}
 	job := devflow.NewCodeJob(d1, d2)
 
 	_, err := job.Send(path)
@@ -122,7 +122,7 @@ func TestCodeJobSendNoDrivers(t *testing.T) {
 }
 
 func TestCodeJobSendFileNotFound(t *testing.T) {
-	job := devflow.NewCodeJob(&mockCodeJobDriver{name: "mock", result: "ok"})
+	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
 
 	_, err := job.Send("/nonexistent/PLAN.md")
 	if err == nil {
@@ -135,7 +135,7 @@ func TestCodeJobSendFileNotFound(t *testing.T) {
 
 func TestCodeJobSendFileEmpty(t *testing.T) {
 	path := writeTempFile(t, "") // empty file
-	job := devflow.NewCodeJob(&mockCodeJobDriver{name: "mock", result: "ok"})
+	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
 
 	_, err := job.Send(path)
 	if err == nil {
@@ -156,7 +156,7 @@ func (m *mockRepoSync) HasPendingChanges() (bool, error) { return m.hasPending, 
 
 func TestCodeJobSendBlockedWhenPendingChanges(t *testing.T) {
 	path := writeTempFile(t, "some plan")
-	job := devflow.NewCodeJob(&mockCodeJobDriver{name: "mock", result: "ok"})
+	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
 	job.SetRepoSync(&mockRepoSync{hasPending: true})
 
 	_, err := job.Send(path)
@@ -170,7 +170,7 @@ func TestCodeJobSendBlockedWhenPendingChanges(t *testing.T) {
 
 func TestCodeJobSendAllowedWhenNoPendingChanges(t *testing.T) {
 	path := writeTempFile(t, "some plan")
-	job := devflow.NewCodeJob(&mockCodeJobDriver{name: "mock", result: "dispatched"})
+	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "dispatched"})
 	job.SetRepoSync(&mockRepoSync{hasPending: false})
 
 	got, err := job.Send(path)
@@ -185,7 +185,7 @@ func TestCodeJobSendAllowedWhenNoPendingChanges(t *testing.T) {
 func TestCodeJobSendSkipsGitCheckWithNoClient(t *testing.T) {
 	path := writeTempFile(t, "some plan")
 	// No SetRepoSync call — sync check must be silently skipped.
-	job := devflow.NewCodeJob(&mockCodeJobDriver{name: "mock", result: "ok"})
+	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
 
 	got, err := job.Send(path)
 	if err != nil {
@@ -203,7 +203,7 @@ func TestDispatchCodeJob_NoPlanFile_ReturnsEmpty(t *testing.T) {
 	defer testChdir(t, dir)()
 	// docs/PLAN.md does not exist → nothing to dispatch
 
-	driver := &mockCodeJobDriver{name: "mock", result: "should-not-run"}
+	driver := &mockDriver{name: "mock", result: "should-not-run"}
 	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
 
 	if err != nil {
@@ -222,7 +222,7 @@ func TestDispatchCodeJob_ActiveSession_SkipsDispatch(t *testing.T) {
 	os.MkdirAll("docs", 0755)
 	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
 
-	driver := &mockCodeJobDriver{name: "mock", result: "should-not-run"}
+	driver := &mockDriver{name: "mock", result: "should-not-run"}
 	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
 
 	if err != nil {
@@ -240,7 +240,7 @@ func TestDispatchCodeJob_DriverError_ReturnsError(t *testing.T) {
 	os.MkdirAll("docs", 0755)
 	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
 
-	driver := &mockCodeJobDriver{name: "mock", err: errors.New("api down")}
+	driver := &mockDriver{name: "mock", err: errors.New("api down")}
 	_, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
 
 	if err == nil {
@@ -258,7 +258,7 @@ func TestDispatchCodeJob_Success_ReturnsResult(t *testing.T) {
 	os.MkdirAll("docs", 0755)
 	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
 
-	driver := &mockCodeJobDriver{name: "mock", result: "dispatched-ok"}
+	driver := &mockDriver{name: "mock", result: "dispatched-ok"}
 	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
 
 	if err != nil {

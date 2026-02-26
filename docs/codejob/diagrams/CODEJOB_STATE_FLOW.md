@@ -27,5 +27,8 @@ flowchart TD
     COMMIT --> TAG[GenerateNextTag<br/>CreateTag]
     TAG --> PUSH[PushWithTags]
     PUSH --> CLEAN[Delete CODEJOB_PR from .env]
-    CLEAN --> RESULT[✅ PR merged, ✅ Tag: vX.Y.Z, ✅ Pushed ok]
+    CLEAN --> DISPATCH{docs/PLAN.md<br/>exists?}
+    DISPATCH -->|No| RESULT[✅ PR merged, ✅ Tag: vX.Y.Z, ✅ Pushed ok]
+    DISPATCH -->|Yes| QUEUE[Dispatch CodeJob<br/>✅ Session queued]
+    QUEUE --> RESULT
 ```

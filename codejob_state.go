@@ -212,5 +212,5 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 	}
 
 	summary := fmt.Sprintf("✅ PR merged, ✅ Tag: %s, ✅ Pushed ok", tag)
-	return PushResult{Tag: tag, Summary: summary}, nil
+	return git.withCodeJob(PushResult{Tag: tag, Summary: summary}), nil
 }
