@@ -164,7 +164,17 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 		return PushResult{}, fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
 	}
 
-	// 0. Pre-merge: if working tree is dirty, commit corrections to Jules branch and push
+	// 0. Ensure we are on the Jules branch before committing anything
+	branchOut, err := RunCommandSilent("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
+	var julesBranch string
+	if err == nil {
+		julesBranch = strings.TrimSpace(branchOut)
+		if julesBranch != "" {
+			RunCommandSilent("git", "checkout", julesBranch)
+		}
+	}
+
+	// 1. Pre-merge: if working tree is dirty, commit corrections to Jules branch and push
 	statusOut, _ := RunCommandSilent("git", "status", "--porcelain")
 	if strings.TrimSpace(statusOut) != "" {
 		if out, err := RunCommandSilent("git", "add", "."); err != nil {
@@ -183,7 +193,7 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 		return PushResult{}, fmt.Errorf("git checkout main failed: %w\n%s", err, out)
 	}
 
-	// 1. merge PR and delete Jules branch on GitHub
+	// 2. merge PR and delete Jules branch on GitHub
 	var mergeOut string
 	var mergeErr error
 	for i := 0; i < 5; i++ {
@@ -191,8 +201,10 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 		if mergeErr == nil {
 			break
 		}
-		if strings.Contains(mergeOut, "is not mergeable") || strings.Contains(mergeErr.Error(), "is not mergeable") {
-			time.Sleep(2 * time.Second)
+		errMsg := mergeErr.Error()
+		if strings.Contains(mergeOut, "is not mergeable") || strings.Contains(errMsg, "is not mergeable") ||
+			strings.Contains(mergeOut, "Base branch was modified") || strings.Contains(errMsg, "Base branch was modified") {
+			time.Sleep(3 * time.Second)
 			continue
 		}
 		break
