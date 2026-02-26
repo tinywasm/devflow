@@ -413,7 +413,7 @@ func TestGitPush_TriggersCodeJobWhenPlanExists(t *testing.T) {
 	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("implement X"), 0644)
 
 	git, _ := devflow.NewGit()
-	driver := &mockCodeJobDriver{name: "mock", result: "jules-dispatched"}
+	driver := &mockDriver{name: "mock", result: "jules-dispatched"}
 	git.SetCodeJobDrivers(driver)
 	os.WriteFile("README.md", []byte("# test"), 0644)
 
@@ -431,7 +431,7 @@ func TestGitPush_SkipsCodeJobWhenNoPlan(t *testing.T) {
 
 	// No docs/PLAN.md
 	git, _ := devflow.NewGit()
-	driver := &mockCodeJobDriver{name: "mock", result: "should-not-appear"}
+	driver := &mockDriver{name: "mock", result: "should-not-appear"}
 	git.SetCodeJobDrivers(driver)
 	os.WriteFile("README.md", []byte("# test"), 0644)
 
@@ -452,7 +452,7 @@ func TestGitPush_CodeJobErrorAppearsInSummary(t *testing.T) {
 	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("implement X"), 0644)
 
 	git, _ := devflow.NewGit()
-	driver := &mockCodeJobDriver{name: "mock", err: errors.New("api unreachable")}
+	driver := &mockDriver{name: "mock", err: errors.New("api unreachable")}
 	git.SetCodeJobDrivers(driver)
 	os.WriteFile("README.md", []byte("# test"), 0644)
 
@@ -477,7 +477,7 @@ func TestGitPush_SkipsCodeJobWhenActiveSession(t *testing.T) {
 	defer os.Remove(".env")
 
 	git, _ := devflow.NewGit()
-	driver := &mockCodeJobDriver{name: "mock", result: "should-not-dispatch"}
+	driver := &mockDriver{name: "mock", result: "should-not-dispatch"}
 	git.SetCodeJobDrivers(driver)
 	os.WriteFile("README.md", []byte("# test"), 0644)
 

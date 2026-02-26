@@ -85,6 +85,7 @@ codejob
 codejob path/to/PLAN.md
 
 # Close the loop after reviewing PR
+# If docs/PLAN.md exists (e.g. pulled from main), this automatically dispatches the next job.
 codejob done
 ```
 
