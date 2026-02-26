@@ -18,6 +18,9 @@ func main() {
 		case "done":
 			runDone()
 			return
+		default:
+			printHelp()
+			return
 		}
 	}
 
@@ -27,12 +30,7 @@ func main() {
 		return
 	}
 
-	path := devflow.DefaultIssuePromptPath
-	if len(os.Args) > 1 {
-		path = os.Args[1]
-	}
-
-	runDispatch(path)
+	runDispatch(devflow.DefaultIssuePromptPath)
 }
 
 func runQueryState(env *devflow.DotEnv, val string) {
@@ -102,5 +100,24 @@ func runDone() {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ PR merged, branch deleted, docs/CHECK_PLAN.md removed")
+	fmt.Println("✅ PR merged, branch, docs/CHECK_PLAN.md removed")
+}
+
+func printHelp() {
+	help := `CodeJob — Send coding tasks to external AI agents
+
+Usage:
+  codejob              Dispatch task from docs/PLAN.md
+  codejob init         Setup: save Jules API key to system keyring
+  codejob done         Close the loop: merge PR and cleanup
+
+Examples:
+  codejob              # dispatch default plan
+  codejob init         # interactive setup wizard
+  codejob done         # merge PR after review
+
+Docs:
+  https://github.com/tinywasm/devflow/blob/main/docs/CODEJOB.md
+`
+	fmt.Print(help)
 }
