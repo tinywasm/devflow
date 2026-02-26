@@ -83,6 +83,9 @@ codejob
 
 # Explicit path
 codejob path/to/PLAN.md
+
+# Close the loop after reviewing PR
+codejob done
 ```
 
 ### Go Library
@@ -129,6 +132,7 @@ To avoid redundant dispatches and track task progress, `CodeJob` persists an act
 
 ```
 CODEJOB=jules:SESSION_ID
+CODEJOB_PR=https://github.com/owner/repo/pull/1
 ```
 
 The `codejob` command becomes dual-mode:

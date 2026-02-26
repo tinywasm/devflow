@@ -15,6 +15,9 @@ func main() {
 		case "init":
 			runInit()
 			return
+		case "done":
+			runDone()
+			return
 		}
 	}
 
@@ -53,7 +56,7 @@ func runQueryState(env *devflow.DotEnv, val string) {
 		return
 	}
 
-	msg, done, err := devflow.JulesSessionState(sessionID, apiKey, &http.Client{})
+	msg, prURL, done, err := devflow.JulesSessionState(sessionID, apiKey, &http.Client{})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return
@@ -63,7 +66,7 @@ func runQueryState(env *devflow.DotEnv, val string) {
 
 	if done {
 		git, _ := devflow.NewGit()
-		if err := devflow.HandleDone(env, git); err != nil {
+		if err := devflow.HandleDone(env, git, prURL); err != nil {
 			fmt.Fprintln(os.Stderr, "Cleanup error:", err)
 		}
 	}
@@ -92,4 +95,12 @@ func runInit() {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
+}
+
+func runDone() {
+	if err := devflow.MergePR(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("✅ PR merged, branch deleted, docs/CHECK_PLAN.md removed")
 }

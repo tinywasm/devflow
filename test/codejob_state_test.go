@@ -27,12 +27,15 @@ func TestJulesSessionState(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(`{"id":"S1","outputs":[]}`)),
 		},
 	}
-	msg, done, err := devflow.JulesSessionState("S1", "key", client)
+	msg, prURL, done, err := devflow.JulesSessionState("S1", "key", client)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if done {
 		t.Error("expected done=false while working")
+	}
+	if prURL != "" {
+		t.Errorf("expected empty PR URL while working, got %q", prURL)
 	}
 	if !strings.Contains(msg, "working") {
 		t.Errorf("expected working message, got %q", msg)
@@ -48,18 +51,18 @@ func TestJulesSessionState(t *testing.T) {
 			}`)),
 		},
 	}
-	msg, done, err = devflow.JulesSessionState("S1", "key", client)
+	msg, prURL, done, err = devflow.JulesSessionState("S1", "key", client)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !done {
 		t.Error("expected done=true when PR is ready")
 	}
+	if prURL != "https://github.com/test/pull/1" {
+		t.Errorf("expected PR URL 'https://github.com/test/pull/1', got %q", prURL)
+	}
 	if !strings.Contains(msg, "PR ready") {
 		t.Errorf("expected PR ready message, got %q", msg)
-	}
-	if !strings.Contains(msg, "github.com/test/pull/1") {
-		t.Error("missing PR URL in message")
 	}
 }
 
@@ -77,14 +80,8 @@ func TestHandleDone(t *testing.T) {
 
 	env := devflow.NewDotEnv(envPath)
 
-	// Since we can't easily mock RunCommandSilent without refactoring,
-	// we'll just test the file operations and env cleanup.
-	// If git fetch fails in this environment, we might get an error,
-	// so we'll ignore it for this specific test or mock it if there was a way.
-
-	err := devflow.HandleDone(env, nil)
-	// We expect an error because 'git fetch' will likely fail in a non-git dir,
-	// but let's see what happens.
+	prURL := "https://github.com/test/pull/1"
+	err := devflow.HandleDone(env, nil, prURL)
 	if err != nil && !strings.Contains(err.Error(), "git fetch failed") {
 		t.Errorf("expected git fetch error or success, got: %v", err)
 	}
@@ -105,5 +102,30 @@ func TestHandleDone(t *testing.T) {
 	val, ok = env.Get("OTHER")
 	if !ok || val != "val" {
 		t.Error("OTHER should be preserved in .env")
+	}
+
+	// Verify PR URL persisted
+	val, ok = env.Get("CODEJOB_PR")
+	if !ok || val != prURL {
+		t.Errorf("expected CODEJOB_PR=%q, got %q", prURL, val)
+	}
+}
+
+func TestMergePR_NoPRURL(t *testing.T) {
+	envPath := "test_merge_no_pr.env"
+	defer os.Remove(envPath)
+	_ = os.WriteFile(envPath, []byte(""), 0644)
+
+	// Since NewDotEnv is hardcoded to .env in MergePR, we'll temporarily swap it or
+	// just expect it to fail if .env doesn't have the key.
+	// Actually MergePR() calls NewDotEnv(".env"), so it's hard to test without .env
+	// But in a test environment, we might not have .env, so it should fail.
+
+	err := devflow.MergePR()
+	if err == nil {
+		t.Fatal("expected error when no PR URL in .env, got nil")
+	}
+	if !strings.Contains(err.Error(), "no pending PR found") {
+		t.Errorf("expected 'no pending PR found' error, got: %v", err)
 	}
 }
