@@ -129,3 +129,15 @@ func TestMergePR_NoPRURL(t *testing.T) {
 		t.Errorf("expected 'no pending PR found' error, got: %v", err)
 	}
 }
+
+func TestMergeAndPublish_NoPRURL(t *testing.T) {
+	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB_PR present
+	// in the test environment means it returns immediately before any Git calls.
+	_, err := devflow.MergeAndPublish(nil)
+	if err == nil {
+		t.Fatal("expected error when no PR URL in .env, got nil")
+	}
+	if !strings.Contains(err.Error(), "no pending PR found") {
+		t.Errorf("expected 'no pending PR found' error, got: %v", err)
+	}
+}

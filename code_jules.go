@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // HTTPClient defines the interface for HTTP operations (injectable for tests).
@@ -18,10 +19,12 @@ type HTTPClient interface {
 // All fields are optional: APIKey is loaded from keyring if empty,
 // SourceID and StartBranch are auto-detected via gh/git if empty.
 type JulesConfig struct {
-	APIKey       string // optional: loaded from keyring if empty
-	SourceID     string // optional: auto-detected via gh CLI if empty
-	StartBranch  string // optional: auto-detected via git if empty
-	SessionTitle string // optional: defaults to prompt filename
+	APIKey              string        // optional: loaded from keyring if empty
+	SourceID            string        // optional: auto-detected via gh CLI if empty
+	StartBranch         string        // optional: auto-detected via git if empty
+	SessionTitle        string        // optional: defaults to prompt filename
+	SourceIndexTimeout  time.Duration // optional: max wait for source to appear (default 2m)
+	SourceIndexInterval time.Duration // optional: polling interval for source check (default 10s)
 }
 
 // JulesDriver implements CodeJobDriver for the Jules AI agent.
@@ -78,6 +81,8 @@ type julesGithubCtx struct {
 
 // Send creates a Jules session using the prompt and title resolved by CodeJob.
 // Jules accesses the referenced file directly from the repository via its GitHub App access.
+// If the source is not yet indexed in Jules (404 on new repos), it polls GET /sources
+// until the source appears or the timeout is exceeded.
 func (d *JulesDriver) Send(prompt, title string) (string, error) {
 	apiKey, err := d.resolveAPIKey()
 	if err != nil {
@@ -118,32 +123,136 @@ func (d *JulesDriver) Send(prompt, title string) (string, error) {
 		return "", fmt.Errorf("could not encode request: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, "https://jules.googleapis.com/v1alpha/sessions", bytes.NewReader(payload))
+	// doPost sends the session creation request. Uses bytes.NewReader so
+	// the same payload slice can be re-read on each retry attempt.
+	doPost := func() (int, []byte, error) {
+		req, err := http.NewRequest(http.MethodPost,
+			"https://jules.googleapis.com/v1alpha/sessions", bytes.NewReader(payload))
+		if err != nil {
+			return 0, nil, fmt.Errorf("could not create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Goog-Api-Key", apiKey)
+		resp, err := d.http.Do(req)
+		if err != nil {
+			return 0, nil, fmt.Errorf("Jules API request failed: %w", err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, b, nil
+	}
+
+	code, respBody, err := doPost()
 	if err != nil {
-		return "", fmt.Errorf("could not create request: %w", err)
+		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Goog-Api-Key", apiKey)
 
-	resp, err := d.http.Do(req)
+	if code == http.StatusOK {
+		return d.parseSessionID(respBody)
+	}
+
+	if code != http.StatusNotFound {
+		return "", fmt.Errorf("Jules API returned %d: %s", code, strings.TrimSpace(string(respBody)))
+	}
+
+	// 404: check whether the source is simply not indexed yet.
+	indexed, err := d.isSourceIndexed(sourceID, apiKey)
 	if err != nil {
-		return "", fmt.Errorf("Jules API request failed: %w", err)
+		return "", fmt.Errorf("Jules source check failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Jules API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	if indexed {
+		// Source exists in Jules but the API still returned 404 — real error.
+		return "", fmt.Errorf("Jules API returned 404: %s", strings.TrimSpace(string(respBody)))
 	}
 
+	// Source not indexed yet — poll until it appears or timeout is exceeded.
+	timeout := d.config.SourceIndexTimeout
+	if timeout == 0 {
+		timeout = 2 * time.Minute
+	}
+	interval := d.config.SourceIndexInterval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+	d.log("Jules: source not indexed yet, waiting for", sourceID)
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(interval)
+		found, err := d.isSourceIndexed(sourceID, apiKey)
+		if err != nil {
+			return "", fmt.Errorf("Jules source check failed: %w", err)
+		}
+		if !found {
+			d.log("Jules: source still not indexed, retrying...")
+			continue
+		}
+		d.log("Jules: source now indexed, retrying session...")
+		code, respBody, err = doPost()
+		if err != nil {
+			return "", err
+		}
+		if code == http.StatusOK {
+			return d.parseSessionID(respBody)
+		}
+		return "", fmt.Errorf("Jules API returned %d after source appeared: %s",
+			code, strings.TrimSpace(string(respBody)))
+	}
+
+	return "", fmt.Errorf("Jules source %q not indexed after %s — add the repo to Jules and retry",
+		sourceID, timeout)
+}
+
+// parseSessionID extracts the session ID from a Jules 200 response body.
+func (d *JulesDriver) parseSessionID(respBody []byte) (string, error) {
 	var julesResp struct {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(respBody, &julesResp)
 	d.sessionID = julesResp.ID
-
 	return fmt.Sprintf("jules: %s", d.sessionID), nil
+}
+
+// isSourceIndexed paginates GET /v1alpha/sources and returns true if sourceID is found.
+func (d *JulesDriver) isSourceIndexed(sourceID, apiKey string) (bool, error) {
+	pageToken := ""
+	for {
+		url := "https://jules.googleapis.com/v1alpha/sources"
+		if pageToken != "" {
+			url += "?pageToken=" + pageToken
+		}
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return false, fmt.Errorf("could not create sources request: %w", err)
+		}
+		req.Header.Set("X-Goog-Api-Key", apiKey)
+
+		resp, err := d.http.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("Jules sources request failed: %w", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var sr struct {
+			Sources []struct {
+				Name string `json:"name"`
+			} `json:"sources"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := json.Unmarshal(body, &sr); err != nil {
+			return false, fmt.Errorf("Jules sources parse error: %w", err)
+		}
+		for _, s := range sr.Sources {
+			if s.Name == sourceID {
+				return true, nil
+			}
+		}
+		if sr.NextPageToken == "" {
+			return false, nil
+		}
+		pageToken = sr.NextPageToken
+	}
 }
 
 // resolveAPIKey returns config.APIKey or fetches it from keyring/prompt.

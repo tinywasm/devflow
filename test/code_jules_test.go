@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tinywasm/devflow"
 )
@@ -142,5 +143,127 @@ func TestJulesDriverSendConfigTitleOverrides(t *testing.T) {
 	}
 	if got, _ := payload["title"].(string); got != "custom title" {
 		t.Errorf("expected config SessionTitle to override, got %q", got)
+	}
+}
+
+// --- sequential mock for multi-call tests ---
+
+type seqResponse struct {
+	statusCode int
+	body       string
+}
+
+type mockHTTPClientSeq struct {
+	responses []seqResponse
+	calls     int
+}
+
+func (m *mockHTTPClientSeq) Do(req *http.Request) (*http.Response, error) {
+	idx := m.calls
+	m.calls++
+	if idx >= len(m.responses) {
+		idx = len(m.responses) - 1 // repeat last response
+	}
+	r := m.responses[idx]
+	return &http.Response{
+		StatusCode: r.statusCode,
+		Body:       io.NopCloser(strings.NewReader(r.body)),
+	}, nil
+}
+
+// julesSourcesBody builds a minimal Jules sources JSON response.
+func julesSourcesBody(names ...string) string {
+	type src struct {
+		Name string `json:"name"`
+	}
+	type resp struct {
+		Sources []src `json:"sources"`
+	}
+	r := resp{}
+	for _, n := range names {
+		r.Sources = append(r.Sources, src{Name: n})
+	}
+	b, _ := json.Marshal(r)
+	return string(b)
+}
+
+func TestJulesDriverSendRetriesWhenSourceNotIndexed(t *testing.T) {
+	const sourceID = "sources/github/user/repo"
+	cfg := devflow.JulesConfig{
+		APIKey:              "test-key",
+		SourceID:            sourceID,
+		StartBranch:         "main",
+		SourceIndexTimeout:  200 * time.Millisecond,
+		SourceIndexInterval: 10 * time.Millisecond,
+	}
+	mock := &mockHTTPClientSeq{
+		responses: []seqResponse{
+			{404, "not found"},                    // [0] POST /sessions → 404
+			{200, julesSourcesBody()},             // [1] GET /sources → empty (not indexed yet)
+			{200, julesSourcesBody(sourceID)},     // [2] GET /sources → source appears
+			{200, `{"id":"S999"}`},                // [3] POST /sessions → success
+		},
+	}
+	d := devflow.NewJulesDriver(cfg)
+	d.SetHTTPClient(mock)
+
+	result, err := d.Send("Execute the plan", "user/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "jules: S999") {
+		t.Errorf("expected session ID S999 in result, got: %s", result)
+	}
+}
+
+func TestJulesDriverSendReturns404WhenSourceIndexedButStill404(t *testing.T) {
+	const sourceID = "sources/github/user/repo"
+	cfg := devflow.JulesConfig{
+		APIKey:      "test-key",
+		SourceID:    sourceID,
+		StartBranch: "main",
+	}
+	mock := &mockHTTPClientSeq{
+		responses: []seqResponse{
+			{404, "real api error"},           // [0] POST /sessions → 404
+			{200, julesSourcesBody(sourceID)}, // [1] GET /sources → source IS indexed
+		},
+	}
+	d := devflow.NewJulesDriver(cfg)
+	d.SetHTTPClient(mock)
+
+	_, err := d.Send("Execute the plan", "")
+	if err == nil {
+		t.Fatal("expected error when source is indexed but Jules returns 404")
+	}
+	if !strings.Contains(err.Error(), "Jules API returned 404") {
+		t.Errorf("expected '404' in error, got: %v", err)
+	}
+}
+
+func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
+	cfg := devflow.JulesConfig{
+		APIKey:              "test-key",
+		SourceID:            "sources/github/user/repo",
+		StartBranch:         "main",
+		SourceIndexTimeout:  25 * time.Millisecond,
+		SourceIndexInterval: 10 * time.Millisecond,
+	}
+	// All GET /sources calls return an empty list — source never appears.
+	mock := &mockHTTPClientSeq{
+		responses: []seqResponse{
+			{404, "not found"},    // [0] POST /sessions → 404
+			{200, julesSourcesBody()}, // [1..N] GET /sources → always empty
+		},
+	}
+	d := devflow.NewJulesDriver(cfg)
+	d.SetHTTPClient(mock)
+
+	_, err := d.Send("Execute the plan", "")
+	if err == nil {
+		t.Fatal("expected timeout error when source never appears")
+	}
+	if !strings.Contains(err.Error(), "not indexed after") {
+		t.Errorf("expected 'not indexed after' in error, got: %v", err)
 	}
 }

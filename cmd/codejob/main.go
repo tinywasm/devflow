@@ -96,11 +96,17 @@ func runInit() {
 }
 
 func runDone() {
-	if err := devflow.MergePR(); err != nil {
+	git, err := devflow.NewGit()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ PR merged, branch, docs/CHECK_PLAN.md removed")
+	result, err := devflow.MergeAndPublish(git)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	fmt.Println(result.Summary)
 }
 
 func printHelp() {
@@ -109,7 +115,7 @@ func printHelp() {
 Usage:
   codejob              Dispatch task from docs/PLAN.md
   codejob init         Setup: save Jules API key to system keyring
-  codejob done         Close the loop: merge PR and cleanup
+  codejob done         Close the loop: merge PR, tag and publish
 
 Examples:
   codejob              # dispatch default plan

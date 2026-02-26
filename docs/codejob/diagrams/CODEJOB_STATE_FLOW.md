@@ -14,8 +14,13 @@ flowchart TD
     L --> M[Add CHECK_*.md to .gitignore]
 
     DONE[codejob done] --> PR_CHECK{.env has<br/>CODEJOB_PR?}
-    PR_CHECK -->|No| ERROR[Exit 1: No pending PR]
+    PR_CHECK -->|No| ERROR[❌ Exit 1: No pending PR]
     PR_CHECK -->|Yes| MERGE[gh pr merge URL<br/>--merge --delete-branch]
-    MERGE --> DELETE_CHECK[Delete docs/CHECK_PLAN.md]
-    DELETE_CHECK --> CLEAN_ENV[Delete CODEJOB_PR from .env]
+    MERGE --> PULL[git pull]
+    PULL --> DEL[Delete docs/CHECK_PLAN.md]
+    DEL --> COMMIT[git add + commit<br/>chore: codejob cleanup<br/>if changes pending]
+    COMMIT --> TAG[GenerateNextTag<br/>CreateTag]
+    TAG --> PUSH[PushWithTags]
+    PUSH --> CLEAN[Delete CODEJOB_PR from .env]
+    CLEAN --> RESULT[✅ PR merged, ✅ Tag: vX.Y.Z, ✅ Pushed ok]
 ```

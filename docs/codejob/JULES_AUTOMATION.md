@@ -27,7 +27,7 @@ Jules uses a feedback-driven cycle for autonomous corrections:
 *   **Auto-fix Agents**: Jules can listen to static analysis tools (e.g., SonarQube) and automatically generate PRs to address security or style alerts.
 
 ### Technical Note: Context Awareness
-Unlike simple search-and-replace tools, Jules understands the software's call graph. Changing a function in `file_A.py` will automatically trigger updates in all call sites across the repository.
+Unlike simple search-and-replace tools, Jules understands the software's call graph. Changing a function in `file_A.go` will automatically trigger updates in all call sites across the repository.
 
 ## 4. Jules REST API
 

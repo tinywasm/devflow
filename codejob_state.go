@@ -126,3 +126,60 @@ func MergePR() error {
 
 	return nil
 }
+
+// MergeAndPublish merges the Jules PR, pulls the merged commit, commits any
+// cleanup files (e.g. .gitignore updated by HandleDone), creates a new semver
+// tag, and pushes it. This is the "close the loop" step that leaves the repo
+// tagged and published, mirroring what 'push' does for regular commits.
+func MergeAndPublish(git *Git) (PushResult, error) {
+	env := NewDotEnv(".env")
+	prURL, ok := env.Get("CODEJOB_PR")
+	if !ok || prURL == "" {
+		return PushResult{}, fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
+	}
+
+	// 1. merge PR and delete Jules branch on GitHub
+	if out, err := RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch"); err != nil {
+		return PushResult{}, fmt.Errorf("gh pr merge failed: %w\n%s", err, out)
+	}
+
+	// 2. pull the merged commit locally
+	if _, err := RunCommandSilent("git", "pull"); err != nil {
+		return PushResult{}, fmt.Errorf("git pull failed: %w", err)
+	}
+
+	// 3. remove CHECK_PLAN.md (gitignored, local cleanup only)
+	if _, err := os.Stat("docs/CHECK_PLAN.md"); err == nil {
+		if err := os.Remove("docs/CHECK_PLAN.md"); err != nil {
+			return PushResult{}, fmt.Errorf("could not delete CHECK_PLAN.md: %w", err)
+		}
+	}
+
+	// 4. commit any pending tracked changes (e.g., .gitignore updated by HandleDone)
+	if err := git.Add(); err != nil {
+		return PushResult{}, fmt.Errorf("git add failed: %w", err)
+	}
+	if _, err := git.Commit("chore: codejob cleanup"); err != nil {
+		return PushResult{}, fmt.Errorf("commit cleanup failed: %w", err)
+	}
+
+	// 5. generate, create, and push the new version tag
+	tag, err := git.GenerateNextTag()
+	if err != nil {
+		return PushResult{}, fmt.Errorf("failed to generate tag: %w", err)
+	}
+	if _, err := git.CreateTag(tag); err != nil {
+		return PushResult{}, fmt.Errorf("failed to create tag %s: %w", tag, err)
+	}
+	if _, err := git.PushWithTags(tag); err != nil {
+		return PushResult{}, fmt.Errorf("failed to push tag %s: %w", tag, err)
+	}
+
+	// 6. clean up state
+	if err := env.Delete("CODEJOB_PR"); err != nil {
+		return PushResult{}, fmt.Errorf("could not clean up .env: %w", err)
+	}
+
+	summary := fmt.Sprintf("✅ PR merged, ✅ Tag: %s, ✅ Pushed ok", tag)
+	return PushResult{Tag: tag, Summary: summary}, nil
+}
