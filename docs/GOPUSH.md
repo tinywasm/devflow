@@ -20,7 +20,7 @@ gopush 'commit message' [tag]
 2. Runs `gotest` (vet, tests, race, coverage, badges)
 3. Commits changes with your message
 4. Creates/uses tag
-5. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead)
+5. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead). If `docs/PLAN.md` exists and no active CodeJob session, dispatches to Jules automatically.
 6. Automatically installs binaries with version tag (if `cmd/` exists)
 7. Finds dependent modules in search path
 8. For each dependent (in parallel):

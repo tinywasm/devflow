@@ -16,6 +16,7 @@ push 'commit message' 'v1.0.0'     # Specific message and tag
 3. Creates or uses tag (auto-increments patch version)
 4. Intelligent `git push`: If rejection occurs (non-fast-forward), it automatically runs `git pull --rebase` and retries.
 5. Sets upstream if needed
+6. If `docs/PLAN.md` exists and no active CodeJob session: dispatches to Jules automatically
 
 ```mermaid
 graph TD
@@ -31,7 +32,10 @@ graph TD
     I --> G
     H -- No --> J[Git Push]
     J --> K[Git Push Tag]
-    K --> L[✅ Done]
+    K --> L{PLAN.md exists?<br/>No active session?}
+    L -- No --> M[✅ Done]
+    L -- Yes --> N[Dispatch to Jules]
+    N --> M
 ```
 
 ## Output
@@ -47,6 +51,11 @@ graph TD
 **Tag already exists:**
 ```
 Tag warning: tag v1.0.1 already exists, ✅ Pushed ok
+```
+
+**With CodeJob dispatch:**
+```
+✅ Tag: v1.0.1, ✅ Pushed ok, jules: SESSION_ID
 ```
 
 ## Tag auto-generation

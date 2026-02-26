@@ -6,10 +6,11 @@
 
 ```
 CodeJob.Send(path)
-  └─ drivers[0].Send(prompt) → success → return ✅
-  └─ drivers[0].Send(prompt) → error   → try next
-  └─ drivers[1].Send(prompt) → success → return ✅
-  └─ all fail                → return aggregated error ❌
+  └─ autoDetectTitle() → "owner/repo"
+  └─ drivers[0].Send(prompt, title) → success → return ✅
+  └─ drivers[0].Send(prompt, title) → error   → try next
+  └─ drivers[1].Send(prompt, title) → success → return ✅
+  └─ all fail                       → return aggregated error ❌
 ```
 
 Diagrams:
@@ -24,7 +25,9 @@ Diagrams:
 type CodeJobDriver interface {
     Name() string
     SetLog(fn func(...any))
-    Send(issuePromptPath string) (string, error)
+    // prompt: "Execute the implementation plan described in docs/PLAN.md"
+    // title:  "owner/repo" derived by CodeJob via autoDetectTitle()
+    Send(prompt, title string) (string, error)
 }
 ```
 
@@ -59,9 +62,9 @@ Implement `CodeJobDriver` and pass it to `NewCodeJob`:
 ```go
 type MyDriver struct{}
 
-func (d *MyDriver) Name() string                       { return "MyAgent" }
-func (d *MyDriver) SetLog(fn func(...any))             {}
-func (d *MyDriver) Send(path string) (string, error)   { /* ... */ }
+func (d *MyDriver) Name() string                                { return "MyAgent" }
+func (d *MyDriver) SetLog(fn func(...any))                      {}
+func (d *MyDriver) Send(prompt, title string) (string, error)   { /* ... */ }
 
 job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}), &MyDriver{})
 ```
@@ -97,20 +100,26 @@ cfg := devflow.JulesConfig{
 job := devflow.NewCodeJob(devflow.NewJulesDriver(cfg))
 ```
 
-## Integrated Flow (via gopush)
+## Integrated Flow (via push / gopush)
 
-When `docs/PLAN.md` exists in the repo, `gopush` automatically dispatches
-to Jules after a successful push — no need to run `codejob` separately:
+CodeJob dispatch lives inside `Git.Push()` — it fires for **any project type**,
+not just Go. Both `push` and `gopush` trigger it automatically:
 
 ```bash
+# Any project (plain git push):
+push 'implement feature X'
+# → git push → ✅ Pushed: v1.2.3
+# → PLAN.md detected → ✅ Jules session queued
+
+# Go project (full workflow):
 gopush 'implement feature X'
 # → tests pass → git push → ✅ Pushed: v1.2.3
-# → PLAN.md detected
-# → ✅ Jules session queued — Jules opens a PR when done
+# → PLAN.md detected → ✅ Jules session queued
 ```
 
-If `docs/PLAN.md` is absent, `gopush` behaves as before (push only).
-If Jules dispatch fails, it prints a warning but exits 0 (push was successful).
+If `docs/PLAN.md` is absent, both commands behave as before (push only).
+If Jules dispatch fails, the error appears as a warning in the summary (`⚠️ CodeJob: ...`)
+but the command exits 0 — the push was successful.
 
 See: [GOPUSH_CODEJOB_FLOW.md](codejob/diagrams/GOPUSH_CODEJOB_FLOW.md)
 
