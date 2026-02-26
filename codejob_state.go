@@ -56,17 +56,29 @@ func JulesSessionState(sessionID, apiKey string, client HTTPClient) (msg, prURL 
 
 // HandleDone executes cleanup when Jules completes:
 // 1. git fetch --all
-// 2. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
-// 3. env.Delete("CODEJOB")
-// 4. env.Set("CODEJOB_PR", prURL)
-// 5. Update .gitignore
+// 2. git checkout <jules-branch> for local review
+// 3. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
+// 4. env.Delete("CODEJOB")
+// 5. env.Set("CODEJOB_PR", prURL)
+// 6. Update .gitignore
 func HandleDone(env *DotEnv, git *Git, prURL string) error {
 	// 1. git fetch
 	if _, err := RunCommandSilent("git", "fetch", "--all"); err != nil {
 		return fmt.Errorf("git fetch failed: %w", err)
 	}
 
-	// 2. rename PLAN.md
+	// 2. checkout Jules branch for local review (non-fatal)
+	if prURL != "" {
+		branchOut, err := RunCommandSilent("gh", "pr", "view", prURL,
+			"--json", "headRefName", "--jq", ".headRefName")
+		if err == nil {
+			if branch := strings.TrimSpace(branchOut); branch != "" {
+				RunCommandSilent("git", "checkout", branch) //nolint: ignore checkout failure
+			}
+		}
+	}
+
+	// 3. rename PLAN.md
 	planPath := DefaultIssuePromptPath
 	if _, err := os.Stat(planPath); err == nil {
 		checkPlanPath := "docs/CHECK_PLAN.md"
@@ -75,19 +87,19 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 		}
 	}
 
-	// 3. delete from env
+	// 4. delete from env
 	if err := env.Delete("CODEJOB"); err != nil {
 		return fmt.Errorf("could not update .env: %w", err)
 	}
 
-	// 3b. persist PR URL for 'codejob done'
+	// 5. persist PR URL for 'codejob done'
 	if prURL != "" {
 		if err := env.Set("CODEJOB_PR", prURL); err != nil {
 			return fmt.Errorf("could not save CODEJOB_PR: %w", err)
 		}
 	}
 
-	// 4. .gitignore update
+	// 6. .gitignore update
 	if git != nil {
 		if err := git.GitIgnoreAdd("CHECK_*.md"); err != nil {
 			return fmt.Errorf("could not update .gitignore: %w", err)
@@ -136,6 +148,25 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 	prURL, ok := env.Get("CODEJOB_PR")
 	if !ok || prURL == "" {
 		return PushResult{}, fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
+	}
+
+	// 0. Pre-merge: if working tree is dirty, commit corrections to Jules branch and push
+	statusOut, _ := RunCommandSilent("git", "status", "--porcelain")
+	if strings.TrimSpace(statusOut) != "" {
+		if out, err := RunCommandSilent("git", "add", "."); err != nil {
+			return PushResult{}, fmt.Errorf("pre-merge git add failed: %w\n%s", err, out)
+		}
+		if out, err := RunCommandSilent("git", "commit", "-m", "review: corrections before merge"); err != nil {
+			return PushResult{}, fmt.Errorf("pre-merge commit failed: %w\n%s", err, out)
+		}
+		if out, err := RunCommandSilent("git", "push"); err != nil {
+			return PushResult{}, fmt.Errorf("pre-merge push failed: %w\n%s", err, out)
+		}
+	}
+
+	// Switch to main before merging to avoid 'gh pr merge' branch-switch errors
+	if out, err := RunCommandSilent("git", "checkout", "main"); err != nil {
+		return PushResult{}, fmt.Errorf("git checkout main failed: %w\n%s", err, out)
 	}
 
 	// 1. merge PR and delete Jules branch on GitHub
