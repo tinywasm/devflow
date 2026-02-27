@@ -36,19 +36,21 @@
 
 <!-- START_SECTION:DOCUMENTATION -->
 - **Documentation First:** You MUST update the documentation *before* coding or running `gopush`.
-- **Context-Aware Rule Compilation:** Every `IMPLEMENTATION.md` MUST start with a "Development Rules" section that copies/pastes the relevant constraints from this skill file (e.g., WASM restrictions, DI rules).
+- **Context-Aware Rule Compilation:** Every `PLAN.md` MUST start with a "Development Rules" section that copies/pastes the relevant constraints from this skill file (e.g., WASM restrictions, DI rules).
 
 - **Standard Documents:**
-    - **`docs/ARQUITECTURE.md`:** Defines WHAT & WHY (abstract design, constraints). NO implementation code.
-    - **`docs/IMPLEMENTATION.md`:** Defines HOW (steps, reference code, test strategy).
+    - **`docs/ARCHITECTURE.md`:** Defines WHAT & WHY (abstract design, constraints). NO implementation code.
+    - **`docs/PLAN.md`:** Defines HOW (steps, reference code, test strategy). It is the master orchestrator for execution.
+    - **`docs/DESIGN.md`:** (On demand) Justifies technical decisions and explores alternatives. Must NOT duplicate `ARCHITECTURE.md`. Heavily linked by `ARCHITECTURE.md` to keep the main document clean and focused on abstract structure rather than debate.
+    - **`docs/SPECS.md`:** (On demand) Strict functional requirements, exact inputs/outputs, and data logic. Must NOT duplicate `ARCHITECTURE.md`. Links closely to `PLAN.md` to guide exact test cases and assertions.
     - **`docs/SKILL.md`:** (On demand) Provides an LLM-friendly, highly condensed summary of the library's context and constraints.
-    - **Modular Docs:** If `ARQUITECTURE.md` or `IMPLEMENTATION.md` become too large, they must be divided into domain-specific, uppercase, underscore-separated files (e.g., `docs/BUS_ARCHITECTURE.md`).
+    - **Modular Docs:** If `ARCHITECTURE.md` or `PLAN.md` become too large, they must be divided into domain-specific, uppercase, underscore-separated files (e.g., `docs/BUS_ARCHITECTURE.md`, `docs/CHART_BAR_PLAN.md`).
 
 - **Diagram Standards:**
     - **Format & Location:** Markdown files (`*.md`) containing Mermaid code, stored in `docs/diagrams/` and linked from the architecture documents.
     - **Simplicity:** Use simple, vertical, linear flowcharts (`flowchart TD`). **NEVER** use the `subgraph` directive (ruins TUI rendering). Use `<br/>` for line breaks inside standard nodes instead of quoting text strings.
 
-- **Readme Indexing:** The `README.md` must act as an index. Every file in `docs/` must be linked from `README.md` to avoid saturating it.
+- **Readme Indexing:** The `README.md` must act as an index. Every file in `docs/` must be linked from `README.md`. Cross-link logically related documents (e.g., `ARCHITECTURE.md` or `PLAN.md` contextually linking to `SPECS.md` or `DESIGN.md`) to avoid duplicating information across files.
 <!-- END_SECTION:DOCUMENTATION -->
 
 <!-- START_SECTION:PROTOCOLS -->
@@ -75,10 +77,10 @@
 <!-- START_SECTION:LLM_COLLABORATION -->
 - **Guiding Other LLMs (e.g., Jules):**
     - **Universal Planning Location:** NEVER store implementation plans in agent-specific internal directories (e.g., Antigravity's `.gemini` folders). All plans MUST be saved directly within the project's repository.
-    - **The Master Prompt (`docs/PLAN.md`):** Whenever a project has pending tasks, there MUST ALWAYS be an `PLAN.md` file. This acts as the entry point for execution agents. It is the master orchestrator and MUST link to all other relevant documents (`README.md`, `ARQUITECTURE.md`, `IMPLEMENTATION.md`, or modular docs).
+    - **The Master Prompt (`docs/PLAN.md`):** Whenever a project has pending tasks, there MUST ALWAYS be a `PLAN.md` file. This acts as the entry point for execution agents. It is the master orchestrator and MUST link to all other relevant documents (`README.md`, `ARCHITECTURE.md`, or modular docs).
     - **Planning Process (Conversational First):** Execution agents don't always know where to start or what to check. Therefore, the creation of `PLAN.md` MUST be done in structured, sequential steps. The planning agent MUST first perform a Q&A process with the user in the chat (asking targeted questions and offering suggestions) to define the full scope and make architectural decisions. 
     - **Final Resolutions Only:** The Q&A discussion MUST remain in the chat. The `PLAN.md` file must ONLY contain the final resolutions, structured into clear, sequential execution steps. It must not contain the conversational history.
-    - **Modular Context:** Avoid massive, monolithic instruction files. Break down instructions by domain into separate, focused implementation guides (e.g., `CHART_BAR_IMPL.md`).
+    - **Modular Context:** Avoid massive, monolithic instruction files. Break down instructions by domain into separate, focused plan guides (e.g., `CHART_BAR_PLAN.md`).
     - **Legacy Reference Code:** If porting established logic (e.g., mathematics or physics formulas), append snippets of the legacy reference code at the bottom of the modular context files. Explicitly instruct the downstream LLM on which logic to recycle and which legacy dependencies to replace with the new architecture calls.
 <!-- END_SECTION:LLM_COLLABORATION -->
 
