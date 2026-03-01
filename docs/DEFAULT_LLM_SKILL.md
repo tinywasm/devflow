@@ -19,6 +19,10 @@
 
 <!-- START_SECTION:TESTING -->
 - **Testing Runner (`gotest`):** For Go tests, ALWAYS use the globally installed `gotest` CLI command. **DO NOT** use `go test` directly, and **DO NOT** invoke it via `go run github.com/tinywasm/devflow/cmd/gotest`. Simply type `gotest` (no arguments) for the full suite, or `gotest -run TestName`. It automatically handles `-vet`, `-race`, `-cover`, WASM tests, and README badges.
+- **`gotest` in Agent Plans:** When writing a `PLAN.md` destined for an external agent (e.g., Jules), you MUST include the following installation step as the **first prerequisite** in the plan, because external agents run in isolated environments where `gotest` is not globally available:
+    ```bash
+    go install github.com/tinywasm/devflow/cmd/gotest@latest
+    ```
 - **Publishing (`gopush`):** If tests pass and docs are updated, ALWAYS use the globally installed `gopush 'your commit message'` CLI command to deploy. **DO NOT** use standard `git commit` / `git push`, and **DO NOT** invoke it via `go run`. It handles testing, tagging, pushing, and updating dependencies automatically.
 
 - **Standard Library Only:** **NEVER** use external assertion libraries (e.g., `testify`, `gomega`). Use only the standard `testing`, `net/http/httptest`, and `reflect` APIs.
@@ -82,6 +86,7 @@
     - **Final Resolutions Only:** The Q&A discussion MUST remain in the chat. The `PLAN.md` file must ONLY contain the final resolutions, structured into clear, sequential execution steps. It must not contain the conversational history.
     - **Modular Context:** Avoid massive, monolithic instruction files. Break down instructions by domain into separate, focused plan guides (e.g., `CHART_BAR_PLAN.md`).
     - **Legacy Reference Code:** If porting established logic (e.g., mathematics or physics formulas), append snippets of the legacy reference code at the bottom of the modular context files. Explicitly instruct the downstream LLM on which logic to recycle and which legacy dependencies to replace with the new architecture calls.
+    - **Dispatching Work (`codejob`):** After creating or updating `docs/PLAN.md`, if `codejob` is installed locally (verify with `which codejob`), use it to dispatch the task to the external agent: `codejob` dispatches `docs/PLAN.md` (if no active session), and `codejob done` closes the loop after reviewing the PR. `codejob` is a **local developer workflow tool** — it MUST **NEVER** appear inside `PLAN.md` or any plan sent to an external agent. Its purpose is to trigger the external agent, not to be part of its instructions.
 <!-- END_SECTION:LLM_COLLABORATION -->
 
 <!-- START_SECTION:USER_CUSTOM -->
