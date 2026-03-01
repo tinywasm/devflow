@@ -157,7 +157,7 @@ func MergePR() error {
 // cleanup files (e.g. .gitignore updated by HandleDone), creates a new semver
 // tag, and pushes it. This is the "close the loop" step that leaves the repo
 // tagged and published, mirroring what 'push' does for regular commits.
-func MergeAndPublish(git *Git) (PushResult, error) {
+func MergeAndPublish(git *Git, overrideTag string) (PushResult, error) {
 	env := NewDotEnv(".env")
 	prURL, ok := env.Get("CODEJOB_PR")
 	if !ok || prURL == "" {
@@ -233,11 +233,24 @@ func MergeAndPublish(git *Git) (PushResult, error) {
 		return PushResult{}, fmt.Errorf("commit cleanup failed: %w", err)
 	}
 
-	// 5. generate, create, and push the new version tag
-	tag, err := git.GenerateNextTag()
-	if err != nil {
-		return PushResult{}, fmt.Errorf("failed to generate tag: %w", err)
+	// 5. generate or use override tag
+	tag := overrideTag
+	if tag == "" {
+		generatedTag, err := git.GenerateNextTag()
+		if err != nil {
+			return PushResult{}, fmt.Errorf("failed to generate tag: %w", err)
+		}
+		tag = generatedTag
+	} else {
+		// Validate tag is greater than latest
+		latestTag, err := git.GetLatestTag()
+		if err == nil && latestTag != "" {
+			if CompareVersions(tag, latestTag) <= 0 {
+				return PushResult{}, fmt.Errorf("tag %s is not greater than latest tag %s", tag, latestTag)
+			}
+		}
 	}
+
 	if _, err := git.CreateTag(tag); err != nil {
 		return PushResult{}, fmt.Errorf("failed to create tag %s: %w", tag, err)
 	}

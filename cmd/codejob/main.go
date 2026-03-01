@@ -16,7 +16,11 @@ func main() {
 			runInit()
 			return
 		case "done":
-			runDone()
+			tag := ""
+			if len(os.Args) > 2 {
+				tag = os.Args[2]
+			}
+			runDone(tag)
 			return
 		default:
 			printHelp()
@@ -95,13 +99,13 @@ func runInit() {
 	}
 }
 
-func runDone() {
+func runDone(tag string) {
 	git, err := devflow.NewGit()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	result, err := devflow.MergeAndPublish(git)
+	result, err := devflow.MergeAndPublish(git, tag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
@@ -121,6 +125,7 @@ Examples:
   codejob              # dispatch default plan
   codejob init         # interactive setup wizard
   codejob done         # merge PR after review
+  codejob done v0.3.0  # merge and publish with explicit tag
 
 Docs:
   https://github.com/tinywasm/devflow/blob/main/docs/CODEJOB.md

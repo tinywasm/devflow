@@ -134,7 +134,7 @@ func TestMergePR_NoPRURL(t *testing.T) {
 func TestMergeAndPublish_NoPRURL(t *testing.T) {
 	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB_PR present
 	// in the test environment means it returns immediately before any Git calls.
-	_, err := devflow.MergeAndPublish(nil)
+	_, err := devflow.MergeAndPublish(nil, "")
 	if err == nil {
 		t.Fatal("expected error when no PR URL in .env, got nil")
 	}
@@ -200,7 +200,7 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	devflow.MergeAndPublish(git) //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(git, "") //nolint: the result is not relevant; we test the call sequence
 
 	statusIdx := idxOf("git status --porcelain")
 	addIdx := idxOf("git add .")
@@ -273,7 +273,7 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	devflow.MergeAndPublish(git) //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(git, "") //nolint: the result is not relevant; we test the call sequence
 
 	commitIdx := idxOf("git commit -m review:")
 	checkoutIdx := idxOf("git checkout main")
@@ -290,5 +290,31 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	}
 	if mergeIdx < checkoutIdx {
 		t.Errorf("gh pr merge (%d) should come after git checkout main (%d)", mergeIdx, checkoutIdx)
+	}
+}
+
+func TestMergeAndPublish_TagOverride(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+
+	mockFn, _ := mockExecFor(false)
+	orig := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = orig }()
+	devflow.ExecCommand = mockFn
+
+	git, err := devflow.NewGit()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := devflow.MergeAndPublish(git, "v1.2.3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Tag != "v1.2.3" {
+		t.Errorf("expected tag v1.2.3, got %q", result.Tag)
 	}
 }

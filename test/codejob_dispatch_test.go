@@ -15,7 +15,7 @@ type mockCodeJobDriver struct {
 	Output string
 }
 
-func (m *mockCodeJobDriver) Name() string { return "MockDriver" }
+func (m *mockCodeJobDriver) Name() string           { return "MockDriver" }
 func (m *mockCodeJobDriver) SetLog(fn func(...any)) {}
 func (m *mockCodeJobDriver) Send(prompt, title string) (string, error) {
 	m.Called = true
@@ -90,7 +90,7 @@ func TestMergeAndPublish_DispatchesCodeJob(t *testing.T) {
 	git.SetCodeJobDrivers(driver)
 
 	// Execute MergeAndPublish
-	result, err := devflow.MergeAndPublish(git)
+	result, err := devflow.MergeAndPublish(git, "")
 	if err != nil {
 		t.Fatalf("MergeAndPublish failed: %v", err)
 	}
