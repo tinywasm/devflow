@@ -18,6 +18,8 @@ github.com/tinywasm/context v0.0.11 h1:k+IeEPihgORcwp+2n2qygBzfh61fMouFzOEhBwvVI
 github.com/tinywasm/context v0.0.11/go.mod h1:xEk6ZfbF3Jx8JnM4UqUJxfM0WM87q8JC3wOA99tccV8=
 github.com/tinywasm/fmt v0.18.4 h1:rzc+IPMHXDRXLPY0LrQSQWZW9gQwu6W5ii4pIPSncqI=
 github.com/tinywasm/fmt v0.18.4/go.mod h1:L2GCAi6asgytPV6TVvGrRq5Ml+DkUt1Ijo5i/2J1jOY=
+github.com/tinywasm/gorun v0.0.22 h1:IAADmzcTca9ap4kv7KC/FSDDdKxPwPTbM2HMxa+O5gs=
+github.com/tinywasm/gorun v0.0.22/go.mod h1:9pApF2ZoaH/km6kGBVxL5WlStOoLwEZiV1uG4R4qeKo=
 github.com/tinywasm/wizard v0.0.22 h1:aoH9AgcE8ePyvUdTKy51AD6XyHZgi4CU7GrdFFT0o7w=
 github.com/tinywasm/wizard v0.0.22/go.mod h1:TXjAtXdjRSd74yo1irKdyqyYorTq1TkSqZ5A3Jpp4aQ=
 github.com/zalando/go-keyring v0.2.6 h1:r7Yc3+H+Ux0+M72zacZoItR3UDxeWfKTcabvkI8ua9s=

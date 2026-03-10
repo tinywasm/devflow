@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tinywasm/gorun"
 )
 
 // Go handler for Go operations
@@ -337,6 +339,7 @@ func (g *Go) Install(version string) (string, error) {
 	}
 
 	for _, cmd := range commands {
+		_ = gorun.StopApp(cmd) // Kill any running instance before install
 		pkg := "./cmd/" + cmd
 		args := []string{"install"}
 		if ldflags != "" {
