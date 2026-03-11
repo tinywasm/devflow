@@ -303,8 +303,13 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 		return "updated (other replaces exist, manual push required)", nil
 	}
 
-	// 7. Push the dependent module
-	// Create new handlers for the dependent directory
+	// 7. Run tests in the dependent's directory
+	if _, err := RunCommandInDir(depDir, "gotest"); err != nil {
+		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ tests failed", depName))
+		return "", fmt.Errorf("tests failed: %w", err)
+	}
+
+	// 8. Push the dependent module (skipTests=true since we already tested)
 	git, err := NewGit()
 	if err != nil {
 		return "", fmt.Errorf("git init failed: %w", err)
@@ -317,12 +322,10 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 	depHandler.SetRootDir(depDir)
 
-	// Push with skipDependents=true and skipBackup=true to avoid infinite recursion
-	// We pass the depDir as searchPath just in case, though it's not used here since skipDependents is true
 	commitMsg := fmt.Sprintf("deps: update %s to %s", filepath.Base(modulePath), version)
-	_, err = depHandler.Push(commitMsg, "", false, true, true, true, false, "")
+	_, err = depHandler.Push(commitMsg, "", true, true, true, true, false, "")
 	if err != nil {
-		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ tests failed", depName))
+		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ push failed", depName))
 		return "", fmt.Errorf("push failed: %w", err)
 	}
 
