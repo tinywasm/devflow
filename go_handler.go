@@ -330,7 +330,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	depHandler.SetRootDir(depDir)
 
 	commitMsg := fmt.Sprintf("deps: update %s to %s", filepath.Base(modulePath), version)
-	_, err = depHandler.Push(commitMsg, "", true, true, true, true, false, "")
+	_, err = depHandler.Push(commitMsg, "", true, true, true, true, true, "")
 	if err != nil {
 		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ push failed", depName))
 		return "", fmt.Errorf("push failed: %w", err)
