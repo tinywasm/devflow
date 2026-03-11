@@ -57,8 +57,6 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 	}
 
-	start := time.Now()
-
 	// Initialize Status
 	testStatus := "Failed"
 	coveragePercent := "0"
@@ -337,13 +335,13 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Report consolidated coverage
 	if coveragePercent != "0" {
-		addMsg(true, "coverage: "+coveragePercent+"%")
+		msgs = append(msgs, "coverage: "+coveragePercent+"%")
 	}
 
 	// Detect slowest test across stdlib and WASM outputs
 	allTestOutput := testOutput + "\n" + wasmTestOutput
 	if name, dur := FindSlowestTest(allTestOutput, 2.0); name != "" {
-		msgs = append(msgs, fmt.Sprintf("⚠️ slow: %s (%.1fs)", name, dur))
+		g.consoleOutput(fmt.Sprintf("⚠️ slow: %s (%.1fs)", name, dur))
 	}
 
 	// Detect timed out tests
@@ -367,16 +365,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	}
 
-	// Append current semver tag if available
-	if g.git != nil {
-		if tag, err := g.git.GetLatestTag(); err == nil && semverTagRe.MatchString(tag) {
-			msgs = append(msgs, tag)
-		}
-	}
-
 	// Return error if tests or vet failed
-	elapsed := time.Since(start).Seconds()
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), elapsed)
+	summary := strings.Join(msgs, ", ")
 	if testStatus == "Failed" || vetStatus == "Issues" {
 		return summary, fmt.Errorf("%s", summary)
 	}
@@ -394,7 +384,6 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 // runCustomTests executes tests with custom go test flags (fast path)
 // Skips vet, badges, and cache, but runs WASM tests if detected
 func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec int, runAll bool) (string, error) {
-	start := time.Now()
 	var msgs []string
 	addMsg := func(ok bool, msg string) {
 		symbol := "✅"
@@ -610,11 +599,10 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	// Report consolidated coverage if available (and not 0)
 	if coveragePercent != "0" {
-		addMsg(true, "coverage: "+coveragePercent+"%")
+		msgs = append(msgs, "coverage: "+coveragePercent+"%")
 	}
 
-	elapsed := time.Since(start).Seconds()
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), elapsed)
+	summary := strings.Join(msgs, ", ")
 	if testStatus == "Failed" {
 		return summary, fmt.Errorf("%s", summary)
 	}

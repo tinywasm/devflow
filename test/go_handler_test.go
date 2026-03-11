@@ -450,7 +450,7 @@ func (m *MockGitClient) InitRepo(dir string) error {
 }
 
 func (m *MockGitClient) HasPendingChanges() (bool, error) {
-	return false, nil
+	return true, nil
 }
 
 func TestGoPush_RemoteAccessFailure(t *testing.T) {

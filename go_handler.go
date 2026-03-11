@@ -121,6 +121,12 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	summary := []string{}
 
+	// 0. Early exit if nothing to push
+	hasPending, _ := g.git.HasPendingChanges()
+	if !hasPending {
+		return PushResult{Summary: "Nothing to push"}, nil
+	}
+
 	// UNIVERSAL: If not a Go project, skip Go-specific steps
 	if !g.ModExists() {
 		var res PushResult
@@ -194,9 +200,6 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	// 4. Use the tag that was actually created and pushed
 	createdTag := pushResult.Tag
-	if createdTag == "" && !skipTag {
-		summary = append(summary, "Warning: no tag was created during push")
-	}
 
 	// 4.5 Install binaries (if cmd exists) — streamed to console, not summary
 	if createdTag != "" {
