@@ -1,6 +1,6 @@
-# gopush
+# gopush (universal)
 
-Complete Go project workflow: test + git push + update dependents.
+Automated build and publish workflow. It automatically detects if the project is a Go module and applies the appropriate pipeline.
 
 ## Usage
 
@@ -12,65 +12,45 @@ gopush 'commit message' [tag]
 
 - **commit message**: Required. The message for the git commit.
 - **tag**: Optional. The tag to create. If not provided, it will be auto-generated.
-- **--skip-race** or **-R**: Optional. Skip race detection tests for faster execution.
+- **--skip-race** or **-R**: Optional. Skip race detection tests (only applicable to Go projects).
 
-## What it does
+## Behavior
+
+### For Go Projects (contains `go.mod`)
 
 1. Verifies `go.mod`
 2. Runs `gotest` (vet, tests, race, coverage, badges)
 3. Commits changes with your message
 4. Creates/uses tag
-5. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead). If `docs/PLAN.md` exists and no active CodeJob session, dispatches to Jules automatically.
+5. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead).
 6. Automatically installs binaries with version tag (if `cmd/` exists)
 7. Finds dependent modules in search path
 8. For each dependent (in parallel):
    - Removes replace directive for published module
    - Runs `go get module@tag` and `go mod tidy`
-   - If no other replaces exist: auto-push with `deps: update X to vY`
-   - If other replaces exist: skip push (manual required)
+   - If no other replaces exist: auto-publish dependent
+   - Dependent results print in real-time to the console.
 9. Executes backup (asynchronous)
 
-```mermaid
-graph TD
-    A[Start gopush] --> B{Verify go.mod}
-    B --> C[Run gotest]
-    C --> D{Tests Pass?}
-    D -- No --> E[❌ Terminate]
-    D -- Yes --> F[Git Add/Commit/Tag]
-    F --> G[Git Push]
-    G --> G1[Install binaries with version]
-    G1 --> H{Recursive Call?}
-    H -- Yes --> M[✅ Done]
-    H -- No --> I[Scan for Dependents]
-    I --> J{Dependents found?}
-    J -- Yes --> K[For each Dependent:]
-    K --> K1[Remove replace directive]
-    K1 --> K2[go get & go mod tidy]
-    K2 --> K3{Other replaces exist?}
-    K3 -- No --> K4[Recursive gopush]
-    K3 -- Yes --> K5[Skip auto-push]
-    K4 --> Z[Next Dependent]
-    K5 --> Z
-    Z --> J
-    J -- No --> L[Execute Backup]
-    L --> M
-```
+### For Non-Go Projects
+
+1. Commits changes with your message
+2. Creates/uses tag
+3. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead).
+4. Executes backup (asynchronous)
+
+See: [GOPUSH_FLOW.md](diagrams/GOPUSH_FLOW.md)
 
 ## Output
 
-**Success:**
+**Go Project Success:**
 ```
 ✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 71%, ✅ Tag: v1.0.1, ✅ Pushed ok
 ```
 
-**With remote recovery:**
+**Non-Go Project Success:**
 ```
-✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 71%, ✅ Tag: v1.0.1, 🔄 Pulled remote changes, ✅ Pushed ok
-```
-
-**With dependents:**
-```
-✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 71%, ✅ Tag: v1.0.1, ✅ Pushed ok, ✅ Updated modules: 2
+✅ Tag: v0.1.0, ✅ Pushed ok
 ```
 
 ## Examples

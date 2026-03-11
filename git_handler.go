@@ -13,11 +13,10 @@ func isNonFastForwardError(output string) bool {
 
 // Git handler for Git operations
 type Git struct {
-	rootDir        string
-	shouldWrite    func() bool
-	log            func(...any)
-	authRetrier    GitHubAuthenticator
-	codeJobDrivers []CodeJobDriver
+	rootDir     string
+	shouldWrite func() bool
+	log         func(...any)
+	authRetrier GitHubAuthenticator
 }
 
 // NewGit creates a new Git handler and verifies git is available
@@ -71,24 +70,6 @@ func (g *Git) SetLog(fn func(...any)) {
 // SetAuthRetrier injects an authenticator to use for auto-recovery on access errors
 func (g *Git) SetAuthRetrier(a GitHubAuthenticator) {
 	g.authRetrier = a
-}
-
-// SetCodeJobDrivers injects AI agent drivers for CodeJob dispatch.
-// If not set, Push() defaults to NewJulesDriver(JulesConfig{}).
-func (g *Git) SetCodeJobDrivers(drivers ...CodeJobDriver) {
-	g.codeJobDrivers = drivers
-}
-
-// withCodeJob appends a CodeJob dispatch result to a PushResult summary.
-// Non-fatal: errors appear as warnings in Summary, not as Push failures.
-func (g *Git) withCodeJob(result PushResult) PushResult {
-	line, err := DispatchCodeJob(g, g.codeJobDrivers...)
-	if err != nil {
-		result.Summary += fmt.Sprintf(", ⚠️ CodeJob: %v", err)
-	} else if line != "" {
-		result.Summary += ", " + line
-	}
-	return result
 }
 
 // CheckRemoteAccess verifies connectivity to the remote repository.
@@ -201,7 +182,7 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 			if pulled {
 				summary = "🔄 Pulled remote changes, " + summary
 			}
-			return g.withCodeJob(PushResult{Summary: summary, Tag: ""}), nil
+			return PushResult{Summary: summary, Tag: ""}, nil
 		}
 
 		// No changes and no unpushed commits
@@ -247,7 +228,7 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 	}
 	summary = append(summary, "✅ Pushed ok")
 
-	return g.withCodeJob(PushResult{Summary: strings.Join(summary, ", "), Tag: finalTag}), nil
+	return PushResult{Summary: strings.Join(summary, ", "), Tag: finalTag}, nil
 }
 
 // Add adds all changes to staging

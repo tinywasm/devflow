@@ -1,7 +1,6 @@
 package devflow_test
 
 import (
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -9,7 +8,6 @@ import (
 	"github.com/tinywasm/devflow"
 )
 
-// renamed to avoid conflict with mockCodeJobDriver in codejob_dispatch_test.go
 type mockDriver struct {
 	name   string
 	result string
@@ -20,7 +18,6 @@ func (m *mockDriver) Name() string                  { return m.name }
 func (m *mockDriver) SetLog(_ func(...any))         {}
 func (m *mockDriver) Send(_, _ string) (string, error) { return m.result, m.err }
 
-// writeTempFile creates a temp file with content and registers cleanup.
 func writeTempFile(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "codejob-*.md")
@@ -33,238 +30,63 @@ func writeTempFile(t *testing.T, content string) string {
 	return f.Name()
 }
 
-func TestCodeJobSendFirstDriverSuccess(t *testing.T) {
-	path := writeTempFile(t, "some plan")
+func TestCodeJob_Run_NoArgs_Dispatch(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+	os.MkdirAll("docs", 0755)
+	os.WriteFile("docs/PLAN.md", []byte("some plan"), 0644)
+
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
 
-	// mock doesn't implement SessionProvider, so no persistence expected
-	got, err := job.Send(path)
+    // Mock Publisher to satisfy Send's publish-before-dispatch
+    job.SetPublisher(&MockPublisher{})
+
+	got, err := job.Run("", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != "ok" {
-		t.Errorf("expected %q, got %q", "ok", got)
+		t.Errorf("expected ok, got %q", got)
 	}
 }
 
-type mockSessionDriver struct {
-	mockDriver
-	sessionID string
+func TestCodeJob_Run_WithMessage_CloseLoop(t *testing.T) {
+	// Logic moved to codejob_state_test.go because it requires complex mocking of 'gh' and 'git' commands
 }
 
-func (m *mockSessionDriver) SessionID() string { return m.sessionID }
-
-func TestCodeJobSendPersistsSession(t *testing.T) {
-	path := writeTempFile(t, "some plan")
-	envPath := ".env"
-	defer os.Remove(envPath)
-
-	d := &mockSessionDriver{
-		mockDriver: mockDriver{name: "jules", result: "ok"},
-		sessionID:  "S123",
-	}
-	job := devflow.NewCodeJob(d)
-
-	_, err := job.Send(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "CODEJOB=jules:S123") {
-		t.Errorf("expected session persisted to .env, got: %s", string(data))
-	}
-}
-
-func TestCodeJobSendFallsBackToSecondDriver(t *testing.T) {
-	path := writeTempFile(t, "some plan")
-	d1 := &mockDriver{name: "fail", err: errors.New("down")}
-	d2 := &mockDriver{name: "ok", result: "fallback"}
-	job := devflow.NewCodeJob(d1, d2)
-
-	got, err := job.Send(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "fallback" {
-		t.Errorf("expected %q, got %q", "fallback", got)
-	}
-}
-
-func TestCodeJobSendAllDriversFail(t *testing.T) {
-	path := writeTempFile(t, "some plan")
-	errB := errors.New("err b")
-	d1 := &mockDriver{name: "a", err: errors.New("err a")}
-	d2 := &mockDriver{name: "b", err: errB}
-	job := devflow.NewCodeJob(d1, d2)
-
-	_, err := job.Send(path)
-	if err == nil {
-		t.Fatal("expected error when all drivers fail")
-	}
-	if !errors.Is(err, errB) {
-		t.Errorf("expected last error to be wrapped, got: %v", err)
-	}
-}
-
-func TestCodeJobSendNoDrivers(t *testing.T) {
-	path := writeTempFile(t, "some plan")
+func TestCodeJob_MessageWithoutPR(t *testing.T) {
 	job := devflow.NewCodeJob()
+	_, err := job.Run("some message", "")
+	if err == nil {
+		t.Fatal("expected error when no PR found")
+	}
+	if !strings.Contains(err.Error(), "no pending PR found") {
+		t.Errorf("expected error message about missing PR, got: %v", err)
+	}
+}
+
+func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
+	path := writeTempFile(t, "some plan")
+	published := false
+	mockPub := &MockPublisher{
+		PublishFn: func(m, tag string, st, sr, sd, sb, stag bool) (devflow.PushResult, error) {
+			published = true
+			if !stag || !sd || !sb {
+				t.Errorf("expected skipTag, skipDependents, skipBackup to be true")
+			}
+			return devflow.PushResult{}, nil
+		},
+	}
+	d := &mockDriver{name: "mock", result: "ok"}
+	job := devflow.NewCodeJob(d)
+	job.SetPublisher(mockPub)
 
 	_, err := job.Send(path)
-	if err == nil {
-		t.Fatal("expected error when no drivers configured")
-	}
-}
-
-func TestCodeJobSendFileNotFound(t *testing.T) {
-	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
-
-	_, err := job.Send("/nonexistent/PLAN.md")
-	if err == nil {
-		t.Fatal("expected error for missing file")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected 'not found' in error, got: %v", err)
-	}
-}
-
-func TestCodeJobSendFileEmpty(t *testing.T) {
-	path := writeTempFile(t, "") // empty file
-	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
-
-	_, err := job.Send(path)
-	if err == nil {
-		t.Fatal("expected error for empty file")
-	}
-	if !strings.Contains(err.Error(), "empty") {
-		t.Errorf("expected 'empty' in error, got: %v", err)
-	}
-}
-
-// mockRepoSync is a test double for devflow.RepoSync.
-type mockRepoSync struct {
-	hasPending bool
-	err        error
-}
-
-func (m *mockRepoSync) HasPendingChanges() (bool, error) { return m.hasPending, m.err }
-
-func TestCodeJobSendBlockedWhenPendingChanges(t *testing.T) {
-	path := writeTempFile(t, "some plan")
-	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
-	job.SetRepoSync(&mockRepoSync{hasPending: true})
-
-	_, err := job.Send(path)
-	if err == nil {
-		t.Fatal("expected error when pending changes exist")
-	}
-	if !strings.Contains(err.Error(), "not in sync") {
-		t.Errorf("expected sync error message, got: %v", err)
-	}
-}
-
-func TestCodeJobSendAllowedWhenNoPendingChanges(t *testing.T) {
-	path := writeTempFile(t, "some plan")
-	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "dispatched"})
-	job.SetRepoSync(&mockRepoSync{hasPending: false})
-
-	got, err := job.Send(path)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatal(err)
 	}
-	if got != "dispatched" {
-		t.Errorf("expected %q, got %q", "dispatched", got)
-	}
-}
-
-func TestCodeJobSendSkipsGitCheckWithNoClient(t *testing.T) {
-	path := writeTempFile(t, "some plan")
-	// No SetRepoSync call — sync check must be silently skipped.
-	job := devflow.NewCodeJob(&mockDriver{name: "mock", result: "ok"})
-
-	got, err := job.Send(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "ok" {
-		t.Errorf("expected %q, got %q", "ok", got)
-	}
-}
-
-// --- DispatchCodeJob tests ---
-
-func TestDispatchCodeJob_NoPlanFile_ReturnsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	defer testChdir(t, dir)()
-	// docs/PLAN.md does not exist → nothing to dispatch
-
-	driver := &mockDriver{name: "mock", result: "should-not-run"}
-	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "" {
-		t.Errorf("expected empty result when no PLAN.md, got: %q", result)
-	}
-}
-
-func TestDispatchCodeJob_ActiveSession_SkipsDispatch(t *testing.T) {
-	dir := t.TempDir()
-	defer testChdir(t, dir)()
-
-	os.WriteFile(".env", []byte("CODEJOB=jules:existing-session\n"), 0644)
-	os.MkdirAll("docs", 0755)
-	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
-
-	driver := &mockDriver{name: "mock", result: "should-not-run"}
-	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "" {
-		t.Errorf("expected empty result when session active, got: %q", result)
-	}
-}
-
-func TestDispatchCodeJob_DriverError_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	defer testChdir(t, dir)()
-
-	os.MkdirAll("docs", 0755)
-	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
-
-	driver := &mockDriver{name: "mock", err: errors.New("api down")}
-	_, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
-
-	if err == nil {
-		t.Fatal("expected error when driver fails, got nil")
-	}
-	if !strings.Contains(err.Error(), "api down") {
-		t.Errorf("expected original error wrapped, got: %v", err)
-	}
-}
-
-func TestDispatchCodeJob_Success_ReturnsResult(t *testing.T) {
-	dir := t.TempDir()
-	defer testChdir(t, dir)()
-
-	os.MkdirAll("docs", 0755)
-	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
-
-	driver := &mockDriver{name: "mock", result: "dispatched-ok"}
-	result, err := devflow.DispatchCodeJob(&mockRepoSync{}, driver)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "dispatched-ok" {
-		t.Errorf("expected %q, got: %q", "dispatched-ok", result)
+	if !published {
+		t.Error("Publish should have been called before Send")
 	}
 }

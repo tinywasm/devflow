@@ -1,22 +1,10 @@
 # CodeJob
 
-`CodeJob` is a chain-of-responsibility orchestrator that sends a coding task (defined in an `PLAN.md` file) to a sequence of external AI agent drivers. It tries each driver in priority order and falls back automatically on failure.
+`CodeJob` is a chain-of-responsibility orchestrator that sends a coding task (defined in an `PLAN.md` file) to a sequence of external AI agent drivers.
 
 ## Architecture
 
-```
-CodeJob.Send(path)
-  └─ autoDetectTitle() → "owner/repo"
-  └─ drivers[0].Send(prompt, title) → success → return ✅
-  └─ drivers[0].Send(prompt, title) → error   → try next
-  └─ drivers[1].Send(prompt, title) → success → return ✅
-  └─ all fail                       → return aggregated error ❌
-```
-
-Diagrams:
-- [CODEJOB_INIT_FLOW.md](codejob/diagrams/CODEJOB_INIT_FLOW.md) — one-time setup wizard
-- [CODEJOB_DISPATCH_FLOW.md](codejob/diagrams/CODEJOB_DISPATCH_FLOW.md) — local dispatch flow
-- [GOPUSH_CODEJOB_FLOW.md](codejob/diagrams/GOPUSH_CODEJOB_FLOW.md) — integrated flow via gopush
+See: [CODEJOB_FLOW.md](diagrams/CODEJOB_FLOW.md)
 
 ## Key Types
 
@@ -40,16 +28,12 @@ result, err := job.Send("docs/PLAN.md")
 
 ## Setup (one-time per repo)
 
-```bash
-codejob init
-```
-
-The interactive wizard prompts for your Jules API key (from [jules.google.com](https://jules.google.com)) and stores it in the system keyring. That's it — no CI setup, no YAML files.
+Dispatching a task automatically runs the setup wizard if the Jules API key is missing from your system keyring.
 
 ## Authentication & Auto-Detection
 
 Jules API key is managed via the system keyring (`github.com/zalando/go-keyring`):
-- **After `codejob init`**: reads silently from keyring — no env vars required in local use
+- **After first run**: reads silently from keyring — no env vars required in local use
 
 GitHub repo and branch are auto-detected when not provided:
 - `SourceID` — via `gh repo view --json owner,name`
@@ -75,19 +59,15 @@ job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}), &MyDriv
 ```bash
 go install github.com/tinywasm/devflow/cmd/codejob@latest
 
-# One-time setup: saves Jules API key to system keyring
-codejob init
-
 # Dispatch (default path: docs/PLAN.md)
+# Auto-setup wizard runs if API key is missing.
 codejob
 
-# Explicit path
-codejob path/to/PLAN.md
-
 # Close the loop after reviewing PR
-# If docs/PLAN.md exists (e.g. pulled from main), this automatically dispatches the next job.
-codejob done
-codejob done v0.3.0  # merge and publish with explicit tag
+# Merges PR and publishes via gopush.
+# If a new docs/PLAN.md exists, this automatically dispatches the next job.
+codejob 'fix: implemented feature'
+codejob 'fix: implemented feature' v0.3.0  # with explicit tag
 ```
 
 ### Go Library
@@ -105,28 +85,9 @@ cfg := devflow.JulesConfig{
 job := devflow.NewCodeJob(devflow.NewJulesDriver(cfg))
 ```
 
-## Integrated Flow (via push / gopush)
+## Integrated Flow (via gopush)
 
-CodeJob dispatch lives inside `Git.Push()` — it fires for **any project type**,
-not just Go. Both `push` and `gopush` trigger it automatically:
-
-```bash
-# Any project (plain git push):
-push 'implement feature X'
-# → git push → ✅ Pushed: v1.2.3
-# → PLAN.md detected → ✅ Jules session queued
-
-# Go project (full workflow):
-gopush 'implement feature X'
-# → tests pass → git push → ✅ Pushed: v1.2.3
-# → PLAN.md detected → ✅ Jules session queued
-```
-
-If `docs/PLAN.md` is absent, both commands behave as before (push only).
-If Jules dispatch fails, the error appears as a warning in the summary (`⚠️ CodeJob: ...`)
-but the command exits 0 — the push was successful.
-
-See: [GOPUSH_CODEJOB_FLOW.md](codejob/diagrams/GOPUSH_CODEJOB_FLOW.md)
+`codejob` uses `gopush` to sync changes before dispatch and to publish changes when "closing the loop".
 
 ## State Check & Cleanup
 
@@ -142,9 +103,8 @@ The `codejob` command becomes dual-mode:
     1. `git fetch --all` to get the Jules branch.
     2. Renames `docs/PLAN.md` to `docs/CHECK_PLAN.md`.
     3. Removes `CODEJOB` from `.env`.
+    4. Sets `CODEJOB_PR` in `.env`.
 - **If no session**: Dispatches the task from `docs/PLAN.md`.
-
-See: [CODEJOB_STATE_FLOW.md](codejob/diagrams/CODEJOB_STATE_FLOW.md)
 
 ## Drivers
 

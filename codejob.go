@@ -2,8 +2,13 @@ package devflow
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+
+	"github.com/tinywasm/context"
+	"github.com/tinywasm/wizard"
+	"golang.org/x/term"
 )
 
 // DefaultIssuePromptPath is the conventional location for the task description file.
@@ -13,9 +18,10 @@ const DefaultIssuePromptPath = "docs/PLAN.md"
 // It validates the prompt file, then tries each driver in priority order,
 // falling back to the next on failure.
 type CodeJob struct {
-	drivers []CodeJobDriver
-	sync    RepoSync
-	log     func(...any)
+	drivers   []CodeJobDriver
+	sync      RepoSync
+	log       func(...any)
+	publisher Publisher
 }
 
 // NewCodeJob creates a CodeJob with the given ordered drivers.
@@ -36,6 +42,129 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 // SetRepoSync injects a RepoSync for pre-flight synchronization check.
 // When set, Send() will refuse to dispatch if the local repo is not in sync with the remote.
 func (c *CodeJob) SetRepoSync(s RepoSync) { c.sync = s }
+
+// SetPublisher injects a Publisher for close-loop operations.
+func (c *CodeJob) SetPublisher(p Publisher) { c.publisher = p }
+
+// Run implements the unified API logic.
+func (c *CodeJob) Run(message, tag string) (string, error) {
+	env := NewDotEnv(".env")
+
+	// 1. If message provided -> close the loop
+	if message != "" {
+		if _, ok := env.Get("CODEJOB_PR"); !ok {
+			return "", fmt.Errorf("no pending PR found in .env (CODEJOB_PR missing)")
+		}
+		if c.publisher == nil {
+			return "", fmt.Errorf("no publisher configured")
+		}
+		res, err := MergeAndPublish(c.publisher, tag)
+		if err != nil {
+			return "", err
+		}
+
+		if res.Tag == "RE_DISPATCH" {
+			fmt.Println(res.Summary)
+			return c.Send(DefaultIssuePromptPath)
+		}
+
+		return res.Summary, nil
+	}
+
+	// 2. No message -> check status or dispatch
+	if val, ok := env.Get("CODEJOB"); ok {
+		return c.checkStatus(env, val)
+	}
+
+	// 3. Auto-setup if API key missing
+	auth, err := NewJulesAuth()
+	if err == nil && !auth.HasKey() {
+		if err := c.runSetupWizard(); err != nil {
+			return "", err
+		}
+	}
+
+	// 4. Dispatch
+	return c.Send(DefaultIssuePromptPath)
+}
+
+func (c *CodeJob) checkStatus(env *DotEnv, val string) (string, error) {
+	parts := strings.SplitN(val, ":", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid CODEJOB value in .env: %s", val)
+	}
+	driverName := parts[0]
+	sessionID := parts[1]
+
+	if driverName != "jules" {
+		return "", fmt.Errorf("unsupported driver in .env: %s", driverName)
+	}
+
+	auth, _ := NewJulesAuth()
+	apiKey, err := auth.EnsureAPIKey()
+	if err != nil {
+		return "", err
+	}
+
+	msg, prURL, done, err := JulesSessionState(sessionID, apiKey, &http.Client{})
+	if err != nil {
+		return "", err
+	}
+
+	if done {
+		git, _ := NewGit()
+		if err := HandleDone(env, git, prURL); err != nil {
+			return msg, fmt.Errorf("cleanup error: %w", err)
+		}
+	}
+
+	return msg, nil
+}
+
+func (c *CodeJob) runSetupWizard() error {
+	wiz := wizard.New(func(_ *context.Context) {
+		fmt.Println("\n✅ Jules API key saved. Run 'codejob' to dispatch a task.")
+	}, c)
+
+	for wiz.WaitingForUser() {
+		label := wiz.Label()
+		fmt.Fprintf(os.Stderr, "\n%s: ", label)
+		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return fmt.Errorf("could not read API key: %w", err)
+		}
+		wiz.Change(string(raw))
+		if !wiz.WaitingForUser() {
+			break
+		}
+	}
+	return nil
+}
+
+// GetSteps for wizard
+func (c *CodeJob) GetSteps() []*wizard.Step {
+	return []*wizard.Step{
+		{
+			LabelText: "Jules API Key (get yours at " + termLink(julesAPIKeyURL, julesAPIKeyURL) + ")",
+			DefaultFn: func(ctx *context.Context) string { return "" },
+			OnInputFn: func(in string, ctx *context.Context) (bool, error) {
+				in = strings.TrimSpace(in)
+				if in == "" {
+					return false, fmt.Errorf("API key cannot be empty")
+				}
+				kr, err := NewKeyring()
+				if err != nil {
+					return false, fmt.Errorf("could not initialize keyring: %w", err)
+				}
+				if err := kr.Set(julesAPIKeyKey, in); err != nil {
+					c.log(fmt.Sprintf("warning: could not save API key to keyring: %v", err))
+				}
+				return true, nil
+			},
+		},
+	}
+}
 
 // Send validates issuePromptPath, checks repo sync, then tries each
 // driver in order until one succeeds. Returns an error if the file is missing,
@@ -58,6 +187,14 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 			return "", fmt.Errorf(
 				"repository is not in sync with remote — Jules reads from GitHub, not the local filesystem",
 			)
+		}
+	}
+
+	// PUBLISH BEFORE SEND (Stage 2, step 2.3)
+	if c.publisher != nil {
+		_, err := c.publisher.Publish("chore: sync before codejob dispatch", "", true, true, true, true, true)
+		if err != nil {
+			return "", fmt.Errorf("failed to sync repo before dispatch: %w", err)
 		}
 	}
 
@@ -97,34 +234,4 @@ func autoDetectTitle() string {
 		return ""
 	}
 	return owner + "/" + repo
-}
-
-// DispatchCodeJob dispatches CodeJob if PLAN.md exists and no active session is in .env.
-// Returns ("", nil) when there is nothing to dispatch (active session or missing PLAN.md).
-// Returns ("", error) when dispatch was attempted but failed.
-// Returns (result, nil) on successful dispatch.
-// If no drivers are provided, defaults to NewJulesDriver(JulesConfig{}).
-func DispatchCodeJob(sync RepoSync, drivers ...CodeJobDriver) (string, error) {
-	env := NewDotEnv(".env")
-	if _, ok := env.Get("CODEJOB"); ok {
-		return "", nil // already active
-	}
-
-	if _, err := os.Stat(DefaultIssuePromptPath); os.IsNotExist(err) {
-		return "", nil // no plan to dispatch
-	}
-
-	if len(drivers) == 0 {
-		drivers = []CodeJobDriver{NewJulesDriver(JulesConfig{})}
-	}
-
-	job := NewCodeJob(drivers...)
-	job.SetRepoSync(sync)
-
-	result, err := job.Send(DefaultIssuePromptPath)
-	if err != nil {
-		return "", err
-	}
-
-	return result, nil
 }

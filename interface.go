@@ -41,6 +41,7 @@ type GitClient interface {
 	Commit(message string) (bool, error)
 	CreateTag(tag string) (bool, error)
 	PushWithTags(tag string) (bool, error)
+	PushWithoutTags() (bool, error)
 	HasPendingChanges() (bool, error)
 }
 
@@ -54,6 +55,11 @@ type FolderWatcher interface {
 // CodeJob uses this to refuse dispatch when local changes haven't been pushed yet.
 type RepoSync interface {
 	HasPendingChanges() (bool, error)
+}
+
+// Publisher defines the interface for publishing code changes.
+type Publisher interface {
+	Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (PushResult, error)
 }
 
 // CodeJobDriver defines the contract for an external AI coding agent.

@@ -106,11 +106,12 @@ func (g *Go) GetGit() GitClient {
 //	skipRace: If true, skips race tests
 //	skipDependents: If true, skips updating dependent modules
 //	skipBackup: If true, skips backup
+//	skipTag: If true, skips tag generation and pushes without tags
 //	searchPath: Path to search for dependent modules (default: "..")
-func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup bool, searchPath string) (string, error) {
+func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool, searchPath string) (PushResult, error) {
 	// Validate message
 	if err := ValidateCommitMessage(message); err != nil {
-		return "", err
+		return PushResult{}, err
 	}
 	message = FormatCommitMessage(message)
 
@@ -120,16 +121,43 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	summary := []string{}
 
+	// UNIVERSAL: If not a Go project, skip Go-specific steps
+	if !g.ModExists() {
+		var res PushResult
+		var err error
+		if skipTag {
+			committed, _ := g.git.Commit(message)
+			pulled, pushErr := g.git.PushWithoutTags()
+			err = pushErr
+			res.Summary = "✅ Pushed commits"
+			if pulled {
+				res.Summary = "🔄 Pulled remote changes, " + res.Summary
+			}
+			if !committed && err == nil {
+				res.Summary = "No changes to commit"
+			}
+		} else {
+			res, err = g.git.Push(message, tag)
+		}
+
+		if !skipBackup && err == nil {
+			if _, backupErr := g.backup.Run(); backupErr != nil {
+				res.Summary += fmt.Sprintf(", ❌ backup failed: %v", backupErr)
+			}
+		}
+		return res, err
+	}
+
 	// 1. Verify go.mod
 	if err := g.Verify(); err != nil {
-		return "", fmt.Errorf("go mod verify failed: %w", err)
+		return PushResult{}, fmt.Errorf("go mod verify failed: %w", err)
 	}
 
 	// 2. Run tests (if not skipped)
 	if !skipTests {
 		testSummary, err := g.Test([]string{}, skipRace, 0, false, false) // Empty slice = full test suite, 0 = default timeout, false = allow cache, false = runAll
 		if err != nil {
-			return "", fmt.Errorf("tests failed: %w", err)
+			return PushResult{}, fmt.Errorf("tests failed: %w", err)
 		}
 		summary = append(summary, testSummary)
 	} else {
@@ -137,15 +165,36 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	}
 
 	// 3. Execute git push workflow
-	pushResult, err := g.git.Push(message, tag)
-	if err != nil {
-		return "", fmt.Errorf("push workflow failed: %w", err)
+	var pushResult PushResult
+	var err error
+
+	if skipTag {
+		committed, commitErr := g.git.Commit(message)
+		if commitErr != nil {
+			return PushResult{}, fmt.Errorf("git commit failed: %w", commitErr)
+		}
+		pulled, pushErr := g.git.PushWithoutTags()
+		if pushErr != nil {
+			return PushResult{}, fmt.Errorf("push failed: %w", pushErr)
+		}
+		pushResult.Summary = "✅ Pushed commits"
+		if pulled {
+			pushResult.Summary = "🔄 Pulled remote changes, " + pushResult.Summary
+		}
+		if !committed {
+			pushResult.Summary = "No changes to commit"
+		}
+	} else {
+		pushResult, err = g.git.Push(message, tag)
+		if err != nil {
+			return PushResult{}, fmt.Errorf("push workflow failed: %w", err)
+		}
 	}
 	summary = append(summary, pushResult.Summary)
 
 	// 4. Use the tag that was actually created and pushed
 	createdTag := pushResult.Tag
-	if createdTag == "" {
+	if createdTag == "" && !skipTag {
 		summary = append(summary, "Warning: no tag was created during push")
 	}
 
@@ -163,17 +212,14 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	modulePath, err := g.GetModulePath()
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: could not get module path: %v", err))
-		return strings.Join(summary, ", "), nil
+		return PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil
 	}
 
 	// 6. Update dependent modules (only if we have a valid tag)
 	if !skipDependents && createdTag != "" {
-		updateResults, err := g.UpdateDependents(modulePath, createdTag, searchPath)
+		_, err := g.UpdateDependents(modulePath, createdTag, searchPath)
 		if err != nil {
 			summary = append(summary, fmt.Sprintf("Warning: failed to scan dependents: %v", err))
-		}
-		if len(updateResults) > 0 {
-			summary = append(summary, updateResults...)
 		}
 	}
 
@@ -186,7 +232,12 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		}
 	}
 
-	return strings.Join(summary, ", "), nil
+	return PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil
+}
+
+// Publish satisfies the Publisher interface
+func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (PushResult, error) {
+	return g.Push(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag, "..")
 }
 
 // UpdateDependentModule updates a dependent module and optionally pushes it
@@ -195,7 +246,6 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 // It modifies go.mod to require the new version and runs go mod tidy
 func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, error) {
 	depName := filepath.Base(depDir)
-	fmt.Printf("📦 Processing dependent: %s\n", depName)
 
 	// 1-2. Load and modify go.mod
 	// Since NewGoModFile reads from disk, we pass full path
@@ -255,6 +305,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 
 	// 6. Check for other replaces
 	if gomod.HasOtherReplaces(modulePath) {
+		g.consoleOutput(fmt.Sprintf("📦 %s → ⏭ skip push (other replaces exist)", depName))
 		return "updated (other replaces exist, manual push required)", nil
 	}
 
@@ -275,11 +326,13 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	// Push with skipDependents=true and skipBackup=true to avoid infinite recursion
 	// We pass the depDir as searchPath just in case, though it's not used here since skipDependents is true
 	commitMsg := fmt.Sprintf("deps: update %s to %s", filepath.Base(modulePath), version)
-	_, err = depHandler.Push(commitMsg, "", true, true, true, true, "")
+	_, err = depHandler.Push(commitMsg, "", false, true, true, true, false, "")
 	if err != nil {
+		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ tests failed", depName))
 		return "", fmt.Errorf("push failed: %w", err)
 	}
 
+	g.consoleOutput(fmt.Sprintf("📦 %s → ✅ updated to %s", depName, version))
 	return fmt.Sprintf("updated to %s", version), nil
 }
 

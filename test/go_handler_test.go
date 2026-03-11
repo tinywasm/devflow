@@ -169,18 +169,105 @@ func TestExample(t *testing.T) {}
 
 	// Run Push
 	// We skip dependents (true) and backup (true/false) to focus on core flow
-	summary, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, "")
+	result, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, false, "")
 	if err != nil {
 		t.Fatalf("Go Push failed: %v", err)
 	}
 
 	// Verify summary contains expected elements
 	// Mock returns "Mock push ok"
-	if !strings.Contains(summary, "Mock push ok") {
-		t.Errorf("Expected summary to contain 'Mock push ok', got: %s", summary)
+	if !strings.Contains(result.Summary, "Mock push ok") {
+		t.Errorf("Expected summary to contain 'Mock push ok', got: %s", result.Summary)
 	}
-	if !strings.Contains(summary, "vet ok") {
-		t.Errorf("Expected summary to contain 'vet ok', got: %s", summary)
+	if !strings.Contains(result.Summary, "vet ok") {
+		t.Errorf("Expected summary to contain 'vet ok', got: %s", result.Summary)
+	}
+}
+
+func TestGoPush_NoGoMod(t *testing.T) {
+	mockGit := &MockGitClient{
+		pushResult: devflow.PushResult{Summary: "Git push ok"},
+	}
+
+	// Temp dir WITHOUT go.mod
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	goHandler, _ := devflow.NewGo(mockGit)
+
+	// Run Push
+	result, err := goHandler.Push("test", "", false, false, false, false, false, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+
+	if result.Summary != "Git push ok" {
+		t.Errorf("Expected 'Git push ok', got: %s", result.Summary)
+	}
+}
+
+func TestGoPush_SkipTag(t *testing.T) {
+	mockGit := &MockGitClient{}
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	goHandler, _ := devflow.NewGo(mockGit)
+
+	// Run Push with skipTag=true
+	result, err := goHandler.Push("test", "", true, true, true, true, true, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+
+	if !strings.Contains(result.Summary, "✅ Pushed commits") {
+		t.Errorf("Expected summary to contain '✅ Pushed commits', got: %s", result.Summary)
+	}
+	if !mockGit.pushWithoutTagsCalled {
+		t.Error("PushWithoutTags should have been called")
+	}
+}
+
+func TestGoPush_DependentOutput(t *testing.T) {
+	// This tests that dependents print to consoleOutput and NOT to summary
+	var consoleLines []string
+	mockGit := &MockGitClient{
+		createdTag: "v1.0.0",
+	}
+
+	dir, cleanup := testCreateGoModule("github.com/test/main")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	// Create a dependent
+	depDir := filepath.Join(filepath.Join(filepath.Dir(dir), "dep"))
+	os.MkdirAll(depDir, 0755)
+	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module github.com/test/dep\n\nrequire github.com/test/main v0.0.0\n"), 0644)
+
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetConsoleOutput(func(s string) {
+		consoleLines = append(consoleLines, s)
+	})
+
+	// We need to mock FindDependentModules or ensure it finds our dep
+	// SearchPath is the parent of dir
+	result, _ := goHandler.Push("feat: main", "v1.0.0", true, true, false, true, false, "..")
+
+	// Summary should NOT contain dep update result
+	if strings.Contains(result.Summary, "updated to v1.0.0") {
+		t.Errorf("Summary should not contain dep update result, got: %s", result.Summary)
+	}
+
+	// Console should contain dep update result
+	found := false
+	for _, line := range consoleLines {
+		if strings.Contains(line, "📦 dep") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Log("Console output:", consoleLines)
 	}
 }
 
@@ -205,7 +292,6 @@ func TestUpdateDependentModule(t *testing.T) {
 	os.WriteFile(filepath.Join(myappDir, "go.mod"), []byte("module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nreplace github.com/test/mylib => ../mylib\n"), 0644)
 
 	// Init git in myapp (needed for Push)
-	// We use explicit Dir instead of chdir to avoid confusion and leaking
 	runGit := func(dir string, args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
@@ -226,20 +312,10 @@ func TestUpdateDependentModule(t *testing.T) {
 	exec.Command("git", "init", "--bare", remoteDir).Run()
 	runGit(myappDir, "remote", "add", "origin", remoteDir)
 
-	// Switch to mylibDir context for the rest of the test logic if needed,
-	// but the handler below allows specifying paths.
-	// Actually, we don't need to chdir at all if we pass absolute paths or correct relative ones.
-	// But UpdateDependentModule uses chdir internally, so we just need to ensure
-	// we are currently in a "safe" place or the tool handles it.
-	// The test logic below passes myappDir (absolute path from TempDir).
-	// So we can stay in root or chdir to a neutral temp dir.
-
 	neutralDir := t.TempDir()
-	defer testChdir(t, neutralDir)() // Move out of real repo just in case
+	defer testChdir(t, neutralDir)()
 
-	defer testChdir(t, neutralDir)() // Move out of real repo just in case
-
-	// Disable proxy so "go get" fails instantly without network requests (~4s → <100ms)
+	// Disable proxy so "go get" fails instantly without network requests
 	t.Setenv("GOPROXY", "off")
 
 	mockGit := &MockGitClient{}
@@ -275,11 +351,6 @@ func TestGoInstall(t *testing.T) {
 	g, _ := devflow.NewGo(mockGit)
 	g.SetRootDir(tmpDir)
 
-	// Test installation logic
-	// Note: go install will fail in a temp directory without a real module or GOPATH setup for these files,
-	// but we want to verify it attempts to run the commands.
-	// Since we can't easily mock devflow.RunCommandInDir without refactoring executor.go,
-	// we'll check if it fails for the right reasons or at least doesn't panic.
 	summary, err := g.Install("v1.2.3")
 
 	if err != nil {
@@ -301,11 +372,13 @@ func TestGoInstall(t *testing.T) {
 
 // MockGitClient for testing
 type MockGitClient struct {
-	checkAccessErr error
-	pushErr        error
-	latestTag      string
-	createdTag     string // NEW: Tag to return from Push()
-	log            func(...any)
+	checkAccessErr         error
+	pushErr                error
+	latestTag              string
+	createdTag             string
+	pushResult             devflow.PushResult
+	pushWithoutTagsCalled  bool
+	log                    func(...any)
 }
 
 func (m *MockGitClient) CheckRemoteAccess() error {
@@ -318,6 +391,9 @@ func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
 	}
 	if m.pushErr != nil {
 		return devflow.PushResult{}, m.pushErr
+	}
+	if m.pushResult.Summary != "" || m.pushResult.Tag != "" {
+		return m.pushResult, nil
 	}
 	resultTag := m.createdTag
 	if resultTag == "" {
@@ -338,11 +414,9 @@ func (m *MockGitClient) SetLog(fn func(...any)) {
 }
 
 func (m *MockGitClient) SetShouldWrite(fn func() bool) {
-	// mock implementation
 }
 
 func (m *MockGitClient) SetRootDir(path string) {
-	// mock implementation
 }
 
 func (m *MockGitClient) GitIgnoreAdd(entry string) error {
@@ -365,6 +439,11 @@ func (m *MockGitClient) PushWithTags(tag string) (bool, error) {
 	return false, nil
 }
 
+func (m *MockGitClient) PushWithoutTags() (bool, error) {
+	m.pushWithoutTagsCalled = true
+	return false, nil
+}
+
 func (m *MockGitClient) GetConfigUserName() (string, error) {
 	return "Mock User", nil
 }
@@ -382,7 +461,6 @@ func (m *MockGitClient) HasPendingChanges() (bool, error) {
 }
 
 func TestGoPush_RemoteAccessFailure(t *testing.T) {
-	// Isolate execution in a temp directory to avoid recursive testing of the current project
 	dir, cleanup := testCreateGoModule("github.com/test/repo")
 	defer cleanup()
 	defer testChdir(t, dir)()
@@ -394,12 +472,8 @@ func TestGoPush_RemoteAccessFailure(t *testing.T) {
 
 	goHandler, _ := devflow.NewGo(mockGit)
 
-	// Attempt push
-	// Skip tests (true), skip race (true), skip dependents (true), skip backup (true), no search path
-	// We want to hit the git.Push() call where CheckRemoteAccess happens, without running real tests
-	_, err := goHandler.Push("msg", "tag", true, true, true, true, "")
+	_, err := goHandler.Push("msg", "tag", true, true, true, true, false, "")
 
-	// Should fail with the mock error
 	if err == nil {
 		t.Fatal("Expected error due to remote access failure, got nil")
 	}
