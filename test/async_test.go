@@ -142,24 +142,38 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	// We skip tests/race/backup for speed.
 	// Important: searchPath is ".." (the tmp root) so it finds dep1 and dep2
 	// Since we Chdir'd to mainDir, ".." is indeed the tmp root.
-	summary, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, "..")
+	var consoleLines []string
+	g.SetConsoleOutput(func(s string) {
+		consoleLines = append(consoleLines, s)
+	})
+
+	result, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, false, "..")
 
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)
 	}
 
-	t.Logf("Summary: %s", summary)
+	t.Logf("Summary: %s", result.Summary)
 
-	// 6. Verify Async Results presence
-	// Since 'go get' will fail (modules don't exist remotely), we expect failure messages
-	// BUT we expect failures for BOTH dep1 and dep2, proving the async loop visited both.
-	// (Or success if mocked)
-
-	hasDep1 := strings.Contains(summary, "dep1")
-	hasDep2 := strings.Contains(summary, "dep2")
+	// 6. Verify Async Results presence in console output (Stage 3 refactor)
+	hasDep1 := false
+	hasDep2 := false
+	for _, line := range consoleLines {
+		if strings.Contains(line, "dep1") {
+			hasDep1 = true
+		}
+		if strings.Contains(line, "dep2") {
+			hasDep2 = true
+		}
+	}
 
 	if !hasDep1 || !hasDep2 {
-		t.Errorf("Summary should contain traces of both dependents. Got: %s", summary)
+		t.Errorf("Console output should contain traces of both dependents. Got: %v", consoleLines)
+	}
+
+	// Summary should NOT contain dependents
+	if strings.Contains(result.Summary, "dep1") || strings.Contains(result.Summary, "dep2") {
+		t.Errorf("Summary should NOT contain traces of dependents. Got: %s", result.Summary)
 	}
 }
 

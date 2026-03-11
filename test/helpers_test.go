@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/tinywasm/devflow"
 )
 
 // testChdir changes to the specified directory and returns a cleanup function.
@@ -58,4 +60,16 @@ func testCreateGoModule(moduleName string) (dir string, cleanup func()) {
 	}
 
 	return dir, cleanup
+}
+
+// MockPublisher for testing
+type MockPublisher struct {
+	PublishFn func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (devflow.PushResult, error)
+}
+
+func (m *MockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (devflow.PushResult, error) {
+	if m.PublishFn != nil {
+		return m.PublishFn(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag)
+	}
+	return devflow.PushResult{Summary: "Mock published"}, nil
 }

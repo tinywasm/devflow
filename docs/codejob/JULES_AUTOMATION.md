@@ -1,78 +1,65 @@
-# Jules AI: GitHub Integration and Automated Corrections
+# Jules Skill
 
-> Jules is one implementation of `CodeJobDriver`. For the generic orchestration pattern,
-> chain-of-responsibility design, and CLI/library usage, see [CODEJOB.md](../CODEJOB.md).
+Configure and use the Jules AI agent driver for CodeJob.
 
----
+## Overview
 
-Jules is an AI agent designed for code modernization and technical project management. It operates directly on your codebase to automate refactoring, bug fixes, and documentation updates.
+The Jules driver connects CodeJob to the Jules API, allowing you to dispatch tasks described in `docs/PLAN.md` to an automated AI software engineer.
 
-## 1. Connecting Jules to GitHub
+## Requirements
 
-To enable Jules to interact with your projects:
-*   **App Installation**: Integrate Jules as a GitHub App or via a Personal Access Token (PAT) with read/write permissions.
-*   **Indexing**: Jules performs a semantic scan of your repository to understand its architecture, dependencies, and business logic.
+- **Jules API Key**: Get one at [jules.google.com](https://jules.google.com).
+- **GitHub CLI**: `gh` must be installed and authenticated.
 
-## 2. Project Coordination Workflow
+## Automatic Setup
 
-Jules operates through **Tasks**. Instead of manual file uploads, you direct Jules to existing code:
-*   **Task Definition**: Create a ticket/issue in the Jules interface (e.g., "Migrate React from 16 to 18").
-*   **Impact Analysis**: Jules generates an execution plan showing affected files before making changes.
-*   **Branch Creation**: Changes are made in a dedicated GitHub branch for isolated development.
+The first time you run `codejob`, it will automatically prompt you for your API key if it's not found in your system keyring.
 
-## 3. Automated Correction Cycles
+```bash
+codejob
+# Jules API Key not found. Get yours at https://jules.google.com/settings/api
+# Enter it now: ***********
+```
 
-Jules uses a feedback-driven cycle for autonomous corrections:
-*   **PR-based Fixes**: If CI tests fail on a Jules-generated PR, you can prompt: *"Review CI logs and fix the memory leak."*
-*   **Auto-fix Agents**: Jules can listen to static analysis tools (e.g., SonarQube) and automatically generate PRs to address security or style alerts.
+The key is stored securely using the system keyring service (Keychain on macOS, Secret Service on Linux, Credential Locker on Windows).
 
-### Technical Note: Context Awareness
-Unlike simple search-and-replace tools, Jules understands the software's call graph. Changing a function in `file_A.go` will automatically trigger updates in all call sites across the repository.
+## Manual Initialization
 
-## 4. Jules REST API
+If you want to initialize the key before dispatching your first task, you can use the internal wizard:
 
-The Jules API allows for full automation of task creation and project coordination.
+```bash
+codejob
+```
 
-### Authentication
-Use a **Jules API Key** (managed at `jules.google.com` > Settings > API Keys) via the `X-Goog-Api-Key` header.
-*   **Base URL**: `https://jules.googleapis.com/v1alpha/`
+Wait, `codejob init` was removed. Just run `codejob` and it will prompt you if needed.
 
-### Automation Workflow
-1.  **Identify Source**: Get the repository ID.
-    ```bash
-    curl 'https://jules.googleapis.com/v1alpha/sources' -H 'X-Goog-Api-Key: YOUR_API_KEY'
-    ```
-2.  **Create Session**: Send a natural language prompt.
-    ```bash
-    curl 'https://jules.googleapis.com/v1alpha/sessions' \
-      -X POST \
-      -H "Content-Type: application/json" \
-      -H 'X-Goog-Api-Key: YOUR_API_KEY' \
-      -d '{
-        "title": "Fix Login Vulnerability",
-        "prompt": "Fix SQL injection in auth.js and add unit tests.",
-        "sourceContext": { "source": "sources/github/user/repo", "githubRepoContext": { "startingBranch": "main" } },
-        "automationMode": "AUTO_CREATE_PR"
-      }'
-    ```
+## Configuration Fields
 
-## 5. CI/CD Integration (GitHub Actions)
+If using the library directly, you can provide explicit configuration:
 
-You can trigger Jules automatically upon pushing to `main` by validating an instructions file (e.g., `docs/ISSUE_JULES.md`).
+```go
+cfg := devflow.JulesConfig{
+    APIKey:      "optional-override-key",
+    SourceID:    "sources/github/owner/repo",
+    StartBranch: "main",
+}
+driver := devflow.NewJulesDriver(cfg)
+```
 
-### Strategy: Lightweight Execution
-We use the **`ubuntu-slim`** runner for maximum efficiency and native compatibility.
-*   **[Technical Justification for `ubuntu-slim`](RUNNER_BEST_PRACTICES.md)**
+- **APIKey**: Your Jules API key. Defaults to the one stored in the keyring.
+- **SourceID**: The Jules source identifier. Auto-detected via `gh repo view`.
+- **StartBranch**: The branch Jules should start from. Auto-detected via `git branch`.
 
-### Implementation Details
-- **[Workflow Diagram](diagrams/JULES_WORKFLOW.md)**
-- **[GitHub Actions Example (.yml)](examples/JULES_CI.yml)**
+## Workflow
 
-## Key Technical Best Practices
+1. **Dispatch**: `codejob` sends `docs/PLAN.md` to Jules.
+2. **Persistence**: A session ID is saved to `.env` as `CODEJOB=jules:ID`.
+3. **Poll**: Subsequent runs of `codejob` check the session status.
+4. **Pull Request**: When Jules is done, a PR is created on GitHub.
+5. **Review**: `codejob` fetches the new branch and renames your plan to `docs/CHECK_PLAN.md`.
+6. **Merge**: After reviewing, run `codejob 'message'` to merge and publish.
 
-1.  **Referential Prompting**: Point Jules to a file containing instructions rather than sending raw text via API to avoid character limits and preserve formatting.
-2.  **Runner Selection**: Use `ubuntu-slim` (1 vCPU / 5GB RAM) for lightweight API orchestration tasks.
-3.  **Secrets Management**: Store your `JULES_API_KEY` in GitHub Encrypted Secrets.
+## See Also
 
----
-*For more information on optimizing GitHub Runners, see [RUNNER_BEST_PRACTICES.md](RUNNER_BEST_PRACTICES.md).*
+- [CodeJob](CODEJOB.md) - General orchestrator documentation
+- [gopush](GOPUSH.md) - Universal publish workflow

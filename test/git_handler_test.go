@@ -3,7 +3,6 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -428,107 +427,6 @@ func TestGetLatestTagSemverOrder(t *testing.T) {
 	}
 	if tag != "v0.1.0" {
 		t.Errorf("Expected v0.1.0 (highest semver), got %s", tag)
-	}
-}
-
-// --- CodeJob integration tests ---
-
-func newGitRepoWithRemote(t *testing.T) func() {
-	t.Helper()
-	remoteDir, _ := os.MkdirTemp("", "gitgo-remote-cj-")
-	exec.Command("git", "init", "--bare", remoteDir).Run()
-	dir, dirCleanup := testCreateGitRepo()
-	restoreDir := testChdir(t, dir)
-	exec.Command("git", "remote", "add", "origin", "file://"+remoteDir).Run()
-	return func() {
-		restoreDir()
-		dirCleanup()
-		os.RemoveAll(remoteDir)
-	}
-}
-
-func TestGitPush_TriggersCodeJobWhenPlanExists(t *testing.T) {
-	defer newGitRepoWithRemote(t)()
-	defer os.Remove(".env")
-
-	os.MkdirAll("docs", 0755)
-	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("implement X"), 0644)
-
-	git, _ := devflow.NewGit()
-	driver := &mockDriver{name: "mock", result: "jules-dispatched"}
-	git.SetCodeJobDrivers(driver)
-	os.WriteFile("README.md", []byte("# test"), 0644)
-
-	result, err := git.Push("initial commit", "v0.0.1")
-	if err != nil {
-		t.Fatalf("Push failed: %v", err)
-	}
-	if !strings.Contains(result.Summary, "jules-dispatched") {
-		t.Errorf("expected CodeJob result in summary, got: %s", result.Summary)
-	}
-}
-
-func TestGitPush_SkipsCodeJobWhenNoPlan(t *testing.T) {
-	defer newGitRepoWithRemote(t)()
-
-	// No docs/PLAN.md
-	git, _ := devflow.NewGit()
-	driver := &mockDriver{name: "mock", result: "should-not-appear"}
-	git.SetCodeJobDrivers(driver)
-	os.WriteFile("README.md", []byte("# test"), 0644)
-
-	result, err := git.Push("initial commit", "v0.0.1")
-	if err != nil {
-		t.Fatalf("Push failed: %v", err)
-	}
-	if strings.Contains(result.Summary, "should-not-appear") {
-		t.Errorf("expected CodeJob NOT triggered, but found result in summary: %s", result.Summary)
-	}
-}
-
-func TestGitPush_CodeJobErrorAppearsInSummary(t *testing.T) {
-	defer newGitRepoWithRemote(t)()
-	defer os.Remove(".env")
-
-	os.MkdirAll("docs", 0755)
-	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("implement X"), 0644)
-
-	git, _ := devflow.NewGit()
-	driver := &mockDriver{name: "mock", err: errors.New("api unreachable")}
-	git.SetCodeJobDrivers(driver)
-	os.WriteFile("README.md", []byte("# test"), 0644)
-
-	result, err := git.Push("initial commit", "v0.0.1")
-	if err != nil {
-		t.Fatalf("Push must succeed even when CodeJob fails, got: %v", err)
-	}
-	if !strings.Contains(result.Summary, "⚠️ CodeJob:") {
-		t.Errorf("expected CodeJob warning in summary, got: %s", result.Summary)
-	}
-	if !strings.Contains(result.Summary, "api unreachable") {
-		t.Errorf("expected error message in summary, got: %s", result.Summary)
-	}
-}
-
-func TestGitPush_SkipsCodeJobWhenActiveSession(t *testing.T) {
-	defer newGitRepoWithRemote(t)()
-
-	os.MkdirAll("docs", 0755)
-	os.WriteFile(devflow.DefaultIssuePromptPath, []byte("some plan"), 0644)
-	os.WriteFile(".env", []byte("CODEJOB=jules:existing-session\n"), 0644)
-	defer os.Remove(".env")
-
-	git, _ := devflow.NewGit()
-	driver := &mockDriver{name: "mock", result: "should-not-dispatch"}
-	git.SetCodeJobDrivers(driver)
-	os.WriteFile("README.md", []byte("# test"), 0644)
-
-	result, err := git.Push("initial commit", "v0.0.1")
-	if err != nil {
-		t.Fatalf("Push failed: %v", err)
-	}
-	if strings.Contains(result.Summary, "should-not-dispatch") {
-		t.Errorf("expected CodeJob skipped when active session, but found result: %s", result.Summary)
 	}
 }
 

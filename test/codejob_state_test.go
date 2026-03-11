@@ -117,11 +117,6 @@ func TestMergePR_NoPRURL(t *testing.T) {
 	defer os.Remove(envPath)
 	_ = os.WriteFile(envPath, []byte(""), 0644)
 
-	// Since NewDotEnv is hardcoded to .env in MergePR, we'll temporarily swap it or
-	// just expect it to fail if .env doesn't have the key.
-	// Actually MergePR() calls NewDotEnv(".env"), so it's hard to test without .env
-	// But in a test environment, we might not have .env, so it should fail.
-
 	err := devflow.MergePR()
 	if err == nil {
 		t.Fatal("expected error when no PR URL in .env, got nil")
@@ -134,7 +129,7 @@ func TestMergePR_NoPRURL(t *testing.T) {
 func TestMergeAndPublish_NoPRURL(t *testing.T) {
 	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB_PR present
 	// in the test environment means it returns immediately before any Git calls.
-	_, err := devflow.MergeAndPublish(nil, "")
+	_, err := devflow.MergeAndPublish(&MockPublisher{}, "")
 	if err == nil {
 		t.Fatal("expected error when no PR URL in .env, got nil")
 	}
@@ -196,11 +191,8 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 		return -1
 	}
 
-	git, err := devflow.NewGit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	devflow.MergeAndPublish(git, "") //nolint: the result is not relevant; we test the call sequence
+	mockPub := &MockPublisher{}
+	devflow.MergeAndPublish(mockPub, "") //nolint: the result is not relevant; we test the call sequence
 
 	statusIdx := idxOf("git status --porcelain")
 	addIdx := idxOf("git add .")
@@ -269,11 +261,8 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 		return -1
 	}
 
-	git, err := devflow.NewGit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	devflow.MergeAndPublish(git, "") //nolint: the result is not relevant; we test the call sequence
+	mockPub := &MockPublisher{}
+	devflow.MergeAndPublish(mockPub, "") //nolint: the result is not relevant; we test the call sequence
 
 	commitIdx := idxOf("git commit -m review:")
 	checkoutIdx := idxOf("git checkout main")
@@ -304,12 +293,13 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 	defer func() { devflow.ExecCommand = orig }()
 	devflow.ExecCommand = mockFn
 
-	git, err := devflow.NewGit()
-	if err != nil {
-		t.Fatal(err)
+	mockPub := &MockPublisher{
+		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (devflow.PushResult, error) {
+			return devflow.PushResult{Tag: tag, Summary: "Mock published " + tag}, nil
+		},
 	}
 
-	result, err := devflow.MergeAndPublish(git, "v1.2.3")
+	result, err := devflow.MergeAndPublish(mockPub, "v1.2.3")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

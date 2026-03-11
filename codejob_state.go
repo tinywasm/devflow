@@ -112,7 +112,6 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 
 // MergePR merges the Jules PR persisted in .env as CODEJOB_PR,
 // deletes docs/CHECK_PLAN.md, and cleans up state.
-// Called by 'codejob done'.
 func MergePR() error {
 	env := NewDotEnv(".env")
 	prURL, ok := env.Get("CODEJOB_PR")
@@ -154,10 +153,8 @@ func MergePR() error {
 }
 
 // MergeAndPublish merges the Jules PR, pulls the merged commit, commits any
-// cleanup files (e.g. .gitignore updated by HandleDone), creates a new semver
-// tag, and pushes it. This is the "close the loop" step that leaves the repo
-// tagged and published, mirroring what 'push' does for regular commits.
-func MergeAndPublish(git *Git, overrideTag string) (PushResult, error) {
+// cleanup files (e.g. .gitignore updated by HandleDone), and publishes via gopush.
+func MergeAndPublish(publisher Publisher, overrideTag string) (PushResult, error) {
 	env := NewDotEnv(".env")
 	prURL, ok := env.Get("CODEJOB_PR")
 	if !ok || prURL == "" {
@@ -225,44 +222,24 @@ func MergeAndPublish(git *Git, overrideTag string) (PushResult, error) {
 		}
 	}
 
-	// 4. commit any pending tracked changes (e.g., .gitignore updated by HandleDone)
-	if err := git.Add(); err != nil {
-		return PushResult{}, fmt.Errorf("git add failed: %w", err)
-	}
-	if _, err := git.Commit("chore: codejob cleanup"); err != nil {
-		return PushResult{}, fmt.Errorf("commit cleanup failed: %w", err)
-	}
-
-	// 5. generate or use override tag
-	tag := overrideTag
-	if tag == "" {
-		generatedTag, err := git.GenerateNextTag()
-		if err != nil {
-			return PushResult{}, fmt.Errorf("failed to generate tag: %w", err)
-		}
-		tag = generatedTag
-	} else {
-		// Validate tag is greater than latest
-		latestTag, err := git.GetLatestTag()
-		if err == nil && latestTag != "" {
-			if CompareVersions(tag, latestTag) <= 0 {
-				return PushResult{}, fmt.Errorf("tag %s is not greater than latest tag %s", tag, latestTag)
-			}
-		}
-	}
-
-	if _, err := git.CreateTag(tag); err != nil {
-		return PushResult{}, fmt.Errorf("failed to create tag %s: %w", tag, err)
-	}
-	if _, err := git.PushWithTags(tag); err != nil {
-		return PushResult{}, fmt.Errorf("failed to push tag %s: %w", tag, err)
-	}
-
-	// 6. clean up state
+	// 4. clean up state
 	if err := env.Delete("CODEJOB_PR"); err != nil {
 		return PushResult{}, fmt.Errorf("could not clean up .env: %w", err)
 	}
 
-	summary := fmt.Sprintf("✅ PR merged, ✅ Tag: %s, ✅ Pushed ok", tag)
-	return git.withCodeJob(PushResult{Tag: tag, Summary: summary}), nil
+	// 5. Check for new PLAN.md to re-dispatch
+	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
+		// PLAN.md exists -> call Publisher.Publish (skip deps + tag) + dispatch to agent
+		res, err := publisher.Publish("chore: sync before re-dispatch", "", true, true, true, true, true)
+		if err != nil {
+			return PushResult{}, fmt.Errorf("re-dispatch sync failed: %w", err)
+		}
+
+		res.Summary = "✅ PR merged, 🚀 New plan detected, re-dispatching..."
+		res.Tag = "RE_DISPATCH"
+		return res, nil
+	}
+
+	// No PLAN.md -> call full gopush
+	return publisher.Publish("chore: codejob cleanup", overrideTag, false, false, false, false, false)
 }
