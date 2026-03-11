@@ -83,7 +83,7 @@ Examples:
 	}
 
 	// Run Push with parsed options
-	summary, err := goHandler.Push(message, tag, false, skipRace, false, false, "..")
+	summary, err := goHandler.Push(message, tag, false, skipRace, false, false, false, "..")
 	if err != nil {
 		fmt.Println("Push failed:", err)
 		os.Exit(1)

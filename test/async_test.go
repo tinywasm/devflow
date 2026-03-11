@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -143,8 +144,11 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	// Important: searchPath is ".." (the tmp root) so it finds dep1 and dep2
 	// Since we Chdir'd to mainDir, ".." is indeed the tmp root.
 	var consoleLines []string
+	var mu sync.Mutex
 	g.SetConsoleOutput(func(s string) {
+		mu.Lock()
 		consoleLines = append(consoleLines, s)
+		mu.Unlock()
 	})
 
 	result, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, false, "..")
