@@ -6,6 +6,7 @@
     - **Interfaces:** Define interfaces for external dependencies (`Downloader`, `ProcessManager`).
     - **Composition:** Main structs must hold these interfaces.
     - **Injection:** `cmd/<app_name>/main.go` is the ONLY place where "Real" implementations are injected.
+    - **Thin Main / Fat Library:** `cmd/*/main.go` files MUST be minimal — only argument parsing and dependency injection. ALL business logic MUST live in exported, testable library functions. Never put orchestration logic, conditionals, or error handling beyond basic print/exit in main.
 
 - **Framework-less Development:** For Web projects, use only the **Standard Library** (HTML/CSS/JS). No external frameworks or libraries are allowed.
 - **CSS-First Interactivity:** Minimize JavaScript usage. All UI interactivity (toggles, menus, states) must be implemented using pure CSS whenever possible.
@@ -87,7 +88,7 @@
     - **Modular Context & Stage-Driven Execution:** Avoid massive, monolithic instruction files. For complex features, use `PLAN.md` as a master orchestrator (an index or checklist) and break down instructions into separate, explicit, sequentially numbered stage files (e.g., `PLAN_STAGE_1_MODELS.md`, `PLAN_STAGE_2_CORE.md`).
     - **Navigation within Stages:** Each stage file MUST include navigation links at the top to previous and next stages (e.g., `← [Stage 1](PLAN_STAGE_1_MODELS.md) | Next → [Stage 3](PLAN_STAGE_3_CORE.md)`). By dividing tasks into separate stage files, the executing LLM processes them sequentially and effectively without losing context or skipping steps.
     - **Legacy Reference Code:** If porting established logic (e.g., mathematics or physics formulas), append snippets of the legacy reference code at the bottom of the modular context files. Explicitly instruct the downstream LLM on which logic to recycle and which legacy dependencies to replace with the new architecture calls.
-    - **Dispatching Work (`codejob`):** After creating or updating `docs/PLAN.md`, if `codejob` is installed locally (verify with `which codejob`), use it to dispatch the task to the external agent: `codejob` dispatches `docs/PLAN.md` (if no active session), and `codejob done` closes the loop after reviewing the PR. `codejob` is a **local developer workflow tool** — it MUST **NEVER** appear inside `PLAN.md` or any plan sent to an external agent. Its purpose is to trigger the external agent, not to be part of its instructions.
+    - **Dispatching Work (`codejob`):** After creating or updating `docs/PLAN.md`, if `codejob` is installed locally (verify with `which codejob`), use it to dispatch the task to the external agent: `codejob` (no args) dispatches `docs/PLAN.md`, and `codejob 'commit message'` closes the loop after reviewing the PR (merge, publish, update deps). `codejob` is a **local developer workflow tool** — it MUST **NEVER** appear inside `PLAN.md` or any plan sent to an external agent. Its purpose is to trigger the external agent, not to be part of its instructions.
 <!-- END_SECTION:LLM_COLLABORATION -->
 
 <!-- START_SECTION:USER_CUSTOM -->

@@ -57,24 +57,38 @@ Error if message provided but no pending PR (`CODEJOB_PR` in `.env`).
 
 ### Stage 2: codejob refactor (unified API)
 
+**Principle:** All logic in testable library functions. `cmd/codejob/main.go` only parses args and injects dependencies.
+
 1. Add a `Publisher` interface to `interface.go`:
    ```go
    type Publisher interface {
        Publish(message string, tag string) (PushResult, error)
    }
    ```
-2. Refactor `cmd/codejob/main.go`:
-   - Remove `init` and `done` subcommands.
-   - New argument parsing: no args → dispatch/status. With args → close loop (message, optional tag).
-   - Auto-detect missing API key → run setup wizard inline before dispatch.
-   - Inject `Go` handler as Publisher.
-3. In `codejob.go`: add `Publisher` field to `CodeJob`. Before `Send()`, call `Publisher.Publish()` (skip deps, backup, and tag).
-4. Refactor `MergeAndPublish()`:
+2. In `codejob.go`:
+   - Add `Publisher` field to `CodeJob`.
+   - Add `Run(message, tag string)` orchestrator method that encapsulates all logic:
+     - No message → check active session or dispatch (auto-setup API key if missing).
+     - With message → verify `CODEJOB_PR` exists, then call `MergeAndPublish()`.
+   - Before `Send()`, call `Publisher.Publish()` with skip deps, backup, and tag.
+3. Refactor `MergeAndPublish()` in `codejob_state.go`:
    - Accept Publisher. After merge+pull+cleanup, check for `PLAN.md`.
    - If PLAN.md exists → call Publisher.Publish (skip deps + tag) + dispatch to agent.
    - If no PLAN.md → call full gopush (with deps if go.mod exists, plain push otherwise).
    - Remove manual tag creation — delegate to gopush.
-5. Delete `codejob_init.go` (wizard moves inline into codejob.go or cmd entry point).
+4. Move setup wizard logic from `codejob_init.go` into `codejob.go` (inline in `Run()`). Delete `codejob_init.go`.
+5. Refactor `cmd/codejob/main.go` to be minimal:
+   ```go
+   func main() {
+       msg, tag := parseArgs(os.Args)
+       git, _ := devflow.NewGit()
+       goHandler, _ := devflow.NewGo(git)
+       job := devflow.NewCodeJob(devflow.NewJulesDriver(...))
+       job.SetPublisher(goHandler)
+       result, err := job.Run(msg, tag)
+       // print result or error
+   }
+   ```
 
 ### Stage 3: Dependent output refactor
 
