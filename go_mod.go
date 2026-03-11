@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -430,65 +429,43 @@ func (g *Go) WaitForVersionAvailable(modulePath, version string) error {
 }
 
 // UpdateDependents updates modules that depend on the current one
-func (g *Go) UpdateDependents(modulePath, version, searchPath string) ([]string, error) {
+func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 	if searchPath == "" {
 		searchPath = ".."
 	}
 
-	// Find modules that depend on current
 	dependents, err := g.FindDependentModules(modulePath, searchPath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if len(dependents) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	// Wait for version to be available before updating any dependents
 	if err := g.WaitForVersionAvailable(modulePath, version); err != nil {
-		return []string{fmt.Sprintf("⏳ %s", err)}, nil
+		g.consoleOutput(fmt.Sprintf("⏳ %s", err))
+		return nil
 	}
 
-	// Update dependents in parallel with a limit of 5 concurrent updates
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 5)
-	resultsChan := make(chan string, len(dependents))
 
-	// Print start message
-	fmt.Printf("🚀 Updating %d dependents in parallel...\n", len(dependents))
+	g.consoleOutput(fmt.Sprintf("🚀 Updating %d dependents in parallel...", len(dependents)))
 
 	for _, depDir := range dependents {
 		wg.Add(1)
 		go func(dir string) {
 			defer wg.Done()
-			semaphore <- struct{}{}        // Acquire token
-			defer func() { <-semaphore }() // Release token
-
-			result, err := g.UpdateDependentModule(dir, modulePath, version)
-			depName := filepath.Base(dir)
-
-			if err != nil {
-				resultsChan <- fmt.Sprintf("❌ %s: %v", depName, err)
-			} else {
-				resultsChan <- fmt.Sprintf("✅ %s: %s", depName, result)
-			}
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			// Results streamed via consoleOutput inside UpdateDependentModule
+			g.UpdateDependentModule(dir, modulePath, version)
 		}(depDir)
 	}
 
 	wg.Wait()
-	close(resultsChan)
-
-	var results []string
-	for res := range resultsChan {
-		results = append(results, res)
-	}
-
-	// Sort results for consistent output
-	sort.Strings(results)
-
-	fmt.Println()
-	return results, nil
+	return nil
 }
 
 // FindDependentModules searches for modules that have modulePath as dependency

@@ -58,7 +58,7 @@ func (c *CodeJob) Run(message, tag string) (string, error) {
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
 		}
-		res, err := MergeAndPublish(c.publisher, tag)
+		res, err := MergeAndPublish(c.publisher, message, tag)
 		if err != nil {
 			return "", err
 		}

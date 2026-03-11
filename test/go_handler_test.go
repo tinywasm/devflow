@@ -351,22 +351,15 @@ func TestGoInstall(t *testing.T) {
 	g, _ := devflow.NewGo(mockGit)
 	g.SetRootDir(tmpDir)
 
-	summary, err := g.Install("v1.2.3")
-
+	err := g.Install("v1.2.3")
 	if err != nil {
 		t.Logf("Install failed as expected (no real module in tmp): %v", err)
-	} else {
-		t.Logf("Install summary: %s", summary)
 	}
 
 	// Verify behavior when cmd is missing
 	g.SetRootDir(t.TempDir())
-	summary, err = g.Install("v1.0.0")
-	if err != nil {
+	if err := g.Install("v1.0.0"); err != nil {
 		t.Errorf("Expected no error when cmd is missing, got %v", err)
-	}
-	if summary != "" {
-		t.Errorf("Expected empty summary when cmd is missing, got %s", summary)
 	}
 }
 

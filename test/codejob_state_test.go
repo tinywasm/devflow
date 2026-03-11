@@ -129,7 +129,7 @@ func TestMergePR_NoPRURL(t *testing.T) {
 func TestMergeAndPublish_NoPRURL(t *testing.T) {
 	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB_PR present
 	// in the test environment means it returns immediately before any Git calls.
-	_, err := devflow.MergeAndPublish(&MockPublisher{}, "")
+	_, err := devflow.MergeAndPublish(&MockPublisher{}, "test", "")
 	if err == nil {
 		t.Fatal("expected error when no PR URL in .env, got nil")
 	}
@@ -192,7 +192,7 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(mockPub, "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	statusIdx := idxOf("git status --porcelain")
 	addIdx := idxOf("git add .")
@@ -262,7 +262,7 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(mockPub, "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	commitIdx := idxOf("git commit -m review:")
 	checkoutIdx := idxOf("git checkout main")
@@ -299,7 +299,7 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 		},
 	}
 
-	result, err := devflow.MergeAndPublish(mockPub, "v1.2.3")
+	result, err := devflow.MergeAndPublish(mockPub, "test", "v1.2.3")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

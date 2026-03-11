@@ -154,7 +154,7 @@ func MergePR() error {
 
 // MergeAndPublish merges the Jules PR, pulls the merged commit, commits any
 // cleanup files (e.g. .gitignore updated by HandleDone), and publishes via gopush.
-func MergeAndPublish(publisher Publisher, overrideTag string) (PushResult, error) {
+func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResult, error) {
 	env := NewDotEnv(".env")
 	prURL, ok := env.Get("CODEJOB_PR")
 	if !ok || prURL == "" {
@@ -241,5 +241,5 @@ func MergeAndPublish(publisher Publisher, overrideTag string) (PushResult, error
 	}
 
 	// No PLAN.md -> call full gopush
-	return publisher.Publish("chore: codejob cleanup", overrideTag, false, false, false, false, false)
+	return publisher.Publish(message, overrideTag, false, false, false, false, false)
 }

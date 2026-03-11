@@ -198,13 +198,10 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		summary = append(summary, "Warning: no tag was created during push")
 	}
 
-	// 4.5 Install binaries (if cmd exists)
+	// 4.5 Install binaries (if cmd exists) — streamed to console, not summary
 	if createdTag != "" {
-		installSummary, err := g.Install(createdTag)
-		if err != nil {
+		if err := g.Install(createdTag); err != nil {
 			summary = append(summary, fmt.Sprintf("Warning: install failed: %v", err))
-		} else if installSummary != "" {
-			summary = append(summary, installSummary)
 		}
 	}
 
@@ -217,8 +214,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 	// 6. Update dependent modules (only if we have a valid tag)
 	if !skipDependents && createdTag != "" {
-		_, err := g.UpdateDependents(modulePath, createdTag, searchPath)
-		if err != nil {
+		if err := g.UpdateDependents(modulePath, createdTag, searchPath); err != nil {
 			summary = append(summary, fmt.Sprintf("Warning: failed to scan dependents: %v", err))
 		}
 	}
@@ -356,15 +352,15 @@ func (g *Go) GetCurrentVersion(moduleDir, dependencyPath string) (string, error)
 
 // Install builds and installs all commands in the cmd/ directory
 // It injects the version using ldflags if provided
-func (g *Go) Install(version string) (string, error) {
+func (g *Go) Install(version string) error {
 	cmdDir := filepath.Join(g.rootDir, "cmd")
 	if _, err := os.Stat(cmdDir); os.IsNotExist(err) {
-		return "", nil // No cmd directory, skip silently
+		return nil // No cmd directory, skip silently
 	}
 
 	entries, err := os.ReadDir(cmdDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to read cmd directory: %w", err)
+		return fmt.Errorf("failed to read cmd directory: %w", err)
 	}
 
 	var commands []string
@@ -375,10 +371,9 @@ func (g *Go) Install(version string) (string, error) {
 	}
 
 	if len(commands) == 0 {
-		return "", nil // No commands found
+		return nil // No commands found
 	}
 
-	var installed []string
 	ldflags := ""
 	actualVersion := version
 	if actualVersion == "" && g.git != nil {
@@ -401,14 +396,10 @@ func (g *Go) Install(version string) (string, error) {
 		args = append(args, pkg)
 
 		if _, err := RunCommandInDir(g.rootDir, "go", args...); err != nil {
-			return strings.Join(installed, ", "), fmt.Errorf("failed to install %s: %w", cmd, err)
+			return fmt.Errorf("failed to install %s: %w", cmd, err)
 		}
-		installed = append(installed, "✅ "+cmd)
+		g.consoleOutput(fmt.Sprintf("✅ %s", cmd))
 	}
 
-	summary := strings.Join(installed, ", ")
-	if version != "" {
-		summary = fmt.Sprintf("%s (%s)", summary, version)
-	}
-	return summary, nil
+	return nil
 }
