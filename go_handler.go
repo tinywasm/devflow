@@ -242,11 +242,9 @@ func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, s
 // It modifies go.mod to require the new version and runs go mod tidy
 func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, error) {
 	depName := filepath.Base(depDir)
+	g.consoleOutput(fmt.Sprintf("📦 %s → updating...", depName))
 
 	// 1-2. Load and modify go.mod
-	// Since NewGoModFile reads from disk, we pass full path
-	// 1-2. Load and modify go.mod
-	// Since NewGoModFile reads from disk, we pass full path
 	modFile := filepath.Join(depDir, "go.mod")
 	gomod := NewGoModHandler()
 	gomod.SetRootDir(depDir)

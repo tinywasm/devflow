@@ -89,5 +89,5 @@ Examples:
 		os.Exit(1)
 	}
 
-	fmt.Println(summary)
+	fmt.Println(summary.Summary)
 }
