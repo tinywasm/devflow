@@ -304,8 +304,13 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 
 	// 7. Run tests in the dependent's directory
-	if _, err := RunCommandInDir(depDir, "gotest"); err != nil {
-		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ tests failed", depName))
+	if output, err := RunCommandInDir(depDir, "gotest"); err != nil {
+		// Show last line of gotest output (the summary) for diagnosis
+		if lines := strings.Split(strings.TrimSpace(output), "\n"); len(lines) > 0 {
+			g.consoleOutput(fmt.Sprintf("📦 %s → ❌ %s", depName, lines[len(lines)-1]))
+		} else {
+			g.consoleOutput(fmt.Sprintf("📦 %s → ❌ tests failed", depName))
+		}
 		return "", fmt.Errorf("tests failed: %w", err)
 	}
 
