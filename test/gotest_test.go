@@ -121,8 +121,8 @@ FAIL`,
 		},
 		{
 			name:     "Filters duplicate coverage from stdlib tests",
-			input:    "ok  \tgithub.com/tinywasm/time\t0.504s\tcoverage: 96.8% of statements\n✅ vet ok, ✅ tests stdlib ok, ✅ race detection ok, ✅ coverage: 100%, ✅ tests wasm ok",
-			expected: []string{"✅ vet ok", "✅ tests stdlib ok", "✅ race detection ok", "✅ coverage: 100%", "✅ tests wasm ok"},
+			input:    "ok  \tgithub.com/tinywasm/time\t0.504s\tcoverage: 96.8% of statements\nvet ✅, tests ✅, race ✅, coverage: 100% ✅, wasm ✅",
+			expected: []string{"vet ✅", "tests ✅", "race ✅", "coverage: 100% ✅", "wasm ✅"},
 			excluded: []string{"ok  \tgithub.com/tinywasm", "coverage: 96.8%", "0.504s"},
 		},
 		{
@@ -288,8 +288,8 @@ func TestEvaluateTestResults(t *testing.T) {
 			expected:    "Passing",
 			expectedRan: true,
 			expectedMsgs: []string{
-				"✅ tests stdlib ok",
-				"✅ race detection ok",
+				"tests ✅",
+				"race ✅",
 			},
 		},
 		{
@@ -300,11 +300,11 @@ func TestEvaluateTestResults(t *testing.T) {
 			expected:    "Passing",
 			expectedRan: true,
 			expectedMsgs: []string{
-				"✅ tests stdlib ok",
-				"✅ race detection skipped",
+				"tests ✅",
+				"race skipped ✅",
 			},
 			excludedMsgs: []string{
-				"race detection ok",
+				"race ✅",
 			},
 		},
 		{
@@ -314,7 +314,7 @@ func TestEvaluateTestResults(t *testing.T) {
 			expected:    "Failed",
 			expectedRan: true,
 			expectedMsgs: []string{
-				"❌ Test errors found in testmod",
+				"Test errors found in testmod ❌",
 			},
 		},
 		{
@@ -324,7 +324,7 @@ func TestEvaluateTestResults(t *testing.T) {
 			expected:    "Failed",
 			expectedRan: false,
 			expectedMsgs: []string{
-				"❌ Test errors found in testmod",
+				"Test errors found in testmod ❌",
 			},
 		},
 		{
@@ -343,8 +343,8 @@ func TestEvaluateTestResults(t *testing.T) {
 			expected:    "Passing",
 			expectedRan: true,
 			expectedMsgs: []string{
-				"✅ tests stdlib ok", // Clean message only
-				"✅ race detection ok",
+				"tests ✅", // Clean message only
+				"race ✅",
 			},
 			excludedMsgs: []string{
 				"(some subpackages excluded)", // Anti-regression check

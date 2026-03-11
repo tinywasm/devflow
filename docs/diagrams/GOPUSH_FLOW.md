@@ -40,23 +40,21 @@ flowchart TD
 
 ### Real-time console output (streaming, as each completes)
 
-**Install** prints each binary as it installs:
+**Install** prints a single summary line:
 ```
-✅ gotest installed
-✅ gopush installed
-✅ codejob installed
+✅ Installed: gotest, gopush, codejob
 ```
 
-**Dependents** print their result as each finishes (parallel):
+**Dependents** print one line per dependent (result only):
 ```
-📦 deploy → ⏭ skip push (other replaces exist)
-📦 mylib → ✅ updated to v1.2.3
-📦 otherlib → ❌ tests failed (dirty state)
+📦 deploy → skip (other replaces) ⏭
+📦 mylib → updated ✅
+📦 otherlib → tests failed ❌
 ```
 
 ### Final summary (single line, main package only)
 
 The summary does NOT include install details or dependent results:
 ```
-✅ vet ok, ✅ tests ok, ✅ Tag: v1.2.3, ✅ Pushed ok, ✅ Backup started
+vet ✅, race ✅, tests ✅, coverage: 52.7%, Tag: v1.2.3, Pushed ✅, Backup ✅
 ```

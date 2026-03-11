@@ -21,7 +21,7 @@ func TestTestCache_SaveAndValidate(t *testing.T) {
 	devflow.RunCommand("git", "commit", "-m", "init")
 
 	cache := devflow.NewTestCache()
-	testMsg := "✅ vet ok, ✅ tests ok"
+	testMsg := "vet ✅, tests ✅"
 
 	// Clean up any existing cache
 	cache.InvalidateCache()

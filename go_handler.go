@@ -129,7 +129,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 			committed, _ := g.git.Commit(message)
 			pulled, pushErr := g.git.PushWithoutTags()
 			err = pushErr
-			res.Summary = "✅ Pushed commits"
+			res.Summary = "Pushed ✅"
 			if pulled {
 				res.Summary = "🔄 Pulled remote changes, " + res.Summary
 			}
@@ -177,7 +177,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		if pushErr != nil {
 			return PushResult{}, fmt.Errorf("push failed: %w", pushErr)
 		}
-		pushResult.Summary = "✅ Pushed commits"
+		pushResult.Summary = "Pushed ✅"
 		if pulled {
 			pushResult.Summary = "🔄 Pulled remote changes, " + pushResult.Summary
 		}
@@ -242,7 +242,6 @@ func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, s
 // It modifies go.mod to require the new version and runs go mod tidy
 func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, error) {
 	depName := filepath.Base(depDir)
-	g.consoleOutput(fmt.Sprintf("📦 %s → updating...", depName))
 
 	// 1-2. Load and modify go.mod
 	modFile := filepath.Join(depDir, "go.mod")
@@ -299,7 +298,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 
 	// 6. Check for other replaces
 	if gomod.HasOtherReplaces(modulePath) {
-		g.consoleOutput(fmt.Sprintf("📦 %s → ⏭ skip push (other replaces exist)", depName))
+		g.consoleOutput(fmt.Sprintf("📦 %s → skip (other replaces) ⏭", depName))
 		return "updated (other replaces exist, manual push required)", nil
 	}
 
@@ -307,9 +306,9 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	if output, err := RunCommandInDir(depDir, "gotest"); err != nil {
 		// Show last line of gotest output (the summary) for diagnosis
 		if lines := strings.Split(strings.TrimSpace(output), "\n"); len(lines) > 0 {
-			g.consoleOutput(fmt.Sprintf("📦 %s → ❌ %s", depName, lines[len(lines)-1]))
+			g.consoleOutput(fmt.Sprintf("📦 %s → %s ❌", depName, lines[len(lines)-1]))
 		} else {
-			g.consoleOutput(fmt.Sprintf("📦 %s → ❌ tests failed", depName))
+			g.consoleOutput(fmt.Sprintf("📦 %s → tests failed ❌", depName))
 		}
 		return "", fmt.Errorf("tests failed: %w", err)
 	}
@@ -334,7 +333,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 		return "", fmt.Errorf("push failed: %w", err)
 	}
 
-	g.consoleOutput(fmt.Sprintf("📦 %s → ✅ updated to %s", depName, version))
+	g.consoleOutput(fmt.Sprintf("📦 %s → updated ✅", depName))
 	return fmt.Sprintf("updated to %s", version), nil
 }
 
@@ -404,8 +403,8 @@ func (g *Go) Install(version string) error {
 		if _, err := RunCommandInDir(g.rootDir, "go", args...); err != nil {
 			return fmt.Errorf("failed to install %s: %w", cmd, err)
 		}
-		g.consoleOutput(fmt.Sprintf("✅ %s", cmd))
 	}
 
+	g.consoleOutput(fmt.Sprintf("✅ Installed: %s", strings.Join(commands, ", ")))
 	return nil
 }

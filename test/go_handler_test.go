@@ -179,8 +179,8 @@ func TestExample(t *testing.T) {}
 	if !strings.Contains(result.Summary, "Mock push ok") {
 		t.Errorf("Expected summary to contain 'Mock push ok', got: %s", result.Summary)
 	}
-	if !strings.Contains(result.Summary, "vet ok") {
-		t.Errorf("Expected summary to contain 'vet ok', got: %s", result.Summary)
+	if !strings.Contains(result.Summary, "vet ✅") {
+		t.Errorf("Expected summary to contain 'vet ✅', got: %s", result.Summary)
 	}
 }
 
@@ -220,7 +220,7 @@ func TestGoPush_SkipTag(t *testing.T) {
 		t.Fatalf("Push failed: %v", err)
 	}
 
-	if !strings.Contains(result.Summary, "✅ Pushed commits") {
+	if !strings.Contains(result.Summary, "Pushed ✅") {
 		t.Errorf("Expected summary to contain '✅ Pushed commits', got: %s", result.Summary)
 	}
 	if !mockGit.pushWithoutTagsCalled {

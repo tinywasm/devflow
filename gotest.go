@@ -71,7 +71,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		if !ok {
 			symbol = "❌"
 		}
-		msgs = append(msgs, fmt.Sprintf("%s %s", symbol, msg))
+		msgs = append(msgs, fmt.Sprintf("%s %s", msg, symbol))
 	}
 
 	// Parallel Phase 1: Vet + WASM detection
@@ -132,7 +132,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			strings.Contains(vetOutput, "no packages to vet") ||
 			strings.Contains(vetOutput, "build constraints exclude all Go files") {
 			vetStatus = "OK"
-			addMsg(true, "vet ok")
+			addMsg(true, "vet")
 		} else {
 			vetStatus = "Issues"
 			// Filter unsafe.Pointer warnings
@@ -148,15 +148,15 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			}
 
 			if len(filteredLines) > 0 {
-				addMsg(false, "vet issues found")
+				addMsg(false, "vet")
 			} else {
 				vetStatus = "OK"
-				addMsg(true, "vet ok")
+				addMsg(true, "vet")
 			}
 		}
 	} else {
 		vetStatus = "OK"
-		addMsg(true, "vet ok")
+		addMsg(true, "vet")
 	}
 
 	// Run tests with coverage and optional race detection
@@ -298,10 +298,10 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 				testStatus = "Failed"
 			} else if err != nil {
 				// WASM test failure - ConsoleFilter already filtered the output in quiet mode
-				addMsg(false, "tests wasm failed")
+				addMsg(false, "wasm")
 				testStatus = "Failed"
 			} else {
-				addMsg(true, "tests wasm ok")
+				addMsg(true, "wasm")
 				if testStatus != "Failed" {
 					testStatus = "Passing"
 				}
@@ -401,7 +401,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		if !ok {
 			symbol = "❌"
 		}
-		msgs = append(msgs, fmt.Sprintf("%s %s", symbol, msg))
+		msgs = append(msgs, fmt.Sprintf("%s %s", msg, symbol))
 	}
 
 	// Detect WASM tests in parallel with stdlib tests preparation
@@ -592,7 +592,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 				}
 				testStatus = "Failed"
 			} else if err != nil {
-				addMsg(false, "tests wasm failed")
+				addMsg(false, "wasm")
 				testStatus = "Failed"
 			} else {
 				wOutput := wasmOut.String()
@@ -842,7 +842,7 @@ func EvaluateTestResults(err error, output, moduleName string, msgs []string, sk
 		if !ok {
 			symbol = "❌"
 		}
-		newMsgs = append(newMsgs, fmt.Sprintf("%s %s", symbol, msg))
+		newMsgs = append(newMsgs, fmt.Sprintf("%s %s", msg, symbol))
 	}
 
 	// Determine if any stdlib tests actually ran by looking for ok/FAIL markers in output
@@ -855,11 +855,11 @@ func EvaluateTestResults(err error, output, moduleName string, msgs []string, sk
 		testStatus = "Passing"
 		if !skipRace {
 			raceStatus = "Clean"
-			addMsg(true, "race detection ok")
+			addMsg(true, "race")
 		} else {
-			addMsg(true, "race detection skipped")
+			addMsg(true, "race skipped")
 		}
-		addMsg(true, "tests stdlib ok")
+		addMsg(true, "tests")
 		stdTestsRan = true
 		return
 	}
@@ -905,16 +905,16 @@ func EvaluateTestResults(err error, output, moduleName string, msgs []string, sk
 		if !skipRace {
 			raceStatus = "Clean"
 			if stdTestsRan {
-				addMsg(true, "race detection ok")
+				addMsg(true, "race")
 			}
 		} else {
 			if stdTestsRan {
-				addMsg(true, "race detection skipped")
+				addMsg(true, "race skipped")
 			}
 		}
 
 		if stdTestsRan {
-			addMsg(true, "tests stdlib ok")
+			addMsg(true, "tests")
 		}
 	} else {
 		// Real failure
