@@ -29,11 +29,10 @@ llmskill --force
 
 ## How it works
 
-1. **Installs Modular Skills**: Copies embedded Agent Skills to `~/tinywasm/skills/`.
-2. **Detects installed LLMs**: Checks for `~/.claude/CLAUDE.md` and `~/.gemini/GEMINI.md`.
-3. **Adds Reference Line**: Ensures your LLM config file contains:
-   `Skills location: ~/tinywasm/skills/`
-   This allows the LLM to discover and use all domain-specific skills.
+1. **Installs Modular Skills**: Copies embedded Agent Skills to `~/skills/`.
+2. **Detects installed LLMs**: Checks for `~/.claude/` and `~/.gemini/` directories.
+3. **Creates Symlinks**: Creates a symlink from `~/.claude/skills/` (and others) to the shared `~/skills/` directory.
+   This allows LLMs to natively discover and use all domain-specific skills without any text-based configuration.
 
 ## Supported Skills
 
@@ -64,10 +63,10 @@ fmt.Println(summary)
 ## Troubleshooting
 
 ### "No LLMs detected"
-Skills are installed in `~/tinywasm/skills/` even if no specific LLM config is found.
+Skills are installed in `~/skills/` even if no specific LLM config is found.
 
-### Reference line not appearing
-If you manually removed the reference line, run `llmskill -f` to re-add it.
+### Skills not appearing in LLM
+Ensure the LLM directory exists (`~/.claude` or `~/.gemini`). If symlinks are broken, run `llmskill -f` to force a refresh.
 
 ## See Also
 
