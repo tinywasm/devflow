@@ -306,13 +306,9 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 
 	// 7. Run tests in the dependent's directory
-	if output, err := RunCommandInDir(depDir, "gotest"); err != nil {
-		// Show last line of gotest output (the summary) for diagnosis
-		if lines := strings.Split(strings.TrimSpace(output), "\n"); len(lines) > 0 {
-			g.consoleOutput(fmt.Sprintf("📦 %s → %s ❌", depName, lines[len(lines)-1]))
-		} else {
-			g.consoleOutput(fmt.Sprintf("📦 %s → tests failed ❌", depName))
-		}
+	if output, err := RunCommandInDir(depDir, "gotest", "-t", "60", "-no-cache"); err != nil {
+		cause := extractFirstFailure(output)
+		g.consoleOutput(fmt.Sprintf("📦 %s → %s ❌", depName, cause))
 		return "", fmt.Errorf("tests failed: %w", err)
 	}
 
@@ -356,6 +352,20 @@ func (g *Go) GetCurrentVersion(moduleDir, dependencyPath string) (string, error)
 	}
 
 	return mod.Version, nil
+}
+
+// extractFirstFailure returns a short failure label from gotest output
+func extractFirstFailure(output string) string {
+	if strings.Contains(output, "vet ❌") {
+		return "vet"
+	}
+	if strings.Contains(output, "timeout:") {
+		return "timeout"
+	}
+	if strings.Contains(output, "❌") {
+		return "tests"
+	}
+	return "failed"
 }
 
 // Install builds and installs all commands in the cmd/ directory
