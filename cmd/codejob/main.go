@@ -9,7 +9,11 @@ import (
 )
 
 func main() {
-	msg, tag := parseArgs(os.Args)
+	msg, tag, isHelp := parseArgs(os.Args)
+	if isHelp {
+		showHelp()
+		return
+	}
 
 	git, err := devflow.NewGit()
 	if err != nil {
@@ -42,8 +46,32 @@ func main() {
 	}
 }
 
-func parseArgs(args []string) (message, tag string) {
+func showHelp() {
+	fmt.Println("Usage: codejob [message] [tag]")
+	fmt.Println("\nArguments:")
+	fmt.Println("  message    Commit message (optional, used when closing a loop)")
+	fmt.Println("  tag        Explicit version tag (optional, e.g., v0.1.0)")
+	fmt.Println("\nHelp Commands:")
+	fmt.Println("  help, --help, -h, ?    Show this help message")
+	fmt.Println("\nDescription:")
+	fmt.Println("  CodeJob orchestrates coding tasks by sending instructions to AI agents.")
+	fmt.Println("\nWorkflow:")
+	fmt.Println("  1. DISPATCH: Create docs/PLAN.md and run 'codejob' to start a new task.")
+	fmt.Println("  2. REVIEW:   When ready, CodeJob renames PLAN.md to CHECK_PLAN.md and switches")
+	fmt.Println("               automatically to the agent's branch for local review.")
+	fmt.Println("  3. RESOLVE:")
+	fmt.Println("     - APPROVE: Run 'codejob \"message\" [tag]' to merge the PR and publish.")
+	fmt.Println("     - ITERATE: If adjustments are needed, create a new docs/PLAN.md and run")
+	fmt.Println("                'codejob'. The old PR will be merged, CHECK_PLAN.md deleted,")
+	fmt.Println("                and the new plan will be dispatched.")
+}
+
+func parseArgs(args []string) (message, tag string, isHelp bool) {
 	if len(args) > 1 {
+		arg := strings.ToLower(args[1])
+		if arg == "help" || arg == "--help" || arg == "-h" || arg == "?" {
+			return "", "", true
+		}
 		message = args[1]
 	}
 	if len(args) > 2 {
