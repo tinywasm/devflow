@@ -19,7 +19,6 @@ const DefaultIssuePromptPath = "docs/PLAN.md"
 // falling back to the next on failure.
 type CodeJob struct {
 	drivers   []CodeJobDriver
-	sync      RepoSync
 	log       func(...any)
 	publisher Publisher
 }
@@ -39,9 +38,6 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 	}
 }
 
-// SetRepoSync injects a RepoSync for pre-flight synchronization check.
-// When set, Send() will refuse to dispatch if the local repo is not in sync with the remote.
-func (c *CodeJob) SetRepoSync(s RepoSync) { c.sync = s }
 
 // SetPublisher injects a Publisher for close-loop operations.
 func (c *CodeJob) SetPublisher(p Publisher) { c.publisher = p }
@@ -166,9 +162,9 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 	}
 }
 
-// Send validates issuePromptPath, checks repo sync, then tries each
+// Send validates issuePromptPath, publishes pending changes, then tries each
 // driver in order until one succeeds. Returns an error if the file is missing,
-// empty, the repo is out of sync, or all drivers fail.
+// empty, the publish fails, or all drivers fail.
 func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 	info, err := os.Stat(issuePromptPath)
 	if err != nil {
@@ -176,18 +172,6 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 	}
 	if info.Size() == 0 {
 		return "", fmt.Errorf("prompt file is empty: %s", issuePromptPath)
-	}
-
-	if c.sync != nil {
-		pending, err := c.sync.HasPendingChanges()
-		if err != nil {
-			return "", fmt.Errorf("repo sync check failed: %w", err)
-		}
-		if pending {
-			return "", fmt.Errorf(
-				"repository is not in sync with remote — Jules reads from GitHub, not the local filesystem",
-			)
-		}
 	}
 
 	// PUBLISH BEFORE SEND (Stage 2, step 2.3)

@@ -23,7 +23,6 @@ func main() {
 	}
 
 	job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}))
-	job.SetRepoSync(git)
 	job.SetPublisher(goHandler)
 
 	result, err := job.Run(msg, tag)

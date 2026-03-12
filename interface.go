@@ -51,12 +51,6 @@ type FolderWatcher interface {
 	RemoveDirectoriesFromWatcher(paths ...string) error
 }
 
-// RepoSync checks whether the local repository is in sync with the remote.
-// CodeJob uses this to refuse dispatch when local changes haven't been pushed yet.
-type RepoSync interface {
-	HasPendingChanges() (bool, error)
-}
-
 // Publisher defines the interface for publishing code changes.
 type Publisher interface {
 	Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (PushResult, error)
