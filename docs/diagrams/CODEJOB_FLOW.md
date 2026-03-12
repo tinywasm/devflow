@@ -10,7 +10,9 @@ flowchart TD
     D --> E{PR ready?}
     E -- No --> F[Print status]
     E -- Yes --> G[HandleDone:<br/>fetch, checkout branch,<br/>rename PLAN → CHECK_PLAN,<br/>clean .env]
-    C -- No --> H{API key exists?}
+    C -- No --> C2{CODEJOB_PR in .env?}
+    C2 -- Yes --> P
+    C2 -- No --> H{API key exists?}
     H -- No --> H1[Run setup wizard]
     H1 --> I
     H -- Yes --> I{PLAN.md exists?}

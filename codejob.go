@@ -72,7 +72,23 @@ func (c *CodeJob) Run(message, tag string) (string, error) {
 		return c.checkStatus(env, val)
 	}
 
-	// 3. Auto-setup if API key missing
+	// 3. Auto-merge pending PR before dispatching new work
+	if prURL, ok := env.Get("CODEJOB_PR"); ok && prURL != "" {
+		if c.publisher == nil {
+			return "", fmt.Errorf("no publisher configured")
+		}
+		res, err := MergeAndPublish(c.publisher, "chore: merge agent PR", "")
+		if err != nil {
+			return "", err
+		}
+		if res.Tag == "RE_DISPATCH" {
+			fmt.Println(res.Summary)
+			return c.Send(DefaultIssuePromptPath)
+		}
+		return res.Summary, nil
+	}
+
+	// 4. Auto-setup if API key missing
 	auth, err := NewJulesAuth()
 	if err == nil && !auth.HasKey() {
 		if err := c.runSetupWizard(); err != nil {
@@ -80,7 +96,7 @@ func (c *CodeJob) Run(message, tag string) (string, error) {
 		}
 	}
 
-	// 4. Dispatch
+	// 5. Dispatch
 	return c.Send(DefaultIssuePromptPath)
 }
 
