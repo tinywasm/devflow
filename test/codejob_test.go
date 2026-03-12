@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -88,5 +89,27 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 	}
 	if !published {
 		t.Error("Publish should have been called before Send")
+	}
+}
+
+func TestCodeJob_Send_LogsPublishSummary(t *testing.T) {
+	path := writeTempFile(t, "some plan")
+	mockPub := &MockPublisher{
+		PublishFn: func(m, tag string, st, sr, sd, sb, stag bool) (devflow.PushResult, error) {
+			return devflow.PushResult{Summary: "Pushed ✅ v1.2.3"}, nil
+		},
+	}
+	var logged []string
+	d := &mockDriver{name: "mock", result: "ok"}
+	job := devflow.NewCodeJob(d)
+	job.SetPublisher(mockPub)
+	job.SetLog(func(args ...any) { logged = append(logged, fmt.Sprint(args...)) })
+
+	_, err := job.Send(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logged) == 0 || !strings.Contains(logged[0], "Pushed") {
+		t.Errorf("expected publish summary to be logged, got: %v", logged)
 	}
 }

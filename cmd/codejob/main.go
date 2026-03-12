@@ -23,6 +23,7 @@ func main() {
 	}
 
 	job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}))
+	job.SetLog(func(args ...any) { fmt.Println(args...) })
 	job.SetPublisher(goHandler)
 
 	result, err := job.Run(msg, tag)

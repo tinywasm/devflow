@@ -132,6 +132,9 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		var res PushResult
 		var err error
 		if skipTag {
+			if err := g.git.Add(); err != nil {
+				return PushResult{}, fmt.Errorf("git add failed: %w", err)
+			}
 			committed, _ := g.git.Commit(message)
 			pulled, pushErr := g.git.PushWithoutTags()
 			err = pushErr
@@ -175,6 +178,9 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	var err error
 
 	if skipTag {
+		if err := g.git.Add(); err != nil {
+			return PushResult{}, fmt.Errorf("git add failed: %w", err)
+		}
 		committed, commitErr := g.git.Commit(message)
 		if commitErr != nil {
 			return PushResult{}, fmt.Errorf("git commit failed: %w", commitErr)

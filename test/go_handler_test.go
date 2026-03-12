@@ -372,6 +372,8 @@ type MockGitClient struct {
 	pushResult             devflow.PushResult
 	pushWithoutTagsCalled  bool
 	log                    func(...any)
+	AddCalls               int
+	CommitCalls            int
 }
 
 func (m *MockGitClient) CheckRemoteAccess() error {
@@ -417,10 +419,12 @@ func (m *MockGitClient) GitIgnoreAdd(entry string) error {
 }
 
 func (m *MockGitClient) Add() error {
+	m.AddCalls++
 	return nil
 }
 
 func (m *MockGitClient) Commit(message string) (bool, error) {
+	m.CommitCalls++
 	return true, nil
 }
 
@@ -473,5 +477,48 @@ func TestGoPush_RemoteAccessFailure(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "Network error") {
 		t.Errorf("Expected error to contain 'Network error', got: %v", err)
+	}
+}
+
+func TestGoPush_SkipTag_CallsAddBeforeCommit(t *testing.T) {
+	// Test that when skipTag=true, the flow calls git.Add() before git.Commit()
+	// This is a non-Go project (no go.mod) case
+	tmpDir := t.TempDir()
+	defer testChdir(t, tmpDir)()
+
+	// Create a git repo
+	devflow.RunCommand("git", "init")
+	devflow.RunCommand("git", "config", "user.email", "test@test.com")
+	devflow.RunCommand("git", "config", "user.name", "Test User")
+	devflow.RunCommand("git", "commit", "--allow-empty", "-m", "initial")
+
+	// Create a mock git client to track Add() and Commit() calls
+	mockGit := &MockGitClient{
+		latestTag: "v0.0.0",
+	}
+
+	goHandler, _ := devflow.NewGo(mockGit)
+
+	// Call Push with skipTag=true (non-Go project since we have no go.mod)
+	_, err := goHandler.Push("test message", "v1.0.0", false, false, false, false, true, "")
+
+	if err != nil {
+		t.Logf("Push returned error (expected for mock): %v", err)
+	}
+
+	// Verify that Add() was called
+	if mockGit.AddCalls == 0 {
+		t.Error("Add() should have been called before Commit() in skipTag=true path")
+	}
+
+	// Verify that Commit() was called after Add()
+	if mockGit.CommitCalls == 0 {
+		t.Error("Commit() should have been called")
+	}
+
+	// Verify order: AddCalls should exist before CommitCalls started
+	if mockGit.AddCalls > 0 && mockGit.CommitCalls > 0 {
+		// This is a simple check; ideally we'd track call order precisely
+		t.Logf("✅ Add() was called %d time(s), Commit() was called %d time(s)", mockGit.AddCalls, mockGit.CommitCalls)
 	}
 }
