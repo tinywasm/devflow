@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/tinywasm/devflow"
 )
@@ -31,7 +32,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	fmt.Println(result)
+
+	// Format output: "jules: <id>" -> "Agent Jules • Session: <id>"
+	if strings.HasPrefix(result, "jules: ") {
+		sessionID := strings.TrimPrefix(result, "jules: ")
+		fmt.Printf("Agent Jules • Session: %s\n", sessionID)
+	} else {
+		fmt.Println(result)
+	}
 }
 
 func parseArgs(args []string) (message, tag string) {

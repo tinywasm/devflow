@@ -92,10 +92,13 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 	}
 }
 
-func TestCodeJob_Send_LogsPublishSummary(t *testing.T) {
+func TestCodeJob_Send_PublishSilently(t *testing.T) {
+	// Verify that Publish is called silently (no logging of summary)
 	path := writeTempFile(t, "some plan")
+	publishCalled := false
 	mockPub := &MockPublisher{
 		PublishFn: func(m, tag string, st, sr, sd, sb, stag bool) (devflow.PushResult, error) {
+			publishCalled = true
 			return devflow.PushResult{Summary: "Pushed ✅ v1.2.3"}, nil
 		},
 	}
@@ -109,7 +112,10 @@ func TestCodeJob_Send_LogsPublishSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(logged) == 0 || !strings.Contains(logged[0], "Pushed") {
-		t.Errorf("expected publish summary to be logged, got: %v", logged)
+	if !publishCalled {
+		t.Error("Publish should have been called")
+	}
+	if len(logged) > 0 {
+		t.Errorf("expected no logging of publish summary, but got: %v", logged)
 	}
 }
