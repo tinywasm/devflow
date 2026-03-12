@@ -3,13 +3,16 @@ package devflow
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-//go:embed docs/DEFAULT_LLM_SKILL.md
-var defaultLLMSkills embed.FS
+const DefaultSkillsReference = "Skills location: ~/tinywasm/skills/"
+
+//go:embed skills
+var embeddedSkills embed.FS
 
 // LLMConfig representa la configuración de un LLM específico
 type LLMConfig struct {
@@ -18,7 +21,7 @@ type LLMConfig struct {
 	ConfigFile string // "CLAUDE.md", "GEMINI.md"
 }
 
-// LLM handles synchronization of LLM configuration files
+// LLM handles synchronization of LLM configuration files and Agent Skills
 type LLM struct {
 	log func(...any)
 }
@@ -47,7 +50,6 @@ func (l *LLM) GetSupportedLLMs() []LLMConfig {
 }
 
 // DetectInstalledLLMs detecta qué LLMs están instalados
-// Returns: lista de LLMConfig para los LLMs instalados
 func (l *LLM) DetectInstalledLLMs() []LLMConfig {
 	var installed []LLMConfig
 	for _, llm := range l.GetSupportedLLMs() {
@@ -59,22 +61,55 @@ func (l *LLM) DetectInstalledLLMs() []LLMConfig {
 	return installed
 }
 
-// GetMasterContent lee el contenido del archivo maestro embebido
+// GetMasterContent retorna la línea de referencia por defecto
 func (l *LLM) GetMasterContent() (string, error) {
-	content, err := defaultLLMSkills.ReadFile("docs/DEFAULT_LLM_SKILL.md")
-	if err != nil {
-		return "", fmt.Errorf("failed to read master template: %w", err)
-	}
-	return string(content), nil
+	return DefaultSkillsReference, nil
 }
 
-// Sync sincroniza todos los LLMs instalados
-// Returns: resumen de operaciones realizadas
-func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
-	installed := l.DetectInstalledLLMs()
+// InstallSkills instala los Agent Skills embebidos en ~/tinywasm/skills/
+func (l *LLM) InstallSkills() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
 
+	destRoot := filepath.Join(home, "tinywasm", "skills")
+	l.log("Installing skills to:", destRoot)
+
+	return fs.WalkDir(embeddedSkills, "skills", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Determinar ruta de destino
+		relPath, _ := filepath.Rel("skills", path)
+		destPath := filepath.Join(destRoot, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0755)
+		}
+
+		// Leer contenido embebido
+		data, err := embeddedSkills.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Escribir archivo (sobrescribir siempre para actualizar)
+		return os.WriteFile(destPath, data, 0644)
+	})
+}
+
+// Sync sincroniza todos los LLMs instalados e instala los skills
+func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
+	// 1. Instalar skills
+	if err := l.InstallSkills(); err != nil {
+		return "", fmt.Errorf("failed to install skills: %w", err)
+	}
+
+	installed := l.DetectInstalledLLMs()
 	if len(installed) == 0 {
-		return "⚠️  No LLMs detected", nil
+		return "⚠️  No LLMs detected (skills installed in ~/tinywasm/skills/)", nil
 	}
 
 	// Filtrar por LLM específico si se proporcionó
@@ -96,6 +131,7 @@ func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	master = strings.TrimSpace(master)
 
 	var updated []string
 	var skipped []string
@@ -103,173 +139,76 @@ func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 	for _, llm := range installed {
 		configPath := filepath.Join(llm.Dir, llm.ConfigFile)
 
-		if force {
-			if err := l.ForceUpdate(configPath, master); err != nil {
-				return "", fmt.Errorf("failed to update %s: %w", llm.Name, err)
-			}
+		changed, err := l.ensureReferenceLine(configPath, master, force)
+		if err != nil {
+			return "", fmt.Errorf("failed to sync %s: %w", llm.Name, err)
+		}
+
+		if changed {
 			updated = append(updated, llm.Name)
 		} else {
-			changed, err := l.SmartSync(configPath, master)
-			if err != nil {
-				return "", fmt.Errorf("failed to sync %s: %w", llm.Name, err)
-			}
-			if changed {
-				updated = append(updated, llm.Name)
-			} else {
-				skipped = append(skipped, llm.Name)
-			}
+			skipped = append(skipped, llm.Name)
 		}
 	}
 
 	// Construir resumen
-	summary := ""
+	summary := "Skills updated. "
 	if len(updated) > 0 {
-		summary += fmt.Sprintf("✅ Updated: %v", updated)
+		summary += fmt.Sprintf("✅ Config updated: %v", updated)
 	}
 	if len(skipped) > 0 {
-		if summary != "" {
+		if len(updated) > 0 {
 			summary += ", "
 		}
-		summary += fmt.Sprintf("⏭️  Skipped (up-to-date): %v", skipped)
+		summary += fmt.Sprintf("⏭️  Config already had reference: %v", skipped)
 	}
 
 	return summary, nil
 }
 
-// SmartSync realiza sincronización inteligente con merge de marcadores
-func (l *LLM) SmartSync(configPath, masterContent string) (bool, error) {
-	// Leer contenido actual
-	currentContent, err := os.ReadFile(configPath)
-	hasExisting := err == nil
-
-	if !hasExisting {
-		// Archivo no existe, crear nuevo
+// ensureReferenceLine asegura que la línea de referencia existe en el archivo
+func (l *LLM) ensureReferenceLine(configPath, line string, force bool) (bool, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		// Si no existe, crearlo
 		l.log("Creating new config file:", configPath)
-		if err := os.WriteFile(configPath, []byte(masterContent), 0644); err != nil {
-			return false, err
-		}
-		return true, nil
+		return true, os.WriteFile(configPath, []byte(line+"\n"), 0644)
 	}
 
-	current := string(currentContent)
-
-	// Si el contenido es idéntico, skip
-	if current == masterContent {
-		l.log("Config already up-to-date:", configPath)
+	content := string(data)
+	if strings.Contains(content, line) && !force {
 		return false, nil
 	}
 
-	// Extraer secciones del master y del archivo actual
-	masterSections := ExtractSections(masterContent)
-	currentSections := ExtractSections(current)
-
-	// Si el archivo actual no tiene secciones (formato legacy), hacer backup y reemplazar
-	if len(currentSections) == 0 {
-		l.log("Legacy format detected, converting to sectioned format:", configPath)
+	if force {
+		// Backup
 		backupPath := configPath + ".bak"
 		if err := CopyFile(configPath, backupPath); err != nil {
 			return false, fmt.Errorf("failed to create backup: %w", err)
 		}
 		l.log("Created backup:", backupPath)
-		if err := os.WriteFile(configPath, []byte(masterContent), 0644); err != nil {
-			return false, err
-		}
-		return true, nil
+		
+		// En force, podemos decidir si lo re-agregamos al final o qué.
+		// Según el plan, solo añadimos la línea si no existe. 
+		// Pero si es force, quizá queremos asegurar que esté ahí incluso si el usuario la quitó.
 	}
 
-	// Usar MarkDown.UpdateSection para actualizar secciones
-	md := NewMarkDown(filepath.Dir(configPath), filepath.Dir(configPath),
-		func(name string, data []byte) error {
-			return os.WriteFile(name, data, 0644)
-		})
-	md.InputPath(configPath, os.ReadFile)
-	md.SetLog(l.log)
-
-	changed := false
-	for sectionID, content := range masterSections {
-		// Skip USER_CUSTOM ya que es del usuario (no sobrescribir su contenido)
-		if sectionID == "USER_CUSTOM" {
-			// Pero si no existe en el archivo actual, agregarla como placeholder
-			if _, exists := currentSections["USER_CUSTOM"]; !exists {
-				if err := md.UpdateSection("USER_CUSTOM", content); err != nil {
-					return false, fmt.Errorf("failed to add USER_CUSTOM section: %w", err)
-				}
-				changed = true
-			}
-			continue
-		}
-
-		// Solo actualizar si el contenido de la sección cambió
-		if currentContent, exists := currentSections[sectionID]; !exists || currentContent != content {
-			// Actualizar sección
-			if err := md.UpdateSection(sectionID, content); err != nil {
-				return false, fmt.Errorf("failed to update section %s: %w", sectionID, err)
-			}
-			changed = true
-		}
+	if !strings.Contains(content, line) {
+		l.log("Adding reference line to:", configPath)
+		newContent := line + "\n" + content
+		return true, os.WriteFile(configPath, []byte(newContent), 0644)
 	}
 
-	return changed, nil
+	return false, nil
 }
 
-// ForceUpdate sobrescribe completamente el archivo (con backup)
+// ForceUpdate reinstala skills y asegura la línea de referencia
 func (l *LLM) ForceUpdate(configPath, masterContent string) error {
-	// Crear backup si existe
-	if _, err := os.Stat(configPath); err == nil {
-		backupPath := configPath + ".bak"
-		if err := CopyFile(configPath, backupPath); err != nil {
-			return fmt.Errorf("failed to create backup: %w", err)
-		}
-		l.log("Created backup:", backupPath)
-	}
-
-	// Sobrescribir
-	if err := os.WriteFile(configPath, []byte(masterContent), 0644); err != nil {
+	if err := l.InstallSkills(); err != nil {
 		return err
 	}
-
-	return nil
-}
-
-// ExtractSections extrae secciones marcadas del contenido
-func ExtractSections(content string) map[string]string {
-	sections := make(map[string]string)
-	lines := strings.Split(content, "\n")
-
-	var currentID string
-	var currentContent []string
-	inSection := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Detectar inicio de sección
-		if strings.HasPrefix(trimmed, "<!-- START_SECTION:") {
-			currentID = strings.TrimSuffix(
-				strings.TrimPrefix(trimmed, "<!-- START_SECTION:"),
-				" -->",
-			)
-			currentContent = []string{}
-			inSection = true
-			continue
-		}
-
-		// Detectar fin de sección
-		if strings.HasPrefix(trimmed, "<!-- END_SECTION:") {
-			if inSection {
-				sections[currentID] = strings.Join(currentContent, "\n")
-				inSection = false
-			}
-			continue
-		}
-
-		// Acumular contenido
-		if inSection {
-			currentContent = append(currentContent, line)
-		}
-	}
-
-	return sections
+	_, err := l.ensureReferenceLine(configPath, strings.TrimSpace(masterContent), true)
+	return err
 }
 
 // CopyFile copia un archivo (helper para backup)

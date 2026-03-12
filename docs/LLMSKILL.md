@@ -1,6 +1,6 @@
 # llmskill - LLM Configuration Sync
 
-Synchronizes LLM configuration files from a master template.
+Synchronizes LLM configuration files and installs modular Agent Skills.
 
 ## Installation
 
@@ -10,7 +10,7 @@ go install github.com/tinywasm/devflow/cmd/llmskill@latest
 
 ## Usage
 
-### Sync all installed LLMs
+### Sync all installed LLMs and update skills
 ```bash
 llmskill
 ```
@@ -21,55 +21,30 @@ llmskill -l claude
 llmskill --llm gemini
 ```
 
-### Force overwrite (creates backup)
+### Force refresh (reinstalls all skills)
 ```bash
 llmskill -f
 llmskill --force
 ```
 
-### Show help
-```bash
-llmskill -h
-llmskill --help
-```
-
 ## How it works
 
-1. **Detects installed LLMs** by checking directories:
-   - `~/.claude/CLAUDE.md`
-   - `~/.gemini/GEMINI.md`
+1. **Installs Modular Skills**: Copies embedded Agent Skills to `~/tinywasm/skills/`.
+2. **Detects installed LLMs**: Checks for `~/.claude/CLAUDE.md` and `~/.gemini/GEMINI.md`.
+3. **Adds Reference Line**: Ensures your LLM config file contains:
+   `Skills location: ~/tinywasm/skills/`
+   This allows the LLM to discover and use all domain-specific skills.
 
-2. **Smart merge** using HTML section markers:
-   - Updates standard sections from master template
-   - Preserves `USER_CUSTOM` section with your personal configs
-   - Skips files that are already up-to-date
+## Supported Skills
 
-3. **Master template**: Embedded in devflow as `DEFAULT_LLM_SKILL.md`
+The skills are divided by domain to minimize context usage:
 
-## Configuration
-
-The master template is divided into sections:
-
-- `CORE_PRINCIPLES`: Development principles (SRP, Framework-less, CSS-First, etc.)
-- `TESTING`: Testing guidelines (using gotest)
-- `PROTOCOLS`: Language and workflow protocols
-- `WASM`: WebAssembly specific rules
-- `USER_CUSTOM`: Your personal customizations (preserved during sync)
-
-When you run `llmskill`, it updates the standard sections while keeping your custom content intact.
-
-### Adding Custom Rules
-
-You can add LLM-specific custom rules in the `USER_CUSTOM` section:
-
-```markdown
-<!-- START_SECTION:USER_CUSTOM -->
-- **My Custom Rule:** Always use tabs instead of spaces
-- **Project-Specific:** Never use external dependencies for X
-<!-- END_SECTION:USER_CUSTOM -->
-```
-
-This section will be preserved across all syncs.
+- `core-principles`: SRP, DI, Framework-less development.
+- `testing`: gotest, gopush, WASM dual testing.
+- `documentation`: doc standards, diagrams, readme indexing.
+- `wasm`: tinywasm MCP, frontend Go compatibility.
+- `codejob-agent-workflow`: PLAN.md orchestrator, stage-driven execution.
+- `dev-protocols`: Language rules, justification, Claude plan mirroring.
 
 ## Library Usage
 
@@ -78,193 +53,23 @@ import "github.com/tinywasm/devflow"
 
 llm := devflow.NewLLM()
 
-// Sync all installed LLMs
+// Sync all and install skills
 summary, err := llm.Sync("", false)
 if err != nil {
     log.Fatal(err)
 }
 fmt.Println(summary)
-
-// Sync specific LLM
-summary, err = llm.Sync("claude", false)
-
-// Force overwrite with backup
-summary, err = llm.Sync("", true)
-
-// Enable logging
-llm.SetLog(log.Println)
-```
-
-### Advanced Usage
-
-```go
-// Detect which LLMs are installed
-llm := devflow.NewLLM()
-installed := llm.DetectInstalledLLMs()
-for _, config := range installed {
-    fmt.Printf("Found: %s at %s\n", config.Name, config.Dir)
-}
-
-// Get master template content
-masterContent, err := llm.GetMasterContent()
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Println(masterContent)
-
-// Get list of supported LLMs (installed or not)
-supported := llm.GetSupportedLLMs()
-for _, config := range supported {
-    fmt.Printf("Supported: %s -> %s/%s\n",
-        config.Name, config.Dir, config.ConfigFile)
-}
-```
-
-## Examples
-
-### First time setup
-Creates config files with master template:
-```bash
-$ llmskill
-✅ Updated: [claude gemini]
-```
-
-### Subsequent runs (no changes)
-```bash
-$ llmskill
-⏭️  Skipped (up-to-date): [claude gemini]
-```
-
-### After master template update
-When you update devflow and the master template changes:
-```bash
-$ llmskill
-✅ Updated: [claude gemini]
-```
-
-### Sync only Claude
-```bash
-$ llmskill -l claude
-✅ Updated: [claude]
-```
-
-### Force overwrite with backup
-```bash
-$ llmskill -f
-✅ Updated: [claude gemini]
-```
-
-This creates backups:
-- `~/.claude/CLAUDE.md.bak`
-- `~/.gemini/GEMINI.md.bak`
-
-### Migration from legacy format
-If your config files don't have section markers (created before llmskill):
-```bash
-$ llmskill
-✅ Updated: [claude gemini]
-```
-
-Automatic backups are created:
-- `~/.claude/CLAUDE.md.bak` (your old content)
-- `~/.gemini/GEMINI.md.bak` (your old content)
-
-## Behavior Details
-
-### Smart Sync (default)
-
-1. **New file**: Creates file with master template
-2. **Identical content**: Skips (no changes needed)
-3. **Section changes**: Updates only changed sections
-4. **Legacy format**: Creates backup and converts to sectioned format
-5. **USER_CUSTOM section**: Always preserved
-
-### Force Mode (-f flag)
-
-1. Creates backup (.bak) of existing file
-2. Completely overwrites with master template
-3. Useful for:
-   - Resetting to defaults
-   - Fixing corrupted configs
-   - Testing new template versions
-
-## Integration
-
-### With gopush
-
-You can integrate `llmskill` into your workflow:
-
-```bash
-# Sync LLM configs before pushing
-llmskill && gopush "feat: new feature"
-```
-
-### In Go Projects
-
-```go
-package main
-
-import (
-    "log"
-    "github.com/tinywasm/devflow"
-)
-
-func main() {
-    // Ensure LLM configs are up-to-date
-    llm := devflow.NewLLM()
-    if _, err := llm.Sync("", false); err != nil {
-        log.Printf("Warning: LLM sync failed: %v", err)
-    }
-
-    // Continue with your main logic
-}
 ```
 
 ## Troubleshooting
 
 ### "No LLMs detected"
+Skills are installed in `~/tinywasm/skills/` even if no specific LLM config is found.
 
-Neither `~/.claude` nor `~/.gemini` directories exist. Install Claude Code or Gemini AI Studio first.
-
-### "LLM 'xyz' not found or not installed"
-
-The specified LLM doesn't have a config directory. Check available LLMs:
-```bash
-ls -la ~ | grep -E '\.(claude|gemini)'
-```
-
-### Section not updating
-
-If a section isn't updating as expected:
-1. Check that section markers are intact in your file
-2. Use `--force` to reset:
-   ```bash
-   llmskill -f
-   ```
-3. Check backup file (.bak) if needed
-
-### Backup files accumulating
-
-Backup files (`.bak`) are only created when:
-- Force mode is used
-- Legacy format is converted
-
-To clean them up:
-```bash
-rm ~/.claude/CLAUDE.md.bak ~/.gemini/GEMINI.md.bak
-```
-
-## Supported LLMs
-
-Currently supported:
-- **Claude Code** (`~/.claude/CLAUDE.md`)
-- **Gemini** (`~/.gemini/GEMINI.md`)
-
-Want to add more? Open an issue or PR on GitHub.
+### Reference line not appearing
+If you manually removed the reference line, run `llmskill -f` to re-add it.
 
 ## See Also
 
 - [gotest](GOTEST.md) - Run tests with coverage and badges
-- [push](PUSH.md) - Git workflow automation
 - [gopush](GOPUSH.md) - Complete workflow: test + push + update
-- [llmskill](LLMSKILL.md) - Sync LLM configuration files
