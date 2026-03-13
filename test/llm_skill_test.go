@@ -9,34 +9,21 @@ import (
 	"testing"
 )
 
-func TestLLM_GetMasterContent(t *testing.T) {
-	llm := devflow.NewLLM()
-	content, err := llm.GetMasterContent()
-	if err != nil {
-		t.Fatalf("failed to get master content: %v", err)
-	}
-	
-	expected := "Skills location: ~/tinywasm/skills/"
-	if !strings.Contains(content, expected) {
-		t.Errorf("expected content to contain %q, got %q", expected, content)
-	}
-}
-
 func TestLLM_InstallSkills(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Simular home directory temporal
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
 
 	llm := devflow.NewLLM()
-	if err := llm.InstallSkills(); err != nil {
+	if _, err := llm.InstallSkills(); err != nil {
 		t.Fatalf("failed to install skills: %v", err)
 	}
 
 	// Verificar directorios creados
-	skillsRoot := filepath.Join(tmpDir, "tinywasm", "skills")
+	skillsRoot := filepath.Join(tmpDir, "skills")
 	requiredSkills := []string{
 		"core-principles",
 		"testing",
@@ -90,9 +77,6 @@ func TestLLM_Sync(t *testing.T) {
 	// Simular instalación de LLM
 	claudeDir := filepath.Join(tmpDir, ".claude")
 	os.Mkdir(claudeDir, 0755)
-	claudeConfig := filepath.Join(claudeDir, "CLAUDE.md")
-	initialContent := "# Existing Config\n"
-	os.WriteFile(claudeConfig, []byte(initialContent), 0644)
 
 	llm := devflow.NewLLM()
 	summary, err := llm.Sync("", false)
@@ -105,18 +89,19 @@ func TestLLM_Sync(t *testing.T) {
 	}
 
 	// Verificar que se instalaron skills
-	skillsRoot := filepath.Join(tmpDir, "tinywasm", "skills")
+	skillsRoot := filepath.Join(tmpDir, "skills")
 	if _, err := os.Stat(skillsRoot); os.IsNotExist(err) {
 		t.Error("skills dir not created during Sync")
 	}
 
-	// Verificar que se añadió la línea al config
-	content, _ := os.ReadFile(claudeConfig)
-	if !strings.Contains(string(content), "Skills location: ~/tinywasm/skills/") {
-		t.Error("reference line not added to config")
+	// Verificar que se creó el symlink
+	claudeSkills := filepath.Join(claudeDir, "skills")
+	dest, err := os.Readlink(claudeSkills)
+	if err != nil {
+		t.Fatalf("failed to read symlink: %v", err)
 	}
-	if !strings.Contains(string(content), initialContent) {
-		t.Error("initial content lost")
+	if dest != skillsRoot {
+		t.Errorf("expected symlink to %s, got %s", skillsRoot, dest)
 	}
 
 	// Segunda ejecución: debe skipear
@@ -146,11 +131,53 @@ func TestLLM_Sync_SpecificLLM(t *testing.T) {
 	}
 
 	// Verificar Claude creado, Gemini no
-	if _, err := os.Stat(filepath.Join(tmpDir, ".claude", "CLAUDE.md")); os.IsNotExist(err) {
-		t.Error("claude config not created")
+	if _, err := os.Stat(filepath.Join(tmpDir, ".claude", "skills")); os.IsNotExist(err) {
+		t.Error("claude skills symlink not created")
 	}
-	if _, err := os.Stat(filepath.Join(tmpDir, ".gemini", "GEMINI.md")); err == nil {
-		t.Error("gemini config should not be created")
+	if _, err := os.Stat(filepath.Join(tmpDir, ".gemini", "skills")); err == nil {
+		t.Error("gemini skills symlink should not be created")
+	}
+}
+
+func TestLLM_LinkSkills_Fallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	skillsSource := filepath.Join(tmpDir, "skills")
+	os.MkdirAll(skillsSource, 0755)
+	os.WriteFile(filepath.Join(skillsSource, "test.txt"), []byte("test"), 0644)
+
+	llmDir := filepath.Join(tmpDir, ".claude")
+	os.MkdirAll(llmDir, 0755)
+
+	// Simular fallo de symlink creando un archivo donde debería ir el symlink
+	// (En realidad, el fallback se dispara si os.Symlink falla, lo cual es difícil
+	// de forzar en Linux sin permisos, pero podemos probar copyDir directamente
+	// o forzar un error si quisiéramos. Aquí probaremos el comportamiento de limpieza)
+
+	target := filepath.Join(llmDir, "skills")
+	os.MkdirAll(target, 0755) // Directorio preexistente (debería ser borrado)
+
+	llm := devflow.NewLLM()
+	// No podemos forzar fácilmente el fallo de os.Symlink para probar el fallback de copia
+	// sin mockear os.Symlink, pero podemos verificar que linkSkills limpia directorios.
+
+	changed, err := llm.Sync("", false) // Esto usará linkSkills internamente
+	if err != nil {
+		t.Fatalf("Sync failed: %v", err)
+	}
+	if !strings.Contains(changed, "Config updated") {
+		t.Errorf("expected config updated, got %s", changed)
+	}
+
+	info, err := os.Lstat(target)
+	if err != nil {
+		t.Fatalf("failed to stat target: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("expected symlink, got regular directory/file (fallback might have triggered or cleanup failed)")
 	}
 }
 

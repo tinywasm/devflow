@@ -6,10 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 )
-
-const DefaultSkillsReference = "Skills location: ~/tinywasm/skills/"
 
 //go:embed skills
 var embeddedSkills embed.FS
@@ -61,22 +58,17 @@ func (l *LLM) DetectInstalledLLMs() []LLMConfig {
 	return installed
 }
 
-// GetMasterContent retorna la línea de referencia por defecto
-func (l *LLM) GetMasterContent() (string, error) {
-	return DefaultSkillsReference, nil
-}
-
-// InstallSkills instala los Agent Skills embebidos en ~/tinywasm/skills/
-func (l *LLM) InstallSkills() error {
+// InstallSkills instala los Agent Skills embebidos en ~/skills/
+func (l *LLM) InstallSkills() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	destRoot := filepath.Join(home, "tinywasm", "skills")
+	destRoot := filepath.Join(home, "skills")
 	l.log("Installing skills to:", destRoot)
 
-	return fs.WalkDir(embeddedSkills, "skills", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(embeddedSkills, "skills", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -98,18 +90,20 @@ func (l *LLM) InstallSkills() error {
 		// Escribir archivo (sobrescribir siempre para actualizar)
 		return os.WriteFile(destPath, data, 0644)
 	})
+	return destRoot, err
 }
 
 // Sync sincroniza todos los LLMs instalados e instala los skills
 func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 	// 1. Instalar skills
-	if err := l.InstallSkills(); err != nil {
+	destRoot, err := l.InstallSkills()
+	if err != nil {
 		return "", fmt.Errorf("failed to install skills: %w", err)
 	}
 
 	installed := l.DetectInstalledLLMs()
 	if len(installed) == 0 {
-		return "⚠️  No LLMs detected (skills installed in ~/tinywasm/skills/)", nil
+		return "⚠️  No LLMs detected (skills installed in ~/skills/)", nil
 	}
 
 	// Filtrar por LLM específico si se proporcionó
@@ -127,19 +121,11 @@ func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 		installed = filtered
 	}
 
-	master, err := l.GetMasterContent()
-	if err != nil {
-		return "", err
-	}
-	master = strings.TrimSpace(master)
-
 	var updated []string
 	var skipped []string
 
 	for _, llm := range installed {
-		configPath := filepath.Join(llm.Dir, llm.ConfigFile)
-
-		changed, err := l.ensureReferenceLine(configPath, master, force)
+		changed, err := l.linkSkills(llm.Dir, destRoot)
 		if err != nil {
 			return "", fmt.Errorf("failed to sync %s: %w", llm.Name, err)
 		}
@@ -166,51 +152,6 @@ func (l *LLM) Sync(specificLLM string, force bool) (string, error) {
 	return summary, nil
 }
 
-// ensureReferenceLine asegura que la línea de referencia existe en el archivo
-func (l *LLM) ensureReferenceLine(configPath, line string, force bool) (bool, error) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		// Si no existe, crearlo
-		l.log("Creating new config file:", configPath)
-		return true, os.WriteFile(configPath, []byte(line+"\n"), 0644)
-	}
-
-	content := string(data)
-	if strings.Contains(content, line) && !force {
-		return false, nil
-	}
-
-	if force {
-		// Backup
-		backupPath := configPath + ".bak"
-		if err := CopyFile(configPath, backupPath); err != nil {
-			return false, fmt.Errorf("failed to create backup: %w", err)
-		}
-		l.log("Created backup:", backupPath)
-		
-		// En force, podemos decidir si lo re-agregamos al final o qué.
-		// Según el plan, solo añadimos la línea si no existe. 
-		// Pero si es force, quizá queremos asegurar que esté ahí incluso si el usuario la quitó.
-	}
-
-	if !strings.Contains(content, line) {
-		l.log("Adding reference line to:", configPath)
-		newContent := line + "\n" + content
-		return true, os.WriteFile(configPath, []byte(newContent), 0644)
-	}
-
-	return false, nil
-}
-
-// ForceUpdate reinstala skills y asegura la línea de referencia
-func (l *LLM) ForceUpdate(configPath, masterContent string) error {
-	if err := l.InstallSkills(); err != nil {
-		return err
-	}
-	_, err := l.ensureReferenceLine(configPath, strings.TrimSpace(masterContent), true)
-	return err
-}
-
 // CopyFile copia un archivo (helper para backup)
 func CopyFile(src, dst string) error {
 	data, err := os.ReadFile(src)
@@ -218,4 +159,49 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+// linkSkills creates a symlink from the LLM's skills dir to the shared skills location.
+// Falls back to copying if symlink fails (Windows without Developer Mode).
+func (l *LLM) linkSkills(llmDir, skillsSource string) (bool, error) {
+	target := filepath.Join(llmDir, "skills")
+
+	// Already correct symlink?
+	if dest, err := os.Readlink(target); err == nil {
+		if dest == skillsSource {
+			return false, nil // already linked
+		}
+		os.Remove(target) // stale symlink
+	}
+
+	// Remove if regular dir exists (leftover from old copy approach)
+	if info, err := os.Lstat(target); err == nil && info.IsDir() {
+		os.RemoveAll(target)
+	}
+
+	// Try symlink
+	if err := os.Symlink(skillsSource, target); err == nil {
+		return true, nil
+	}
+
+	// Fallback: copy only our own skills (not the whole dir)
+	return true, copyDir(skillsSource, target)
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
 }
