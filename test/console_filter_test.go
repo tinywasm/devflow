@@ -290,3 +290,65 @@ func TestConsoleFilter_PanicMode(t *testing.T) {
 		t.Errorf("Expected trace line 2, got: %q", output[2])
 	}
 }
+
+func TestConsoleFilter_GoVetFailure(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := devflow.NewConsoleFilter(record)
+
+	// Simulate go vet output with relative paths and sub-messages
+	cf.Add("# github.com/tinywasm/mcp\n")
+	cf.Add("./mcp.go:189:15: fmt.Fielder (missing method Pointers)\n")
+	cf.Add("    have Pointers() []unsafe.Pointer\n")
+	cf.Add("    want Pointers() []*fmt.Value\n")
+	cf.Flush()
+
+	expected := []string{
+		"# github.com/tinywasm/mcp",
+		"    mcp.go:189:15: fmt.Fielder (missing method Pointers)",
+		"    have Pointers() []unsafe.Pointer",
+		"    want Pointers() []*fmt.Value",
+	}
+
+	if len(output) != len(expected) {
+		t.Fatalf("Expected %d output lines, got %d. Output:\n%s", len(expected), len(output), strings.Join(output, "\n"))
+	}
+
+	for i, line := range expected {
+		if output[i] != line {
+			t.Errorf("Line %d mismatch:\nexp: %q\ngot: %q", i, line, output[i])
+		}
+	}
+}
+
+func TestConsoleFilter_ReportedIssue(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := devflow.NewConsoleFilter(record)
+
+	// User's failing output
+	cf.Add("# github.com/tinywasm/mcp\n")
+	cf.Add("/home/cesar/go/pkg/mod/github.com/tinywasm/mcp@v0.0.19/client.go:68:38: cannot use &envelope (value of type *struct{Result any \"json:\\\"result\\\"\"}) as \"github.com/tinywasm/fmt\".Fielder value in argument to json.Decode: *struct{Result any \"json:\\\"result\\\"\"} does not implement \"github.com/tinywasm/fmt\".Fielder (missing method Pointers)\n")
+	cf.Add("/home/cesar/go/pkg/mod/github.com/tinywasm/mcp@v0.0.19/client.go:78:25: cannot use envelope.Result (variable of interface type any) as \"github.com/tinywasm/fmt\".Fielder value in argument to json.Encode: any does not implement \"github.com/tinywasm/fmt\".Fielder (missing method Pointers)\n")
+	cf.Add("/home/cesar/go/pkg/mod/github.com/tinywasm/mcp@v0.0.19/client.go:102:24: cannot use rpcRequest{…} (value of struct type rpcRequest) as \"github.com/tinywasm/fmt\".Fielder value in argument to json.Encode: rpcRequest does not implement \"github.com/tinywasm/fmt\".Fielder (missing method Pointers)\n")
+	cf.Flush()
+
+	// We WANT to see the file name and the error. 
+	
+	foundFileRefs := 0
+	for _, line := range output {
+		if strings.Contains(line, "client.go:") {
+			foundFileRefs++
+		}
+	}
+
+	if foundFileRefs != 3 {
+		t.Errorf("Expected 3 lines with 'client.go:', but found %d. Output:\n%s", foundFileRefs, strings.Join(output, "\n"))
+	}
+}

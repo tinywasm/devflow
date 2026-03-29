@@ -65,11 +65,10 @@ func main() {
 
 ### Markdown Section
 
-Ensure your `README.md` has the following section markers:
+The `badges` tool automatically manages the badge image in your `README.md`. It will:
 
-```markdown
-<!-- START_SECTION:BADGES_SECTION -->
-<!-- END_SECTION:BADGES_SECTION -->
-```
+1. **Create new entry**: If no badge line exists, insert `<img src="docs/img/badges.svg">` after the first line (title)
+2. **Update existing**: If a badge `<img src="...badges.svg">` line exists, update it in place
+3. **Migrate old format**: If old section markers exist (`<!-- START_SECTION:BADGES_SECTION -->` / `<!-- END_SECTION:BADGES_SECTION -->`), remove them and replace with the single img line
 
-The tool will inject the badge image between these markers.
+**No section markers are required** — the tool detects the badge by pattern matching.

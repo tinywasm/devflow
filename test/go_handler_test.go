@@ -248,6 +248,7 @@ func TestGoPush_DependentOutput(t *testing.T) {
 	goHandler.SetConsoleOutput(func(s string) {
 		consoleLines = append(consoleLines, s)
 	})
+	goHandler.SetRetryConfig(100*time.Millisecond, 3)
 
 	// We need to mock FindDependentModules or ensure it finds our dep
 	// SearchPath is the parent of dir

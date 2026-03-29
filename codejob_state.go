@@ -63,10 +63,8 @@ func JulesSessionState(sessionID, apiKey string, client HTTPClient) (msg, prURL 
 // 5. env.Set("CODEJOB_PR", prURL)
 // 6. Update .gitignore
 func HandleDone(env *DotEnv, git *Git, prURL string) error {
-	// 1. git fetch
-	if _, err := RunCommandSilent("git", "fetch", "--all"); err != nil {
-		return fmt.Errorf("git fetch failed: %w", err)
-	}
+	// 1. git fetch (non-fatal: state cleanup must proceed regardless)
+	RunCommandSilent("git", "fetch", "--all") //nolint: ignore fetch failure
 
 	// 2. checkout Jules branch for local review (non-fatal)
 	if prURL != "" {

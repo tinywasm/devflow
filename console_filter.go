@@ -129,18 +129,28 @@ func (cf *ConsoleFilter) addLine(line string) {
 
 	// Keep first project file reference, skip subsequent ones
 	// Format: /path/to/project/file.go:line +0xhex
-	if strings.HasPrefix(trimmed, "/") && strings.Contains(trimmed, ".go:") {
+	if strings.Contains(trimmed, ".go:") && (strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "./")) {
 		// Extract just filename:line from full path
-		parts := strings.Split(trimmed, "/")
-		if len(parts) > 0 {
-			lastPart := parts[len(parts)-1]
-			// Remove hex offset like +0x38
-			if idx := strings.Index(lastPart, " +0x"); idx != -1 {
-				lastPart = lastPart[:idx]
-			}
-			// Add shortened reference and continue filtering
-			cf.buffer = append(cf.buffer, "    "+lastPart)
+		// Find where the path ends (at .go:)
+		goIdx := strings.Index(trimmed, ".go:")
+		fullPath := trimmed[:goIdx+3] // includes ".go"
+
+		// Find last slash in the PATH part only
+		lastSlash := strings.LastIndex(fullPath, "/")
+		lastPart := ""
+		if lastSlash != -1 {
+			lastPart = trimmed[lastSlash+1:]
+		} else {
+			lastPart = trimmed
 		}
+
+		// Remove hex offset like +0x38 if present (stack traces)
+		if idx := strings.Index(lastPart, " +0x"); idx != -1 {
+			lastPart = lastPart[:idx]
+		}
+
+		// Add shortened reference and continue filtering
+		cf.buffer = append(cf.buffer, "    "+lastPart)
 		return
 	}
 
