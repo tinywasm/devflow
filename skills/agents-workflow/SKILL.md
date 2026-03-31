@@ -19,4 +19,4 @@ description: Multi-agent planning workflow with PLAN.md as master orchestrator, 
         - **3. Resolve**:
             - **Approve**: If the work is correct, run `codejob 'commit message' [tag]` to merge the PR and publish via `gopush`.
             - **Iterate**: If adjustments are needed, create a **new** `docs/PLAN.md` and run `codejob` again. The tool will merge the old PR, delete `CHECK_PLAN.md`, and dispatch the new plan.
-        - **Note**: `codejob` is a **local developer tool** — it MUST **NEVER** appear inside `PLAN.md` or any plan sent to an agent. Its purpose is orchestration, not execution.
+        - **Note**: `codejob` and `gopush` are **local developer tools** — they MUST **NEVER** appear inside `PLAN.md` or any plan sent to an agent. Their purpose is orchestration and publishing, not execution. Plans sent to agents must NOT include publishing sections or `gopush` commands.
