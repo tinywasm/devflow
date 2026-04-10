@@ -7,7 +7,8 @@ import (
 
 // GitHub handler for GitHub operations
 type GitHub struct {
-	log func(...any)
+	log          func(...any)
+	SecretRunner SecretRunner
 }
 
 // NewGitHub creates handler and verifies gh CLI availability.
