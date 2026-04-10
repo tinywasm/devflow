@@ -1,2 +1,6 @@
 *.code-workspace
 .env
+badges
+codejob
+gopush
+gotest
