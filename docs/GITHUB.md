@@ -99,3 +99,18 @@ The devflow OAuth App is registered under a **personal GitHub account** (not the
 
 > [!NOTE]
 > Organization-owned OAuth Apps require admin permissions and add complexity. Personal OAuth Apps are simpler to manage and work identically for end users.
+
+## GitHub Actions Secrets
+
+Manage GitHub Actions Secrets from Go without accessing the GitHub UI.
+The `repo` scope (already included in devflow's Device Flow) covers `secrets:write`.
+
+```go
+    gh, _ := devflow.NewGitHub(log)
+
+    gh.SetSecret("owner/repo", "CF_TOKEN", token)     // register
+    names, _ := gh.ListSecrets("owner/repo")           // ["CF_TOKEN"]
+    gh.DeleteSecret("owner/repo", "CF_TOKEN")          // delete
+```
+
+Values are encrypted by the `gh` CLI with the repo's public key before being transmitted. The plain text value never leaves the local process.

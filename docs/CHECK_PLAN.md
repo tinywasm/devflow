@@ -1,5 +1,9 @@
 # devflow — GitHub Secrets Plan
 
+> [!TIP]
+> **Plan Completado** el 2026-04-13. Todas las funcionalidades de gestión de secretos de GitHub Actions han sido implementadas y testeadas.
+
+
 ## Contexto
 
 `devflow` ya tiene:
@@ -214,12 +218,12 @@ antes de transmitirse. El valor en texto plano nunca sale del proceso local.
 
 ## Checklist
 
-- [ ] `github_secrets.go` — interface `secretRunner` + `defaultRunner`
-- [ ] `github_secrets.go` — campo `secretsRunner` en `GitHub` struct (nil-safe)
-- [ ] `github_secrets.go` — `SetSecret(repo, name, value string) error`
-- [ ] `github_secrets.go` — `ListSecrets(repo string) ([]string, error)`
-- [ ] `github_secrets.go` — `DeleteSecret(repo, name string) error`
-- [ ] `github_secrets.go` — `parseJSONStringArray(s string) []string` — array plano, `[]` → `[]string{}`
-- [ ] `test/github_secrets_test.go` — `fakeRunner` + `newTestGitHub` helper
-- [ ] `test/github_secrets_test.go` — 6 casos cubriendo args, parsing y error wrapping
-- [ ] `docs/GITHUB.md` — sección de secrets con ejemplo de uso
+- [x] `github_secrets.go` — interface `secretRunner` + `defaultRunner`
+- [x] `github_secrets.go` — campo `secretsRunner` en `GitHub` struct (nil-safe)
+- [x] `github_secrets.go` — `SetSecret(repo, name, value string) error`
+- [x] `github_secrets.go` — `ListSecrets(repo string) ([]string, error)`
+- [x] `github_secrets.go` — `DeleteSecret(repo, name string) error`
+- [x] `github_secrets.go` — `parseJSONStringArray(s string) []string` — array plano, `[]` → `[]string{}`
+- [x] `test/github_secrets_test.go` — `fakeRunner` + `newTestGitHub` helper
+- [x] `test/github_secrets_test.go` — 6 casos cubriendo args, parsing y error wrapping
+- [x] `docs/GITHUB.md` — sección de secrets con ejemplo de uso
