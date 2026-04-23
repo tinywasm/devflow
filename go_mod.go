@@ -242,6 +242,10 @@ func (g *GoModHandler) SetLog(fn func(messages ...any)) {
 	g.log = fn
 }
 
+func (g *GoModHandler) SetOnSSRFileChange(fn func(string)) {
+	g.OnSSRFileChange = fn
+}
+
 func (g *GoModHandler) Name() string {
 	return "GOMOD"
 }
