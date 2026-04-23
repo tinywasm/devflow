@@ -17,11 +17,12 @@ type GoModHandler struct {
 	Modified bool     // track if changes were made
 
 	// Handler fields
-	rootDir       string
-	watcher       FolderWatcher
-	currentPaths  map[string]string // modulePath -> localPath
-	log           func(messages ...any)
-	knownReplaces map[string]string
+	rootDir          string
+	watcher          FolderWatcher
+	currentPaths     map[string]string // modulePath -> localPath
+	log              func(messages ...any)
+	knownReplaces    map[string]string
+	OnSSRFileChange  func(moduleDir string) // called when ssr.go changes in a watched module
 }
 
 // ReplaceEntry represents a local replace directive found in go.mod
@@ -257,8 +258,14 @@ func (g *GoModHandler) UnobservedFiles() []string {
 	return nil
 }
 
-// NewFileEvent handles changes to go.mod
+// NewFileEvent handles changes to go.mod and ssr.go files in watched modules
 func (g *GoModHandler) NewFileEvent(fileName, extension, filePath, event string) error {
+	// Relay ssr.go changes to registered callback for SSR asset hot reload
+	if fileName == "ssr.go" && g.OnSSRFileChange != nil {
+		g.OnSSRFileChange(filepath.Dir(filePath))
+		return nil
+	}
+
 	// Only care about go.mod in the root directory
 	if !strings.HasSuffix(filePath, "go.mod") {
 		return nil
