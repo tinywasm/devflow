@@ -71,10 +71,13 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 	path := writeTempFile(t, "some plan")
 	published := false
 	mockPub := &MockPublisher{
-		PublishFn: func(m, tag string, st, sr, sd, sb, stag bool) (devflow.PushResult, error) {
+		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
 			published = true
 			if !stag || !sd || !sb {
 				t.Errorf("expected skipTag, skipDependents, skipBackup to be true")
+			}
+			if !sv {
+				t.Errorf("expected skipVerify to be true for codejob dispatch")
 			}
 			return devflow.PushResult{}, nil
 		},
@@ -97,7 +100,7 @@ func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	path := writeTempFile(t, "some plan")
 	publishCalled := false
 	mockPub := &MockPublisher{
-		PublishFn: func(m, tag string, st, sr, sd, sb, stag bool) (devflow.PushResult, error) {
+		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
 			publishCalled = true
 			return devflow.PushResult{Summary: "Pushed ✅ v1.2.3"}, nil
 		},

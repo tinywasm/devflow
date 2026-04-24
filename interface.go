@@ -53,7 +53,7 @@ type FolderWatcher interface {
 
 // Publisher defines the interface for publishing code changes.
 type Publisher interface {
-	Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (PushResult, error)
+	Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (PushResult, error)
 }
 
 // CodeJobDriver defines the contract for an external AI coding agent.

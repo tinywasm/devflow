@@ -64,12 +64,12 @@ func testCreateGoModule(moduleName string) (dir string, cleanup func()) {
 
 // MockPublisher for testing
 type MockPublisher struct {
-	PublishFn func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (devflow.PushResult, error)
+	PublishFn func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error)
 }
 
-func (m *MockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (devflow.PushResult, error) {
+func (m *MockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
 	if m.PublishFn != nil {
-		return m.PublishFn(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag)
+		return m.PublishFn(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify)
 	}
 	return devflow.PushResult{Summary: "Mock published"}, nil
 }

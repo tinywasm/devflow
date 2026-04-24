@@ -169,7 +169,7 @@ func TestExample(t *testing.T) {}
 
 	// Run Push
 	// We skip dependents (true) and backup (true/false) to focus on core flow
-	result, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, false, "")
+	result, err := goHandler.Push("test update", "v0.0.1", false, true, true, true, false, false, "")
 	if err != nil {
 		t.Fatalf("Go Push failed: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestGoPush_NoGoMod(t *testing.T) {
 	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Run Push
-	result, err := goHandler.Push("test", "", false, false, false, false, false, "")
+	result, err := goHandler.Push("test", "", false, false, false, false, false, false, "")
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestGoPush_SkipTag(t *testing.T) {
 	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Run Push with skipTag=true
-	result, err := goHandler.Push("test", "", true, true, true, true, true, "")
+	result, err := goHandler.Push("test", "", true, true, true, true, true, false, "")
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestGoPush_DependentOutput(t *testing.T) {
 
 	// We need to mock FindDependentModules or ensure it finds our dep
 	// SearchPath is the parent of dir
-	result, _ := goHandler.Push("feat: main", "v1.0.0", true, true, false, true, false, "..")
+	result, _ := goHandler.Push("feat: main", "v1.0.0", true, true, false, true, false, false, "..")
 
 	// Summary should NOT contain dep update result
 	if strings.Contains(result.Summary, "updated to v1.0.0") {
@@ -470,7 +470,7 @@ func TestGoPush_RemoteAccessFailure(t *testing.T) {
 
 	goHandler, _ := devflow.NewGo(mockGit)
 
-	_, err := goHandler.Push("msg", "tag", true, true, true, true, false, "")
+	_, err := goHandler.Push("msg", "tag", true, true, true, true, false, false, "")
 
 	if err == nil {
 		t.Fatal("Expected error due to remote access failure, got nil")
@@ -501,7 +501,7 @@ func TestGoPush_SkipTag_CallsAddBeforeCommit(t *testing.T) {
 	goHandler, _ := devflow.NewGo(mockGit)
 
 	// Call Push with skipTag=true (non-Go project since we have no go.mod)
-	_, err := goHandler.Push("test message", "v1.0.0", false, false, false, false, true, "")
+	_, err := goHandler.Push("test message", "v1.0.0", false, false, false, false, true, false, "")
 
 	if err != nil {
 		t.Logf("Push returned error (expected for mock): %v", err)
@@ -521,5 +521,86 @@ func TestGoPush_SkipTag_CallsAddBeforeCommit(t *testing.T) {
 	if mockGit.AddCalls > 0 && mockGit.CommitCalls > 0 {
 		// This is a simple check; ideally we'd track call order precisely
 		t.Logf("✅ Add() was called %d time(s), Commit() was called %d time(s)", mockGit.AddCalls, mockGit.CommitCalls)
+	}
+}
+
+func TestGoPush_SkipVerify_DoesNotCallVerify(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{
+		pushResult: devflow.PushResult{Summary: "Mock push ok", Tag: "v0.0.1"},
+		latestTag:  "v0.0.0",
+	}
+
+	goHandler, _ := devflow.NewGo(mockGit)
+
+	// Introduce an invalid go.mod to ensure verify would fail if called
+	os.WriteFile("go.mod", []byte("module github.com/test/repo\n\ngo 1.21\n\nrequire github.com/nonexistent/pkg v0.0.0\n"), 0644)
+
+	// skipVerify=true: push must succeed despite broken go.mod
+	_, err := goHandler.Push("test", "v0.0.1", true, true, true, true, false, true, "")
+	if err != nil {
+		t.Fatalf("Push with skipVerify=true should not fail on broken go.mod, got: %v", err)
+	}
+}
+
+func TestParseVerifyError_UnknownRevision(t *testing.T) {
+	output := "go: github.com/tinywasm/tinygo@v0.0.0: reading github.com/tinywasm/tinygo/go.mod at revision v0.0.0: unknown revision v0.0.0"
+
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{}
+	goHandler, _ := devflow.NewGo(mockGit)
+
+	// Write the broken go.mod and mock RunCommand via a patched verify
+	_ = goHandler
+	_ = output
+
+	msg, ok := devflow.ParseVerifyError(output)
+	if !ok {
+		t.Fatal("Expected parseVerifyError to match unknown revision")
+	}
+	if !strings.Contains(msg, "is not published") {
+		t.Errorf("Expected actionable message about publishing, got: %s", msg)
+	}
+	if !strings.Contains(msg, "github.com/tinywasm/tinygo@v0.0.0") {
+		t.Errorf("Expected module reference in message, got: %s", msg)
+	}
+}
+
+func TestParseVerifyError_ChecksumMismatch(t *testing.T) {
+	output := "verifying github.com/foo/bar@v1.2.3: checksum mismatch"
+
+	msg, ok := devflow.ParseVerifyError(output)
+	if !ok {
+		t.Fatal("Expected parseVerifyError to match checksum mismatch")
+	}
+	if !strings.Contains(msg, "go clean -modcache") {
+		t.Errorf("Expected actionable message with go clean -modcache, got: %s", msg)
+	}
+}
+
+func TestParseVerifyError_MissingGoSum(t *testing.T) {
+	output := "missing go.sum entry for module providing package github.com/foo/bar"
+
+	msg, ok := devflow.ParseVerifyError(output)
+	if !ok {
+		t.Fatal("Expected parseVerifyError to match missing go.sum")
+	}
+	if !strings.Contains(msg, "go mod tidy") {
+		t.Errorf("Expected actionable message with go mod tidy, got: %s", msg)
+	}
+}
+
+func TestParseVerifyError_UnknownPattern(t *testing.T) {
+	output := "some random unrecognized error from go mod verify"
+
+	_, ok := devflow.ParseVerifyError(output)
+	if ok {
+		t.Error("Expected parseVerifyError to return false for unrecognized patterns")
 	}
 }

@@ -228,7 +228,7 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	// 5. Check for new PLAN.md to re-dispatch
 	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
 		// PLAN.md exists -> call Publisher.Publish (skip deps + tag) + dispatch to agent
-		res, err := publisher.Publish("chore: sync before re-dispatch", "", true, true, true, true, true)
+		res, err := publisher.Publish("chore: sync before re-dispatch", "", true, true, true, true, true, true)
 		if err != nil {
 			return PushResult{}, fmt.Errorf("re-dispatch sync failed: %w", err)
 		}
@@ -239,5 +239,5 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// No PLAN.md -> call full gopush
-	return publisher.Publish(message, overrideTag, false, false, false, false, false)
+	return publisher.Publish(message, overrideTag, false, false, false, false, false, false)
 }

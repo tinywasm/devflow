@@ -151,7 +151,7 @@ func TestAsyncUpdateFlow(t *testing.T) {
 		mu.Unlock()
 	})
 
-	result, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, false, "..")
+	result, err := g.Push("feat: update main", "v0.0.2", true, true, false, true, false, false, "..")
 
 	if err != nil {
 		t.Fatalf("Push failed: %v", err)

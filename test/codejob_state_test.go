@@ -294,7 +294,7 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 	devflow.ExecCommand = mockFn
 
 	mockPub := &MockPublisher{
-		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (devflow.PushResult, error) {
+		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
 			return devflow.PushResult{Tag: tag, Summary: "Mock published " + tag}, nil
 		},
 	}

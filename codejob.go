@@ -192,7 +192,7 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 
 	// PUBLISH BEFORE SEND (Stage 2, step 2.3)
 	if c.publisher != nil {
-		_, err := c.publisher.Publish("chore: sync before codejob dispatch", "", true, true, true, true, true)
+		_, err := c.publisher.Publish("chore: sync before codejob dispatch", "", true, true, true, true, true, true)
 		if err != nil {
 			return "", fmt.Errorf("failed to sync repo before dispatch: %w", err)
 		}

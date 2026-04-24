@@ -26,7 +26,7 @@ func TestGoPushFlags(t *testing.T) {
 
 	// 1. Skip Tests and Skip Race
 	// Mock returns "Mock push ok"
-	result, err := goHandler.Push("msg", "v0.0.1", true, true, false, false, false, "")
+	result, err := goHandler.Push("msg", "v0.0.1", true, true, false, false, false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,13 +42,13 @@ func TestExample(t *testing.T) {}
 `
 	os.WriteFile("main_test.go", []byte(testContent), 0644)
 
-	_, err = goHandler.Push("msg", "v0.0.2", false, true, false, false, false, "")
+	_, err = goHandler.Push("msg", "v0.0.2", false, true, false, false, false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 3. Run Tests, Run Race
-	_, err = goHandler.Push("msg", "v0.0.3", false, false, false, false, false, "")
+	_, err = goHandler.Push("msg", "v0.0.3", false, false, false, false, false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestFail(t *testing.T) { t.Fatal("fail") }
 `
 	os.WriteFile("main_test.go", []byte(testContent), 0644)
 
-	_, err := goHandler.Push("msg", "", false, false, false, false, false, "")
+	_, err := goHandler.Push("msg", "", false, false, false, false, false, false, "")
 	if err == nil {
 		t.Error("Expected Push to fail due to failed tests")
 	}

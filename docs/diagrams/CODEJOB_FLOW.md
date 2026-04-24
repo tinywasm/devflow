@@ -17,7 +17,7 @@ flowchart TD
     H1 --> I
     H -- Yes --> I{PLAN.md exists?}
     I -- No --> J[Error: no plan]
-    I -- Yes --> K[gopush 'chore: sync'<br/>skip tag, deps, backup]
+    I -- Yes --> K[git commit + push<br/>skip tag, tests, deps, backup, verify]
     K --> L[Dispatch PLAN.md to agent]
     L --> M[Save session to .env]
     B -- Yes --> N{CODEJOB_PR in .env?}

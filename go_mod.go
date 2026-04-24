@@ -408,8 +408,46 @@ func (g *Go) Verify() error {
 		return fmt.Errorf("go.mod not found")
 	}
 
-	_, err := RunCommand("go", "mod", "verify")
+	output, err := RunCommand("go", "mod", "verify")
+	if err == nil {
+		return nil
+	}
+
+	if msg, ok := ParseVerifyError(output); ok {
+		return fmt.Errorf("%s", msg)
+	}
+
 	return err
+}
+
+// ParseVerifyError detects known go mod verify failure patterns and returns an actionable message.
+func ParseVerifyError(output string) (string, bool) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.Contains(line, "unknown revision"):
+			mod := extractModuleRef(line)
+			return fmt.Sprintf("module %s is not published — publish it or remove it from go.mod", mod), true
+		case strings.Contains(line, "checksum mismatch"):
+			mod := extractModuleRef(line)
+			return fmt.Sprintf("checksum mismatch for %s — run `go clean -modcache` and retry", mod), true
+		case strings.Contains(line, "missing go.sum entry"):
+			return "go.sum is out of sync — run `go mod tidy`", true
+		}
+	}
+	return "", false
+}
+
+// extractModuleRef extracts "module@version" from a go error line.
+// Example input: "go: github.com/foo/bar@v0.0.0: reading ...: unknown revision v0.0.0"
+func extractModuleRef(line string) string {
+	// Strip leading "go: "
+	s := strings.TrimPrefix(line, "go: ")
+	// Take everything up to the first ": "
+	if idx := strings.Index(s, ": "); idx != -1 {
+		return s[:idx]
+	}
+	return "unknown module"
 }
 
 // WaitForVersionAvailable waits for a module version to be available on Go proxy

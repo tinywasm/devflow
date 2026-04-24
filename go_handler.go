@@ -108,7 +108,7 @@ func (g *Go) GetGit() GitClient {
 //	skipBackup: If true, skips backup
 //	skipTag: If true, skips tag generation and pushes without tags
 //	searchPath: Path to search for dependent modules (default: "..")
-func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool, searchPath string) (PushResult, error) {
+func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool, searchPath string) (PushResult, error) {
 	// Validate message
 	if err := ValidateCommitMessage(message); err != nil {
 		return PushResult{}, err
@@ -157,9 +157,11 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		return res, err
 	}
 
-	// 1. Verify go.mod
-	if err := g.Verify(); err != nil {
-		return PushResult{}, fmt.Errorf("go mod verify failed: %w", err)
+	// 1. Verify go.mod (skip when dispatching to an agent that will fix the repo)
+	if !skipVerify {
+		if err := g.Verify(); err != nil {
+			return PushResult{}, fmt.Errorf("go mod verify failed: %w", err)
+		}
 	}
 
 	// 2. Run tests (if not skipped)
@@ -241,8 +243,8 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 }
 
 // Publish satisfies the Publisher interface
-func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag bool) (PushResult, error) {
-	return g.Push(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag, "..")
+func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (PushResult, error) {
+	return g.Push(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify, "..")
 }
 
 // UpdateDependentModule updates a dependent module and optionally pushes it
@@ -332,7 +334,7 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	depHandler.SetRootDir(depDir)
 
 	commitMsg := fmt.Sprintf("deps: update %s to %s", filepath.Base(modulePath), version)
-	_, err = depHandler.Push(commitMsg, "", true, true, true, true, true, "")
+	_, err = depHandler.Push(commitMsg, "", true, true, true, true, true, false, "")
 	if err != nil {
 		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ push failed", depName))
 		return "", fmt.Errorf("push failed: %w", err)

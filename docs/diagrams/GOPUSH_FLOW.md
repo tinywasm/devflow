@@ -8,7 +8,12 @@ flowchart TD
     B -- No --> C[git add + commit + push<br/>tag if !skipTag]
     C --> M[Backup]
     M --> D[Done: print summary]
-    B -- Yes --> E[Run gotest]
+    B -- Yes --> V{skipVerify?}
+    V -- No --> VR[go mod verify]
+    VR --> VF{Verify pass?}
+    VF -- No --> VE[Exit 1: actionable error<br/>unknown revision / checksum / go.sum]
+    VF -- Yes --> E[Run gotest]
+    V -- Yes --> E
     E --> F{Tests pass?}
     F -- No --> G[Exit 1]
     F -- Yes --> H[git add + commit + push<br/>tag if !skipTag]
