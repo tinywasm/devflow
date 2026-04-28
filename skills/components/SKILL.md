@@ -89,12 +89,15 @@ func (c *MyComponent) IconSvg() map[string]string {
     return map[string]string{
         // Only internal SVG content — no wrapping <svg> tag.
         // Default viewBox: 0 0 16 16. Include viewBox="..." in string to override.
-        "mycomponent-icon": `<path d="..."/>`,
+        // MANDATORY: always use fill="currentColor" (or stroke="currentColor") so
+        // the icon color can be controlled from CSS via the parent's color property.
+        "mycomponent-icon": `<path fill="currentColor" d="..."/>`,
     }
 }
 ```
 
 `IconSvg()` MUST be in `ssr.go`. SVG strings must never reach the WASM binary.
+All paths/shapes MUST use `fill="currentColor"` or `stroke="currentColor"` — never hardcode colors in SVG.
 
 ## CSS Conventions
 
