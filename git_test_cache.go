@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -54,12 +55,27 @@ func (tc *TestCache) GetGitState() (string, error) {
 	// Get hash of uncommitted changes (if any)
 	diff, err := RunCommandSilent("git", "diff", "HEAD")
 	if err != nil {
-		// No diff or error, use empty
 		diff = ""
 	}
 
-	// Combine commit + diff hash for unique state
-	diffHash := fmt.Sprintf("%x", md5.Sum([]byte(diff)))
+	// Untracked .go files — not covered by git diff HEAD
+	untrackedRaw, err := RunCommandSilent("git", "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		untrackedRaw = ""
+	}
+	var goUntracked []string
+	for _, f := range strings.Split(untrackedRaw, "\n") {
+		f = strings.TrimSpace(f)
+		if strings.HasSuffix(f, ".go") {
+			goUntracked = append(goUntracked, f)
+		}
+	}
+	sort.Strings(goUntracked)
+	untrackedKey := strings.Join(goUntracked, "\n")
+
+	// Combine commit + diff + untracked hash for unique state
+	combined := diff + "\x00" + untrackedKey
+	diffHash := fmt.Sprintf("%x", md5.Sum([]byte(combined)))
 
 	return commitHash + ":" + diffHash[:8], nil
 }
