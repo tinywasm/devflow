@@ -144,6 +144,45 @@ func TestTestCache_CacheDirectory(t *testing.T) {
 	}
 }
 
+// TestTestCache_UntrackedFileInvalidatesCache verifies that adding an untracked file
+// (new test file not yet staged) changes the git state and invalidates the cache.
+// Reproduces the bug where gotest returns a cached success even when a new failing
+// test file is added but not yet committed (status "??").
+func TestTestCache_UntrackedFileInvalidatesCache(t *testing.T) {
+	dir, cleanup := testCreateGoModule("example.com/test")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	devflow.RunCommand("git", "init")
+	devflow.RunCommand("git", "config", "user.name", "Test")
+	devflow.RunCommand("git", "config", "user.email", "test@test.com")
+	devflow.RunCommand("git", "add", ".")
+	devflow.RunCommand("git", "commit", "-m", "init")
+
+	cache := devflow.NewTestCache()
+	cache.InvalidateCache()
+
+	// Save cache simulating a successful full run
+	if err := cache.SaveCache("vet ✅, race ✅, tests ✅, wasm ✅, coverage: 90.0%"); err != nil {
+		t.Fatalf("SaveCache failed: %v", err)
+	}
+	if !cache.IsCacheValid() {
+		t.Fatal("Cache should be valid right after saving")
+	}
+
+	// Add a new untracked file (not staged, not committed — simulates adding a new test)
+	newFile := filepath.Join(dir, "new_failing_test.go")
+	if err := os.WriteFile(newFile, []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("failed to write untracked file: %v", err)
+	}
+
+	// BUG: IsCacheValid() returns true even though a new .go file was added.
+	// It should return false because the module state changed.
+	if cache.IsCacheValid() {
+		t.Error("BUG: cache is still valid after adding an untracked .go file — gotest will skip the new failing test")
+	}
+}
+
 func containsColon(s string) bool {
 	for _, c := range s {
 		if c == ':' {
