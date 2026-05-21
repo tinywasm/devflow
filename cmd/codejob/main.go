@@ -15,7 +15,7 @@ func main() {
 		return
 	}
 
-	if msg == "" && !isEnvironmentValid() {
+	if msg == "" && !devflow.IsEnvironmentValid(".env") {
 		showHelp()
 		return
 	}
@@ -43,8 +43,8 @@ func main() {
 	}
 
 	// Format output: "jules: <id>" -> "Agent Jules • Session: <id>"
-	if strings.HasPrefix(result, "jules: ") {
-		sessionID := strings.TrimPrefix(result, "jules: ")
+	if strings.HasPrefix(result, devflow.JulesResultPrefix) {
+		sessionID := strings.TrimPrefix(result, devflow.JulesResultPrefix)
 		fmt.Printf("Agent Jules • Session: %s\n", sessionID)
 	} else {
 		fmt.Println(result)
@@ -61,7 +61,7 @@ func showHelp() {
 	fmt.Println("\nDescription:")
 	fmt.Println("  CodeJob orchestrates coding tasks by sending instructions to AI agents.")
 	fmt.Println("\nWorkflow:")
-	fmt.Println("  1. DISPATCH: Create docs/PLAN.md and run 'codejob' to start a new task.")
+	fmt.Printf("  1. DISPATCH: Create %s and run 'codejob' to start a new task.\n", devflow.DefaultIssuePromptPath)
 	fmt.Println("  2. REVIEW:   When ready, CodeJob renames PLAN.md to CHECK_PLAN.md and switches")
 	fmt.Println("               automatically to the agent's branch for local review.")
 	fmt.Println("  3. RESOLVE:")
@@ -69,29 +69,6 @@ func showHelp() {
 	fmt.Println("     - ITERATE: If adjustments are needed, create a new docs/PLAN.md and run")
 	fmt.Println("                'codejob'. The old PR will be merged, CHECK_PLAN.md deleted,")
 	fmt.Println("                and the new plan will be dispatched.")
-}
-
-func isEnvironmentValid() bool {
-	// 1. Check process environment
-	if os.Getenv("CODEJOB") != "" || os.Getenv("CODEJOB_PR") != "" {
-		return true
-	}
-
-	// 2. Check .env file
-	env := devflow.NewDotEnv(".env")
-	if val, ok := env.Get("CODEJOB"); ok && val != "" {
-		return true
-	}
-	if val, ok := env.Get("CODEJOB_PR"); ok && val != "" {
-		return true
-	}
-
-	// 3. Check for pending PLAN.md
-	if _, err := os.Stat(devflow.DefaultIssuePromptPath); err == nil {
-		return true
-	}
-
-	return false
 }
 
 func parseArgs(args []string) (message, tag string, isHelp bool) {

@@ -32,20 +32,50 @@ The planning agent MUST perform a conversational Q&A with the user before writin
 ## Plan Lifecycle
 
 ```mermaid
-flowchart LR
-    A[Claude writes\nPLAN.md] --> B[User reviews\nrenames to CHECK_PLAN.md]
-    B --> C{OK?}
-    C -->|yes| D["codejob 'commit msg'"]
-    C -->|errors| E[Claude writes\nnew PLAN.md]
-    E --> B
-    D --> F[codejob:\nmerge PR\ngopush\nrun tests\nupdate deps\ndelete CHECK_PLAN.md]
+flowchart TD
+    A[Claude writes<br/>docs/PLAN.md] --> B[User runs codejob<br/>dispatches to Jules]
+    B --> C[Jules opens PR<br/>on a branch]
+    C --> D[User runs codejob<br/>no args]
+    D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB_PR in .env]
+    E --> F[User asks Claude<br/>to review CHECK_PLAN.md]
+    F --> G{Implementation<br/>correct?}
+    G -->|yes| H[User runs<br/>codejob commit msg]
+    G -->|errors| I[Claude writes<br/>new docs/PLAN.md<br/>with the fix]
+    I --> B
+    H --> J[codejob: merge PR<br/>gopush + tests<br/>delete CHECK_PLAN.md]
 ```
 
-- `PLAN.md` → written by Claude, reviewed by the user.
-- `CHECK_PLAN.md` → result of renaming `PLAN.md` when the user decides to dispatch it.
-- `codejob 'commit message'` → merges the PR + publishes (`gopush`) + runs tests + updates dependencies.
-- On success: `CHECK_PLAN.md` is deleted automatically.
-- On errors: `CHECK_PLAN.md` is kept for reference; Claude writes a new `PLAN.md` with the fix.
+### Key rules for Claude when reviewing `CHECK_PLAN.md`
+
+`CHECK_PLAN.md` is the **original `PLAN.md` renamed automatically by `codejob`** after Jules opens a PR. It is the spec of what was supposed to be implemented.
+
+When the user asks Claude to review a `CHECK_PLAN.md`:
+
+1. **Read `CHECK_PLAN.md`** to understand what was planned (stages, expected outputs, criteria).
+2. **Inspect the actual code** in the repo to verify each stage was executed correctly.
+3. **Verify documentation** — this is mandatory, agents frequently skip it:
+   - `docs/API.md` updated if public API changed (new functions, types, signatures).
+   - `docs/ARCHITECTURE.md` updated if design or structure changed.
+   - `README.md` updated if usage examples or install instructions are affected.
+   - `docs/SKILL.md` updated if the library's usage conventions changed.
+   - Any doc explicitly listed as a deliverable in `CHECK_PLAN.md` must exist and be accurate.
+   - If documentation is missing or stale → write a new `docs/PLAN.md` with only the doc fixes.
+4. **Run or instruct tests** if needed (`gotest ./...`).
+5. **If everything is correct (code + docs):** tell the user to run `codejob 'commit message'` to close the loop.
+6. **If something is missing or broken:** write a new `docs/PLAN.md` with the specific fix. Do NOT edit code directly.
+
+Claude **never**:
+- Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob`.
+- Runs `gopush`, `codejob`, or git commands to merge/publish — those are user actions.
+- Applies multi-file code fixes directly — always via a new `PLAN.md`.
+
+### `codejob` commands (user runs these, not Claude)
+
+```bash
+codejob                     # dispatch PLAN.md to Jules, or check session status
+codejob 'commit message'    # close loop: merge PR + gopush + delete CHECK_PLAN.md
+codejob 'commit msg' v0.2.0 # close loop with explicit tag
+```
 
 ## Error Handling After Agent Execution
 
@@ -65,8 +95,11 @@ In all cases: Claude **does not execute** the fix directly. It only writes the `
 - Must be fully self-contained: include all relevant constraints, interfaces, conventions, and examples inline.
 - Link to relevant docs (`README.md`, `ARCHITECTURE.md`) but repeat critical rules inline — do not assume the agent will read them.
 - Structure into clear, sequential execution steps with a stages table at the end.
-- May include `gopush` as a final stage if the agent should publish after tests pass.
-- Never include `codejob` inside the plan — it is a local developer tool, not an agent instruction.
+- Never include `gopush` or `codejob` inside the plan — both are local developer tools managed outside the agent. `codejob` calls `gopush` internally when closing the loop; the agent must not call either.
+- Every `PLAN.md` MUST include a header line referencing the workflow skill, so the agent understands the context it operates in. Example:
+  ```
+  > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
+  ```
 
 ## Code Quality Checklist (include inline in every code PLAN)
 

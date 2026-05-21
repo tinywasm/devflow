@@ -59,8 +59,8 @@ func JulesSessionState(sessionID, apiKey string, client HTTPClient) (msg, prURL 
 // 1. git fetch --all
 // 2. git checkout <jules-branch> for local review
 // 3. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
-// 4. env.Delete("CODEJOB")
-// 5. env.Set("CODEJOB_PR", prURL)
+// 4. env.Delete(EnvKeyCodejob)
+// 5. env.Set(EnvKeyCodejobPR, prURL)
 // 6. Update .gitignore
 func HandleDone(env *DotEnv, git *Git, prURL string) error {
 	// 1. git fetch (non-fatal: state cleanup must proceed regardless)
@@ -87,14 +87,14 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 	}
 
 	// 4. delete from env
-	if err := env.Delete("CODEJOB"); err != nil {
+	if err := env.Delete(EnvKeyCodejob); err != nil {
 		return fmt.Errorf("could not update .env: %w", err)
 	}
 
 	// 5. persist PR URL for 'codejob done'
 	if prURL != "" {
-		if err := env.Set("CODEJOB_PR", prURL); err != nil {
-			return fmt.Errorf("could not save CODEJOB_PR: %w", err)
+		if err := env.Set(EnvKeyCodejobPR, prURL); err != nil {
+			return fmt.Errorf("could not save %s: %w", EnvKeyCodejobPR, err)
 		}
 	}
 
@@ -112,7 +112,7 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 // deletes docs/CHECK_PLAN.md, and cleans up state.
 func MergePR() error {
 	env := NewDotEnv(".env")
-	prURL, ok := env.Get("CODEJOB_PR")
+	prURL, ok := env.Get(EnvKeyCodejobPR)
 	if !ok || prURL == "" {
 		return fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
 	}
@@ -143,7 +143,7 @@ func MergePR() error {
 	}
 
 	// 3. clean up .env
-	if err := env.Delete("CODEJOB_PR"); err != nil {
+	if err := env.Delete(EnvKeyCodejobPR); err != nil {
 		return fmt.Errorf("could not clean up .env: %w", err)
 	}
 
@@ -154,7 +154,7 @@ func MergePR() error {
 // cleanup files (e.g. .gitignore updated by HandleDone), and publishes via gopush.
 func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResult, error) {
 	env := NewDotEnv(".env")
-	prURL, ok := env.Get("CODEJOB_PR")
+	prURL, ok := env.Get(EnvKeyCodejobPR)
 	if !ok || prURL == "" {
 		return PushResult{}, fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
 	}
@@ -221,7 +221,7 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 4. clean up state
-	if err := env.Delete("CODEJOB_PR"); err != nil {
+	if err := env.Delete(EnvKeyCodejobPR); err != nil {
 		return PushResult{}, fmt.Errorf("could not clean up .env: %w", err)
 	}
 

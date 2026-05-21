@@ -27,6 +27,10 @@ type JulesConfig struct {
 	SourceIndexInterval time.Duration // optional: polling interval for source check (default 10s)
 }
 
+// JulesResultPrefix is the prefix on the string returned by the Jules driver
+// after dispatching a session. cmd/codejob uses it to format the output.
+const JulesResultPrefix = "jules: "
+
 // JulesDriver implements CodeJobDriver for the Jules AI agent.
 type JulesDriver struct {
 	config    JulesConfig
@@ -229,7 +233,7 @@ func (d *JulesDriver) parseSessionID(respBody []byte) (string, error) {
 	}
 	_ = json.Unmarshal(respBody, &julesResp)
 	d.sessionID = julesResp.ID
-	return fmt.Sprintf("jules: %s", d.sessionID), nil
+	return JulesResultPrefix + d.sessionID, nil
 }
 
 // isSourceIndexed paginates GET /v1alpha/sources and returns true if sourceID is found.
