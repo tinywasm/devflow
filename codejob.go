@@ -11,8 +11,15 @@ import (
 	"golang.org/x/term"
 )
 
-// DefaultIssuePromptPath is the conventional location for the task description file.
-const DefaultIssuePromptPath = "docs/PLAN.md"
+const (
+	// DefaultIssuePromptPath is the conventional location for the task description file.
+	DefaultIssuePromptPath = "docs/PLAN.md"
+
+	// EnvKeyCodejob holds the active agent session ("driver:sessionID").
+	EnvKeyCodejob = "CODEJOB"
+	// EnvKeyCodejobPR holds the GitHub PR URL pending merge.
+	EnvKeyCodejobPR = "CODEJOB_PR"
+)
 
 // CodeJob orchestrates sending a coding task to a chain of AI agent drivers.
 // It validates the prompt file, then tries each driver in priority order,
@@ -42,14 +49,34 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 // SetPublisher injects a Publisher for close-loop operations.
 func (c *CodeJob) SetPublisher(p Publisher) { c.publisher = p }
 
+// IsEnvironmentValid reports whether the current working directory has an
+// active codejob context: a running session, a pending PR, or a PLAN.md to dispatch.
+// dotenvPath is the path to the .env file (typically ".env").
+func IsEnvironmentValid(dotenvPath string) bool {
+	if os.Getenv(EnvKeyCodejob) != "" || os.Getenv(EnvKeyCodejobPR) != "" {
+		return true
+	}
+	env := NewDotEnv(dotenvPath)
+	if val, ok := env.Get(EnvKeyCodejob); ok && val != "" {
+		return true
+	}
+	if val, ok := env.Get(EnvKeyCodejobPR); ok && val != "" {
+		return true
+	}
+	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
+		return true
+	}
+	return false
+}
+
 // Run implements the unified API logic.
 func (c *CodeJob) Run(message, tag string) (string, error) {
 	env := NewDotEnv(".env")
 
 	// 1. If message provided -> close the loop
 	if message != "" {
-		if _, ok := env.Get("CODEJOB_PR"); !ok {
-			return "", fmt.Errorf("no pending PR found in .env (CODEJOB_PR missing)")
+		if _, ok := env.Get(EnvKeyCodejobPR); !ok {
+			return "", fmt.Errorf("no pending PR found in .env (%s missing)", EnvKeyCodejobPR)
 		}
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
@@ -68,12 +95,12 @@ func (c *CodeJob) Run(message, tag string) (string, error) {
 	}
 
 	// 2. No message -> check status or dispatch
-	if val, ok := env.Get("CODEJOB"); ok {
+	if val, ok := env.Get(EnvKeyCodejob); ok {
 		return c.checkStatus(env, val)
 	}
 
 	// 3. Auto-merge pending PR before dispatching new work
-	if prURL, ok := env.Get("CODEJOB_PR"); ok && prURL != "" {
+	if prURL, ok := env.Get(EnvKeyCodejobPR); ok && prURL != "" {
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
 		}
@@ -214,7 +241,7 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 			if sp, ok := d.(SessionProvider); ok {
 				if id := sp.SessionID(); id != "" {
 					env := NewDotEnv(".env")
-					_ = env.Set("CODEJOB", strings.ToLower(d.Name())+":"+id)
+					_ = env.Set(EnvKeyCodejob, strings.ToLower(d.Name())+":"+id)
 				}
 			}
 			return result, nil
