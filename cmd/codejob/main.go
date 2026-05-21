@@ -15,6 +15,11 @@ func main() {
 		return
 	}
 
+	if msg == "" && !isEnvironmentValid() {
+		showHelp()
+		return
+	}
+
 	git, err := devflow.NewGit()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -52,7 +57,7 @@ func showHelp() {
 	fmt.Println("  message    Commit message (optional, used when closing a loop)")
 	fmt.Println("  tag        Explicit version tag (optional, e.g., v0.1.0)")
 	fmt.Println("\nHelp Commands:")
-	fmt.Println("  help, --help, -h, ?    Show this help message")
+	fmt.Println("  help, --help, -help, -h, h, ?, -?    Show this help message")
 	fmt.Println("\nDescription:")
 	fmt.Println("  CodeJob orchestrates coding tasks by sending instructions to AI agents.")
 	fmt.Println("\nWorkflow:")
@@ -66,10 +71,34 @@ func showHelp() {
 	fmt.Println("                and the new plan will be dispatched.")
 }
 
+func isEnvironmentValid() bool {
+	// 1. Check process environment
+	if os.Getenv("CODEJOB") != "" || os.Getenv("CODEJOB_PR") != "" {
+		return true
+	}
+
+	// 2. Check .env file
+	env := devflow.NewDotEnv(".env")
+	if val, ok := env.Get("CODEJOB"); ok && val != "" {
+		return true
+	}
+	if val, ok := env.Get("CODEJOB_PR"); ok && val != "" {
+		return true
+	}
+
+	// 3. Check for pending PLAN.md
+	if _, err := os.Stat(devflow.DefaultIssuePromptPath); err == nil {
+		return true
+	}
+
+	return false
+}
+
 func parseArgs(args []string) (message, tag string, isHelp bool) {
 	if len(args) > 1 {
 		arg := strings.ToLower(args[1])
-		if arg == "help" || arg == "--help" || arg == "-h" || arg == "?" {
+		switch arg {
+		case "help", "-help", "--help", "h", "-h", "?", "-?":
 			return "", "", true
 		}
 		message = args[1]
