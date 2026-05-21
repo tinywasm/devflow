@@ -68,6 +68,39 @@ In all cases: Claude **does not execute** the fix directly. It only writes the `
 - May include `gopush` as a final stage if the agent should publish after tests pass.
 - Never include `codejob` inside the plan — it is a local developer tool, not an agent instruction.
 
+## Code Quality Checklist (include inline in every code PLAN)
+
+Every `PLAN.md` that touches Go code MUST state these constraints explicitly. Agents have zero context — if a rule is not in the plan, it will be violated.
+
+### No hardcoded strings — typed constants only
+
+```
+RULE: Every repeated string (env key, file path, prefix, flag name, URL) MUST be
+a named constant in the library package. String literals are forbidden in logic.
+```
+
+- Env var names → exported constants: `const EnvKeyFoo = "FOO"`
+- File paths → exported constants: `const DefaultXPath = "docs/X.md"`
+- Result/output prefixes → exported constants shared between producer and consumer
+- Help flag lists → a single `var helpFlags = []string{...}` — never duplicated
+- CLI help text that references paths/names → use `fmt.Sprintf` with constants, not literals
+
+### Thin `cmd/` — all logic belongs in the library
+
+```
+RULE: cmd/*/main.go contains ONLY: argument parsing, dependency injection, and print/exit.
+      Every conditional, validation, or environment check is an exported library function.
+```
+
+- ✅ `devflow.IsEnvironmentValid(dotenvPath)` — exported, testable
+- ❌ `func isEnvironmentValid() bool { ... }` inside `cmd/` — untestable, unreachable from tests
+- If the function reads env vars, accesses files, or makes decisions → it belongs in the library
+
+### No logic duplication between library and cmd
+
+- If the library already computes a value (e.g. a result prefix), `cmd/` uses the exported constant — never re-derives it inline.
+- If `cmd/` re-implements a check the library already does, move it to the library and call it from both.
+
 ## MASTER_PLAN.md for Multi-Library Changes
 
 When a breaking change affects multiple repositories in the monorepo:
