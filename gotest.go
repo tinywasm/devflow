@@ -963,7 +963,7 @@ func FindTimedOutTests(output string) []string {
 				lastRun = fields[2]
 			}
 		}
-		if strings.Contains(line, "--- PASS:") || strings.Contains(line, "--- FAIL:") {
+		if strings.Contains(line, "--- PASS:") || strings.Contains(line, "--- FAIL:") || strings.Contains(line, "--- SKIP:") {
 			lastRun = ""
 		}
 	}
