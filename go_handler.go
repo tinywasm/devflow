@@ -40,6 +40,16 @@ func (g *Go) GoVersion() (string, error) {
 	return "", nil
 }
 
+// HasActiveCodejobSession reports whether dir has a Jules session in progress.
+// It reads CODEJOB from the dir's .env file.
+// Only an active session (CODEJOB set) blocks dependent auto-push;
+// CODEJOB_PR (PR open, Jules done) does not.
+func HasActiveCodejobSession(dir string) bool {
+	e := NewDotEnv(filepath.Join(dir, ".env"))
+	val, ok := e.Get(EnvKeyCodejob)
+	return ok && val != ""
+}
+
 // NewGo creates a new Go handler and verifies Go installation
 func NewGo(gitHandler GitClient) (*Go, error) {
 	// Verify go installation
@@ -305,6 +315,11 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	// Let's use RunCommandInDir for consistency with 'go get' above to be 100% sure we control the execution.
 	if _, err := RunCommandInDir(depDir, "go", "mod", "tidy"); err != nil {
 		return "", fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	if HasActiveCodejobSession(depDir) {
+		g.consoleOutput(fmt.Sprintf("📦 %s → skip (codejob active) ⏭", depName))
+		return "updated (codejob active, push skipped)", nil
 	}
 
 	// 6. Check for other replaces

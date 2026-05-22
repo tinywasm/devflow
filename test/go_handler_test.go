@@ -604,3 +604,31 @@ func TestParseVerifyError_UnknownPattern(t *testing.T) {
 		t.Error("Expected parseVerifyError to return false for unrecognized patterns")
 	}
 }
+
+func TestHasActiveCodejobSession(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+
+	// No .env → not active
+	if devflow.HasActiveCodejobSession(dir) {
+		t.Fatal("expected false when .env missing")
+	}
+
+	// CODEJOB set → active
+	os.WriteFile(envPath, []byte("CODEJOB=jules:12345\n"), 0644)
+	if !devflow.HasActiveCodejobSession(dir) {
+		t.Fatal("expected true when CODEJOB is set")
+	}
+
+	// Only CODEJOB_PR → NOT active (Jules done writing)
+	os.WriteFile(envPath, []byte("CODEJOB_PR=https://github.com/org/repo/pull/1\n"), 0644)
+	if devflow.HasActiveCodejobSession(dir) {
+		t.Fatal("expected false when only CODEJOB_PR is set")
+	}
+
+	// Empty CODEJOB → not active
+	os.WriteFile(envPath, []byte("CODEJOB=\n"), 0644)
+	if devflow.HasActiveCodejobSession(dir) {
+		t.Fatal("expected false when CODEJOB is empty")
+	}
+}
