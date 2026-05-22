@@ -66,15 +66,20 @@ When the user asks Claude to review a `CHECK_PLAN.md`:
 
 Claude **never**:
 - Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob`.
-- Runs `gopush`, `codejob`, or git commands to merge/publish — those are user actions.
+- Runs `gopush` directly — `codejob` calls it internally.
 - Applies multi-file code fixes directly — always via a new `PLAN.md`.
 
-### `codejob` commands (user runs these, not Claude)
+Claude **runs `codejob` when the user says "despacha"** (dispatch). This sends `docs/PLAN.md` to the Jules agent:
 
 ```bash
-codejob                     # dispatch PLAN.md to Jules, or check session status
-codejob 'commit message'    # close loop: merge PR + gopush + delete CHECK_PLAN.md
-codejob 'commit msg' v0.2.0 # close loop with explicit tag
+codejob   # dispatches docs/PLAN.md to Jules
+```
+
+The `codejob 'commit message'` form (close loop / publish) is always a **user action** — Claude never runs it.
+
+```bash
+codejob 'commit message'    # user only: merge PR + gopush + delete CHECK_PLAN.md
+codejob 'commit msg' v0.2.0 # user only: same with explicit tag
 ```
 
 ## Error Handling After Agent Execution
