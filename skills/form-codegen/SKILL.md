@@ -97,6 +97,57 @@ When making changes that span libraries:
 4. **orm** (pending: widget assignment + tag support)
 5. **json** only if codec changes needed (currently stable)
 
+## ormc Usage in PLAN.md (for agents)
+
+`ormc` is a CLI code generator. **Agents must never write `Schema()`, `Pointers()`, `ModelName()`, or `Validate()` by hand** — these are always generated.
+
+### Installation
+
+```bash
+go install github.com/tinywasm/orm/cmd/ormc@latest
+```
+
+### What ormc generates (per directive)
+
+| Directive | Generated methods |
+|---|---|
+| `// ormc:form` | `ModelName()`, `Schema()` (with widgets), `Pointers()`, `Validate()`, `*List` type |
+| `// ormc:formonly` | `Schema()` (with widgets), `Pointers()`, `Validate()`, `*List` type — NO `ModelName()` |
+| _(none)_ | `ModelName()`, `Schema()` (no widgets), `Pointers()`, `Validate()`, `*List` type |
+
+Output file: `model_orm.go` in the same package. **Never edit `model_orm.go` — it is overwritten on each `ormc` run.**
+
+### How to instruct an agent
+
+In `PLAN.md`, always say:
+
+1. Add the struct with the correct directive to `model.go` (or the appropriate model file).
+2. Run `ormc` from the module root.
+3. Do NOT write `Schema()`, `Pointers()`, `ModelName()`, or `Validate()` manually.
+
+Example instruction in a plan:
+
+```
+Add to `modules/foo/model.go`:
+
+    // ormc:form
+    type Foo struct {
+        ID   int64
+        Name string
+    }
+
+Then run:
+
+    ormc
+
+ormc will generate Schema(), Pointers(), ModelName(), Validate() in model_orm.go.
+Do NOT write these methods manually.
+```
+
+### ID field convention
+
+`ormc` auto-detects `ID` as primary key (auto-increment). No `db:"pk"` tag needed for the standard `ID int64` pattern. Only add `db:` tags to override defaults.
+
 ## Plans Location
 
 - dom: `tinywasm/dom/docs/PLAN.md` — pending: remove form functions
