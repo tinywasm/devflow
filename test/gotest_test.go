@@ -534,6 +534,13 @@ goroutine 1 [running]:`,
 === RUN   TestRenderToBody/Render_ViewRenderer_to_body`,
 			expected: []string{"TestRenderToBody/Render_ViewRenderer_to_body"},
 		},
+		{
+			name: "Skipped test must not be reported as timeout",
+			output: `=== RUN   TestAwaitRequest_success
+    async_wasm_test.go:41: covered by tinywasm/indexdb integration tests
+--- SKIP: TestAwaitRequest_success (0.00s)`,
+			expected: nil,
+		},
 	}
 
 	for _, tt := range tests {
