@@ -26,7 +26,9 @@ flowchart TD
     L -- Yes --> L0[Launch parallel workers<br/>print each result to console]
     L0 --> L1[Remove replace directive]
     L1 --> L2[go get + go mod tidy]
-    L2 --> L3{Other replaces?}
+    L2 --> LC{.env CODEJOB set?}
+    LC -- Yes --> LS[Print: 📦 dep ⏭ skip push]
+    LC -- No --> L3{Other replaces?}
     L3 -- No --> L4[gopush: with tests<br/>skip deps, backup]
     L4 --> L7{Tests pass?}
     L7 -- Yes --> L8[Print: 📦 dep ✅ updated]
@@ -35,6 +37,7 @@ flowchart TD
     L8 --> L6{More dependents?}
     L9 --> L6
     L5 --> L6
+    LS --> L6
     L6 -- Yes --> L1
     L6 -- No --> M
     K -- Yes --> M
