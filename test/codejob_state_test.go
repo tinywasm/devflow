@@ -68,23 +68,30 @@ func TestJulesSessionState(t *testing.T) {
 }
 
 func TestHandleDone(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
 	envPath := "test_handle_done.env"
 	planPath := "docs/PLAN.md"
 	checkPlanPath := "docs/CHECK_PLAN.md"
 
 	_ = os.MkdirAll("docs", 0755)
-	defer os.RemoveAll("docs")
-	defer os.Remove(envPath)
-
 	_ = os.WriteFile(planPath, []byte("my plan"), 0644)
 	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1\nOTHER=val"), 0644)
+
+	// Inject mock to avoid real git/gh network calls
+	orig := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = orig }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("true")
+	}
 
 	env := devflow.NewDotEnv(envPath)
 
 	prURL := "https://github.com/test/pull/1"
 	err := devflow.HandleDone(env, nil, prURL)
-	if err != nil && !strings.Contains(err.Error(), "git fetch failed") {
-		t.Errorf("expected git fetch error or success, got: %v", err)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 
 	// Verify PLAN.md renamed
