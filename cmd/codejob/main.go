@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	msg, tag, isHelp := parseArgs(os.Args)
+	msg, tag, isHelp := devflow.ParseCLIArgs(os.Args)
 	if isHelp {
 		showHelp()
 		return
@@ -71,17 +71,3 @@ func showHelp() {
 	fmt.Println("                and the new plan will be dispatched.")
 }
 
-func parseArgs(args []string) (message, tag string, isHelp bool) {
-	if len(args) > 1 {
-		arg := strings.ToLower(args[1])
-		switch arg {
-		case "help", "-help", "--help", "h", "-h", "?", "-?":
-			return "", "", true
-		}
-		message = args[1]
-	}
-	if len(args) > 2 {
-		tag = args[2]
-	}
-	return
-}

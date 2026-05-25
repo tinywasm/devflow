@@ -29,13 +29,10 @@ func main() {
 		fmt.Println("  gotest -bench .     # Run benchmarks")
 	}
 
-	// Handle help requests
-	if len(os.Args) > 1 {
-		arg := os.Args[1]
-		if arg == "?" || arg == "help" || arg == "-h" || arg == "--help" {
-			usage()
-			os.Exit(0)
-		}
+	_, _, isHelp := devflow.ParseCLIArgs(os.Args)
+	if isHelp {
+		usage()
+		os.Exit(0)
 	}
 
 	// Extract flags
