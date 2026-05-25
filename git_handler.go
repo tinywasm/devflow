@@ -159,21 +159,15 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 		return PushResult{}, fmt.Errorf("git commit failed: %w", err)
 	}
 
-	// If no changes were committed, check if we're ahead of remote
-	// If so, we can still push existing commits without creating a tag
+	// If no changes were committed, check if we're ahead of remote or have unpushed tags
 	if !committed {
 		// Check if there are unpushed commits
 		ahead, err := g.IsAheadOfRemote()
 		if err != nil {
-			// Can't determine status, just return success without doing anything
-			return PushResult{
-				Summary: "No changes to commit",
-				Tag:     "",
-			}, nil
+			return PushResult{Summary: "No changes to commit", Tag: ""}, nil
 		}
 
 		if ahead {
-			// There are unpushed commits, push them without creating a new tag
 			pulled, err := g.PushWithoutTags()
 			if err != nil {
 				return PushResult{}, fmt.Errorf("push failed: %w", err)
@@ -185,11 +179,16 @@ func (g *Git) Push(message, tag string) (PushResult, error) {
 			return PushResult{Summary: summary, Tag: ""}, nil
 		}
 
-		// No changes and no unpushed commits
-		return PushResult{
-			Summary: "No changes to commit",
-			Tag:     "",
-		}, nil
+		// No unpushed commits — check for local tags not yet on remote (partial failure recovery)
+		pendingTag, err := g.getUnpushedTag()
+		if err == nil && pendingTag != "" {
+			if err := g.pushTag(pendingTag); err != nil {
+				return PushResult{}, fmt.Errorf("push workflow failed: %w", err)
+			}
+			return PushResult{Summary: fmt.Sprintf("✅ Tag: %s, ✅ Pushed ok", pendingTag), Tag: pendingTag}, nil
+		}
+
+		return PushResult{Summary: "No changes to commit", Tag: ""}, nil
 	}
 
 	// 5. Create tag - if exists, keep incrementing until we find available one
@@ -366,6 +365,23 @@ func (g *Git) IncrementTag(tag string) (string, error) {
 	newTag := strings.Join(parts, ".")
 
 	return newTag, nil
+}
+
+// getUnpushedTag returns the most recent local tag that has not been pushed to origin.
+// Returns ("", nil) when all local tags are already on the remote.
+func (g *Git) getUnpushedTag() (string, error) {
+	local, err := g.runSilent("git", "tag", "-l", "--sort=-version:refname")
+	if err != nil || local == "" {
+		return "", nil
+	}
+	remote, _ := g.runSilent("git", "ls-remote", "--tags", "origin")
+	for _, tag := range strings.Split(strings.TrimSpace(local), "\n") {
+		tag = strings.TrimSpace(tag)
+		if tag != "" && !strings.Contains(remote, "refs/tags/"+tag) {
+			return tag, nil
+		}
+	}
+	return "", nil
 }
 
 // TagExists checks if a tag exists
