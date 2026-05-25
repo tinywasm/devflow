@@ -12,15 +12,19 @@ import (
 	"github.com/tinywasm/gorun"
 )
 
+// CrossTarget represents a compilation target platform
+type CrossTarget struct{ GOOS, GOARCH string }
+
 // Go handler for Go operations
 type Go struct {
 	rootDir        string
 	git            GitClient // Interface for better testing
 	log            func(...any)
 	consoleOutput  func(string) // output for ConsoleFilter (fmt.Println by default)
-	backup        *DevBackup
-	retryDelay    time.Duration
-	retryAttempts int
+	backup         *DevBackup
+	retryDelay     time.Duration
+	retryAttempts  int
+	crossCompileFn func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.
@@ -95,6 +99,11 @@ func (g *Go) SetLog(fn func(...any)) {
 // SetConsoleOutput sets the function for console output (used by ConsoleFilter)
 func (g *Go) SetConsoleOutput(fn func(string)) {
 	g.consoleOutput = fn
+}
+
+// SetCrossCompileFn sets a custom cross-compile function for testing
+func (g *Go) SetCrossCompileFn(fn func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)) {
+	g.crossCompileFn = fn
 }
 
 // GetLog returns the logger function
@@ -391,17 +400,17 @@ func extractFirstFailure(output string) string {
 	return "failed"
 }
 
-// Install builds and installs all commands in the cmd/ directory
-// It injects the version using ldflags if provided
-func (g *Go) Install(version string) error {
-	cmdDir := filepath.Join(g.rootDir, "cmd")
+// listCmdDirs returns the names of the subdirectories in cmd/.
+// It returns an empty slice (no error) if cmd/ does not exist or is empty.
+func (g *Go) listCmdDirs(rootDir string) ([]string, error) {
+	cmdDir := filepath.Join(rootDir, "cmd")
 	if _, err := os.Stat(cmdDir); os.IsNotExist(err) {
-		return nil // No cmd directory, skip silently
+		return nil, nil // No cmd directory, skip silently
 	}
 
 	entries, err := os.ReadDir(cmdDir)
 	if err != nil {
-		return fmt.Errorf("failed to read cmd directory: %w", err)
+		return nil, fmt.Errorf("failed to read cmd directory: %w", err)
 	}
 
 	var commands []string
@@ -409,6 +418,17 @@ func (g *Go) Install(version string) error {
 		if entry.IsDir() {
 			commands = append(commands, entry.Name())
 		}
+	}
+
+	return commands, nil
+}
+
+// Install builds and installs all commands in the cmd/ directory
+// It injects the version using ldflags if provided
+func (g *Go) Install(version string) error {
+	commands, err := g.listCmdDirs(g.rootDir)
+	if err != nil {
+		return err
 	}
 
 	if len(commands) == 0 {

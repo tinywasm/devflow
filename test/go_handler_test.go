@@ -407,6 +407,7 @@ type MockGitClient struct {
 	log                    func(...any)
 	AddCalls               int
 	CommitCalls            int
+	LastPushTag            string
 }
 
 func (m *MockGitClient) CheckRemoteAccess() error {
@@ -414,6 +415,7 @@ func (m *MockGitClient) CheckRemoteAccess() error {
 }
 
 func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
+	m.LastPushTag = tag
 	if m.checkAccessErr != nil {
 		return devflow.PushResult{}, m.checkAccessErr
 	}
@@ -426,6 +428,9 @@ func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
 	resultTag := m.createdTag
 	if resultTag == "" {
 		resultTag = "v0.0.1" // Default test tag
+	}
+	if tag != "" {
+		resultTag = tag
 	}
 	return devflow.PushResult{
 		Summary: "Mock push ok",

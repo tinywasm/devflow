@@ -1,0 +1,220 @@
+package devflow_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tinywasm/devflow"
+)
+
+func TestGoRelease_SingleCmd(t *testing.T) {
+	dir, cleanup := testCreateCmdDirs(t, "goflare")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{createdTag: "v0.3.0"}
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
+		var assets []string
+		for _, cmd := range cmds {
+			p := filepath.Join(tmpDir, cmd+"-linux-amd64")
+			os.WriteFile(p, []byte{}, 0644)
+			assets = append(assets, p)
+		}
+		return assets, nil
+	})
+
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.3.0"}
+	gh := newTestGitHub(fake)
+
+	err := goHandler.Release("feat: x", "", gh)
+	if err != nil {
+		t.Fatalf("Release failed: %v", err)
+	}
+
+	if fake.lastArgs[0] != "release" || fake.lastArgs[1] != "create" || fake.lastArgs[2] != "v0.3.0" {
+		t.Errorf("Unexpected gh args: %v", fake.lastArgs)
+	}
+
+	assetFound := false
+	for _, arg := range fake.lastArgs {
+		if strings.Contains(arg, "goflare-linux-amd64") {
+			assetFound = true
+			break
+		}
+	}
+	if !assetFound {
+		t.Errorf("Asset not found in gh args")
+	}
+}
+
+func TestGoRelease_MultipleCmd(t *testing.T) {
+	dir, cleanup := testCreateCmdDirs(t, "gopush", "gotest")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{createdTag: "v0.1.0"}
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, targets []devflow.CrossTarget, _ string) ([]string, error) {
+		var assets []string
+		for _, target := range targets {
+			for _, cmd := range cmds {
+				suffix := "-" + target.GOOS + "-" + target.GOARCH
+				if target.GOOS == "windows" {
+					suffix += ".exe"
+				}
+				p := filepath.Join(tmpDir, cmd+suffix)
+				os.WriteFile(p, []byte{}, 0644)
+				assets = append(assets, p)
+			}
+		}
+		return assets, nil
+	})
+
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.1.0"}
+	gh := newTestGitHub(fake)
+
+	err := goHandler.Release("chore: release", "", gh)
+	if err != nil {
+		t.Fatalf("Release failed: %v", err)
+	}
+
+	// 2 cmds * 3 platforms = 6 assets
+	assetCount := 0
+	for _, arg := range fake.lastArgs {
+		if strings.Contains(arg, "gopush-") || strings.Contains(arg, "gotest-") {
+			assetCount++
+		}
+	}
+	if assetCount != 6 {
+		t.Errorf("Expected 6 assets, got %d", assetCount)
+	}
+}
+
+func TestGoRelease_ExplicitTag(t *testing.T) {
+	dir, cleanup := testCreateCmdDirs(t, "mytool")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{createdTag: "v1.0.0"}
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
+		return []string{filepath.Join(tmpDir, "mytool-linux-amd64")}, nil
+	})
+
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v1.0.0"}
+	gh := newTestGitHub(fake)
+
+	err := goHandler.Release("fix: bug", "v1.0.0", gh)
+	if err != nil {
+		t.Fatalf("Release failed: %v", err)
+	}
+
+	if mockGit.LastPushTag != "v1.0.0" {
+		t.Errorf("Expected push with tag v1.0.0, got %s", mockGit.LastPushTag)
+	}
+}
+
+func TestCrossCompile_NamingConvention(t *testing.T) {
+	repoDir, cleanup := testCreateCmdDirs(t, "mytool")
+	defer cleanup()
+
+	tmpDir, err := os.MkdirTemp("", "gorelease-naming-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	assets, err := devflow.CrossCompile(tmpDir, []string{"mytool"}, devflow.DefaultTargets(), repoDir)
+	if err != nil {
+		t.Fatalf("CrossCompile failed: %v", err)
+	}
+
+	expectedSuffixes := []string{"mytool-linux-amd64", "mytool-darwin-arm64", "mytool-windows-amd64.exe"}
+	for _, suffix := range expectedSuffixes {
+		found := false
+		for _, asset := range assets {
+			if strings.HasSuffix(asset, suffix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected asset suffix %s not found", suffix)
+		}
+	}
+}
+
+func TestCreateRelease_Args(t *testing.T) {
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v1.0.0"}
+	gh := newTestGitHub(fake)
+
+	url, err := gh.CreateRelease("v1.0.0", []string{"/tmp/a", "/tmp/b"})
+	if err != nil {
+		t.Fatalf("CreateRelease failed: %v", err)
+	}
+
+	expected := []string{"release", "create", "v1.0.0", "--title", "v1.0.0", "--notes", "", "/tmp/a", "/tmp/b"}
+	for i, arg := range expected {
+		if fake.lastArgs[i] != arg {
+			t.Errorf("Expected arg %d to be %s, got %s", i, arg, fake.lastArgs[i])
+		}
+	}
+	if url != "https://github.com/org/repo/releases/tag/v1.0.0" {
+		t.Errorf("Unexpected URL: %s", url)
+	}
+}
+
+func TestGoRelease_Errors(t *testing.T) {
+	t.Run("No cmd dir", func(t *testing.T) {
+		dir, cleanup := testCreateCmdDirs(t) // No args = no cmd dir
+		defer cleanup()
+		defer testChdir(t, dir)()
+
+		goHandler, _ := devflow.NewGo(&MockGitClient{})
+		err := goHandler.Release("feat: x", "", &devflow.GitHub{})
+		if err == nil || !strings.Contains(err.Error(), "no cmd/ found") {
+			t.Errorf("Expected 'no cmd/ found' error, got %v", err)
+		}
+	})
+
+	t.Run("Push fails", func(t *testing.T) {
+		dir, cleanup := testCreateCmdDirs(t, "tool")
+		defer cleanup()
+		defer testChdir(t, dir)()
+
+		mockGit := &MockGitClient{pushErr: errors.New("tests failed")}
+		goHandler, _ := devflow.NewGo(mockGit)
+		err := goHandler.Release("feat: x", "", &devflow.GitHub{})
+		if err == nil || !strings.Contains(err.Error(), "tests failed") {
+			t.Errorf("Expected push failure, got %v", err)
+		}
+	})
+
+	t.Run("TmpDir cleaned up on error", func(t *testing.T) {
+		dir, cleanup := testCreateCmdDirs(t, "tool")
+		defer cleanup()
+		defer testChdir(t, dir)()
+
+		mockGit := &MockGitClient{createdTag: "v1"}
+		goHandler, _ := devflow.NewGo(mockGit)
+
+		var capturedTmpDir string
+		goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
+			capturedTmpDir = tmpDir
+			return nil, errors.New("compile error")
+		})
+
+		err := goHandler.Release("feat: x", "", &devflow.GitHub{})
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+
+		if _, err := os.Stat(capturedTmpDir); !os.IsNotExist(err) {
+			t.Errorf("TmpDir %s was not cleaned up", capturedTmpDir)
+		}
+	})
+}

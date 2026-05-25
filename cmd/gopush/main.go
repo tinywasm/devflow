@@ -25,19 +25,10 @@ Examples:
 `)
 	}
 
-	args := os.Args[1:]
-
-	// Check if help requested or no arguments
-	if len(args) == 0 {
-		usage()
-		os.Exit(0)
-	}
-
-	// Parse optional flags manually to keep message/tag positional logic simple
+	// Pre-process flags to keep positional args consistent
 	var skipRace bool
-	var filteredArgs []string
-
-	for _, arg := range args {
+	filteredArgs := []string{os.Args[0]}
+	for _, arg := range os.Args[1:] {
 		if arg == "--skip-race" || arg == "-R" {
 			skipRace = true
 		} else {
@@ -45,26 +36,17 @@ Examples:
 		}
 	}
 
-	// Update args to filtered list
-	args = filteredArgs
+	message, tag, isHelp := devflow.ParseCLIArgs(filteredArgs)
 
-	// Check if help requested (again, in case it was the only arg) or no arguments left
-	if len(args) == 0 {
+	if isHelp || (len(filteredArgs) == 1 && !devflow.IsEnvironmentValid(".env")) {
 		usage()
 		os.Exit(0)
 	}
 
-	firstArg := args[0]
-	if firstArg == "help" || firstArg == "?" || firstArg == "-h" || firstArg == "--help" {
+	// Message is mandatory if not in an active codejob session
+	if message == "" && !devflow.IsEnvironmentValid(".env") {
 		usage()
 		os.Exit(0)
-	}
-
-	// Message is mandatory
-	message := firstArg
-	tag := ""
-	if len(args) > 1 {
-		tag = args[1]
 	}
 
 	git, err := devflow.NewGit()

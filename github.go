@@ -51,6 +51,21 @@ func (gh *GitHub) SetLog(fn func(...any)) {
 	}
 }
 
+// CreateRelease creates a GitHub Release and uploads assets
+func (gh *GitHub) CreateRelease(tag string, assets []string) (string, error) {
+	runner := gh.getSecretRunner()
+	args := []string{"release", "create", tag, "--title", tag, "--notes", ""}
+	args = append(args, assets...)
+
+	output, err := runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to create release %s: %w", tag, err)
+	}
+
+	// Output is usually the URL of the created release
+	return strings.TrimSpace(output), nil
+}
+
 // GetCurrentUser gets the current authenticated user
 func (gh *GitHub) GetCurrentUser() (string, error) {
 	output, err := RunCommandSilent("gh", "api", "user", "--jq", ".login")
