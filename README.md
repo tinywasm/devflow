@@ -1,5 +1,6 @@
 # DevFlow
 <img src="docs/img/badges.svg">
+<img src="docs/img/badges.svg">
 
 Complete Go development automation: project init, testing, versioning, updates, and backups. Single-line output optimized for AI agents and terminals.
 

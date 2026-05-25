@@ -244,11 +244,43 @@ func TestGoPush_DependentOutput(t *testing.T) {
 	os.MkdirAll(depDir, 0755)
 	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module github.com/test/dep\n\nrequire github.com/test/main v0.0.0\n"), 0644)
 
+	// Mock ExecCommand to prevent real go/git/gotest invocations
+	originalExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = originalExec }()
+
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "go" {
+			cmdStr := strings.Join(args, " ")
+			if cmdStr == "version" {
+				return exec.Command("echo", "go version go1.20 linux/amd64")
+			}
+			if strings.Contains(cmdStr, "mod verify") {
+				return exec.Command("echo", "all modules verified")
+			}
+			if strings.Contains(cmdStr, "list -m -json") {
+				return exec.Command("echo", `{"Version": "v0.0.0"}`)
+			}
+			if cmdStr == "list -m" || (strings.Contains(cmdStr, "list") && strings.Contains(cmdStr, "-m") && !strings.Contains(cmdStr, "-json")) {
+				return exec.Command("echo", "github.com/test/main")
+			}
+			if strings.Contains(cmdStr, "get") || strings.Contains(cmdStr, "tidy") {
+				return exec.Command("echo", "mock success")
+			}
+		}
+		if name == "gotest" {
+			return exec.Command("echo", "tests passed")
+		}
+		if name == "git" {
+			return exec.Command("echo", "git success")
+		}
+		return originalExec(name, args...)
+	}
+
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetConsoleOutput(func(s string) {
 		consoleLines = append(consoleLines, s)
 	})
-	goHandler.SetRetryConfig(100*time.Millisecond, 3)
+	goHandler.SetRetryConfig(10*time.Millisecond, 2)
 
 	// We need to mock FindDependentModules or ensure it finds our dep
 	// SearchPath is the parent of dir
