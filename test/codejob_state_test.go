@@ -79,10 +79,18 @@ func TestHandleDone(t *testing.T) {
 	_ = os.WriteFile(planPath, []byte("my plan"), 0644)
 	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1\nOTHER=val"), 0644)
 
-	// Inject mock to avoid real git/gh network calls
+	var checkoutCalls []string
 	orig := devflow.ExecCommand
 	defer func() { devflow.ExecCommand = orig }()
 	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		full := name + " " + strings.Join(args, " ")
+		if strings.HasPrefix(full, "git checkout ") {
+			checkoutCalls = append(checkoutCalls, strings.TrimPrefix(full, "git checkout "))
+		}
+		// gh pr view returns the branch name
+		if strings.Contains(full, "gh pr view") && strings.Contains(full, "headRefName") {
+			return exec.Command("echo", "feat-goflare-test-branch")
+		}
 		return exec.Command("true")
 	}
 
@@ -92,6 +100,13 @@ func TestHandleDone(t *testing.T) {
 	err := devflow.HandleDone(env, nil, prURL)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify branch checkout happened
+	if len(checkoutCalls) == 0 {
+		t.Error("git checkout was never called — branch switch must happen after HandleDone")
+	} else if checkoutCalls[0] != "feat-goflare-test-branch" {
+		t.Errorf("expected checkout of Jules branch, got %q", checkoutCalls[0])
 	}
 
 	// Verify PLAN.md renamed
@@ -116,6 +131,38 @@ func TestHandleDone(t *testing.T) {
 	val, ok = env.Get("CODEJOB_PR")
 	if !ok || val != prURL {
 		t.Errorf("expected CODEJOB_PR=%q, got %q", prURL, val)
+	}
+}
+
+// TestHandleDone_CheckoutFailsGracefully verifies that when gh pr view fails
+// (network error, PR not found, etc.), HandleDone still completes the file/env
+// cleanup without returning an error — checkout is non-fatal.
+func TestHandleDone_CheckoutFailsGracefully(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	envPath := "graceful.env"
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("plan"), 0644)
+	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1"), 0644)
+
+	orig := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = orig }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		// gh pr view fails → branch stays empty → checkout skipped
+		if strings.Contains(strings.Join(args, " "), "headRefName") {
+			return exec.Command("sh", "-c", "exit 1")
+		}
+		return exec.Command("true")
+	}
+
+	env := devflow.NewDotEnv(envPath)
+	err := devflow.HandleDone(env, nil, "https://github.com/test/pull/1")
+	if err != nil {
+		t.Errorf("HandleDone must not fail when gh pr view fails: %v", err)
+	}
+	if _, err := os.Stat("docs/CHECK_PLAN.md"); os.IsNotExist(err) {
+		t.Error("CHECK_PLAN.md must exist even when checkout is skipped")
 	}
 }
 

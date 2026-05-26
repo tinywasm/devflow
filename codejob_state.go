@@ -72,8 +72,14 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 			"--json", "headRefName", "--jq", ".headRefName")
 		if err == nil {
 			if branch := strings.TrimSpace(branchOut); branch != "" {
-				RunCommandSilent("git", "checkout", branch) //nolint: ignore checkout failure
+				if _, checkoutErr := RunCommandSilent("git", "checkout", branch); checkoutErr != nil {
+					fmt.Printf("⚠️  Could not switch branch automatically — run manually:\n    git checkout %s\n", branch)
+				} else {
+					fmt.Printf("🔀 Switched to branch: %s\n", branch)
+				}
 			}
+		} else {
+			fmt.Printf("⚠️  Could not resolve branch from PR — switch manually:\n    gh pr checkout %s\n", prURL)
 		}
 	}
 
