@@ -315,16 +315,15 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 
 	// 5. Run go mod tidy in the specific directory
-	// Note: GoModFile.RunTidy() uses a separate exec.Command with Dir set, but to be consistent
-	// and ensure we don't rely on side-effects, we can call it directly or ensure RunTidy works safely.
-	// Looking at GoModFile.RunTidy, it uses cmd.Dir = filepath.Dir(m.path), so it IS SAFE.
-	// However, let's explicitely use our safe helper if we prefer, OR trust RunTidy.
-	// The original code called gomod.RunTidy(). Let's stick to using RunCommandInDir for explicit control if gomod.RunTidy logic is hidden.
-	// But gomod.RunTidy IS safe (it takes absolute path from constructor).
-	// Let's use RunCommandInDir for consistency with 'go get' above to be 100% sure we control the execution.
 	if _, err := RunCommandInDir(depDir, "go", "mod", "tidy"); err != nil {
 		return "", fmt.Errorf("go mod tidy failed: %w", err)
 	}
+
+	// 5.1 Run go generate so any code generators (e.g. CI workflow generators)
+	// are re-run after the dependency update. Failures are non-fatal: a project
+	// with no generators produces no output and exits 0; a broken generator
+	// will surface in the test step below.
+	_, _ = RunCommandInDir(depDir, "go", "generate", "./...")
 
 	if HasActiveCodejobSession(depDir) {
 		g.consoleOutput(fmt.Sprintf("📦 %s → skip (codejob active) ⏭", depName))
