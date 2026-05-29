@@ -29,7 +29,7 @@ func main() {
 		fmt.Println("  gotest -bench .     # Run benchmarks")
 	}
 
-	_, _, isHelp := devflow.ParseCLIArgs(os.Args)
+	_, _, isHelp, _ := devflow.ParseCLIArgs(os.Args)
 	if isHelp {
 		usage()
 		os.Exit(0)

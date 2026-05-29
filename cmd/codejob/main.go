@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	msg, tag, isHelp := devflow.ParseCLIArgs(os.Args)
+	msg, tag, isHelp, isRelease := devflow.ParseCLIArgs(os.Args)
 	if isHelp {
 		showHelp()
 		return
@@ -32,11 +32,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	log := func(args ...any) { fmt.Println(args...) }
+	goHandler.SetLog(log)
+	goHandler.SetConsoleOutput(func(s string) { fmt.Println(s) })
+
+	gh, err := devflow.NewGitHub(log)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "GitHub error:", err)
+		os.Exit(1)
+	}
+
 	job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}))
-	job.SetLog(func(args ...any) { fmt.Println(args...) })
+	job.SetLog(log)
 	job.SetPublisher(goHandler)
 
-	result, err := job.Run(msg, tag)
+	// Inject the release function if -release flag is used
+	if isRelease {
+		job.SetReleaser(func(releaseTag string) error {
+			return goHandler.ReleaseOnly(releaseTag, gh)
+		})
+	}
+
+	result, err := job.Run(msg, tag, isRelease)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)

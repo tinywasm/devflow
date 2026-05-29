@@ -1,27 +1,14 @@
 package devflow_test
 
 import (
-	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tinywasm/devflow"
 )
-
-// mockGoTest replaces GoTestCmdFn so ReleaseOnly does not spawn a real go test subprocess.
-// Returns a function that restores the original.
-func mockGoTest(t *testing.T) func() {
-	t.Helper()
-	orig := devflow.GoTestCmdFn
-	devflow.GoTestCmdFn = func(_ context.Context, _ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo", "ok  testmodule\t0.1s\ncoverage: 100% of statements in ./...")
-	}
-	return func() { devflow.GoTestCmdFn = orig }
-}
 
 func TestReleaseOnly_SingleCmd(t *testing.T) {
 	dir, cleanup := testCreateCmdDirs(t, "goflare")
@@ -261,3 +248,8 @@ func TestReleaseOnly_Errors(t *testing.T) {
 // Note: Full integration tests for CodeJob with -release flag require mocking
 // git and gh commands. Those are tested in codejob_state_test.go with the full
 // MergeAndPublish flow. Here we verify the flag parsing via ParseCLIArgs tests.
+
+// Cleanup helper for tests that write to .env
+func cleanupEnv() {
+	_ = os.Remove(".env")
+}

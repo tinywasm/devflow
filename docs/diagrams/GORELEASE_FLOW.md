@@ -1,39 +1,58 @@
 # gorelease Flow
 
-Extensión de [GOPUSH_FLOW.md](GOPUSH_FLOW.md): corre el pipeline completo de gopush
-y luego crea un GitHub Release con binarios cross-platform para todos los `cmd/`.
+Release-only workflow: reads an existing tag from git and creates a GitHub Release with
+cross-compiled binaries. No tags are created, no commits made.
 
 ```mermaid
 flowchart TD
-    A[gorelease 'msg' tag] --> P[ParseCLIArgs]
-    P --> PH{help / sin args?}
-    PH -- Sí --> USAGE[print usage\nExit 0]
+    A[gorelease tag?] --> P[ParseReleaseArgs]
+    P --> PH{help?}
+    PH -- Yes --> USAGE[print usage\nExit 0]
     PH -- No --> B[listCmdDirs cmd/]
     B --> BE{vacío?}
-    BE -- Sí --> BEE[Exit 1: no cmd/ found]
-    BE -- No --> C[g.Push msg tag\ngopush completo]
-    C --> CF{Push ok?}
-    CF -- No --> CE[Exit 1: propagar error]
-    CF -- Yes --> D[createdTag]
+    BE -- Yes --> BEE[Exit 1: no cmd/ found]
+    BE -- No --> C{tag provided?}
+    C -- Yes --> D[use explicit tag]
+    C -- No --> E[git.GetLatestTag]
+    E --> EE{empty?}
+    EE -- Yes --> EE1[Exit 1: no tags found]
+    EE -- No --> D
     D --> T[os.MkdirTemp gorelease-*]
-    T --> E[crossCompile\ncmds × plataformas\nCGO_ENABLED=0]
-    E --> E1[cmd1-linux-amd64\ncmd2-linux-amd64\n...]
-    E --> E2[cmd1-darwin-arm64\ncmd2-darwin-arm64\n...]
-    E --> E3[cmd1-windows-amd64.exe\ncmd2-windows-amd64.exe\n...]
-    E1 & E2 & E3 --> EF{Build ok?}
-    EF -- No --> EE[Exit 1: build error\ndefer RemoveAll]
-    EF -- Yes --> F[gh release create tag\nassets N×3]
-    F --> FF{Release ok?}
-    FF -- No --> FE[Exit 1: gh error\ndefer RemoveAll]
-    FF -- Yes --> G[defer RemoveAll tmpDir]
-    G --> H[✅ Release → URL]
+    T --> F[crossCompile\ncmds × plataformas\nCGO_ENABLED=0]
+    F --> F1[cmd1-linux-amd64\ncmd2-linux-amd64\n...]
+    F --> F2[cmd1-darwin-arm64\ncmd2-darwin-arm64\n...]
+    F --> F3[cmd1-windows-amd64.exe\ncmd2-windows-amd64.exe\n...]
+    F1 & F2 & F3 --> FF{Build ok?}
+    FF -- No --> FE[Exit 1: build error\ndefer RemoveAll]
+    FF -- Yes --> G[gh release create tag\nassets N×3]
+    G --> GF{Release ok?}
+    GF -- No --> GE[Exit 1: gh error\ndefer RemoveAll]
+    GF -- Yes --> H[defer RemoveAll tmpDir]
+    H --> I[✅ Release → URL]
 ```
 
 ## Output
 
 ```
-vet ✅, race ✅, tests ✅, coverage: 71%, Tag: v0.2.13, Pushed ✅, Backup ✅
-✅ Release → https://github.com/tinywasm/goflare/releases/tag/v0.2.13
+✅ Release → https://github.com/owner/repo/releases/tag/v0.2.13
 ```
 
-Tag ya aparece en la primera línea (gopush summary) — no se repite en la segunda.
+## With codejob `-release` flag
+
+`codejob 'msg' -release` runs the normal close-loop (gopush), then calls `gorelease`:
+
+```mermaid
+flowchart TD
+    A[codejob msg -release] --> P[ParseCLIArgs + detect -release flag]
+    P --> B[MergeAndPublish]
+    B --> C{RE_DISPATCH?}
+    C -- Yes --> D[clean up, re-dispatch]
+    C -- No --> E{-release flag?}
+    E -- Yes --> F[releaseFn<br/>goHandler.ReleaseOnly tag]
+    E -- No --> G[done]
+    F --> H{Release ok?}
+    H -- Yes --> G
+    H -- No --> I[error but summary shown]
+```
+
+Tag creado por `gopush` en MergeAndPublish es usado inmediatamente por `gorelease`.

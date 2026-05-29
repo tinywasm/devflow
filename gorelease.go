@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 )
 
-// Release executes the complete release workflow: tests, push, cross-compile, and GitHub release
-func (g *Go) Release(message, tag string, gh *GitHub) error {
+// ReleaseOnly creates a GitHub Release with cross-platform binaries for an existing tag.
+// If tag is empty, it uses the latest tag from git.GetLatestTag().
+func (g *Go) ReleaseOnly(tag string, gh *GitHub) error {
 	// 1. List cmd/ directories before starting
 	cmds, err := g.listCmdDirs(g.rootDir)
 	if err != nil {
@@ -17,15 +18,15 @@ func (g *Go) Release(message, tag string, gh *GitHub) error {
 		return fmt.Errorf("no cmd/ found in %s", g.rootDir)
 	}
 
-	// 2. Run full gopush workflow
-	res, err := g.Push(message, tag, false, false, false, false, false, false, "..")
-	if err != nil {
-		return err
-	}
-
-	createdTag := res.Tag
-	if createdTag == "" {
-		return fmt.Errorf("release failed: no tag was created")
+	// 2. Resolve tag: if empty, use latest from git
+	if tag == "" {
+		tag, err = g.git.GetLatestTag()
+		if err != nil {
+			return fmt.Errorf("failed to get latest tag: %w", err)
+		}
+		if tag == "" {
+			return fmt.Errorf("no tags found in repository")
+		}
 	}
 
 	// 3. Create temp directory for artifacts
@@ -48,7 +49,7 @@ func (g *Go) Release(message, tag string, gh *GitHub) error {
 	}
 
 	// 5. Create GitHub Release
-	url, err := gh.CreateRelease(createdTag, assets)
+	url, err := gh.CreateRelease(tag, assets)
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub release: %w", err)
 	}

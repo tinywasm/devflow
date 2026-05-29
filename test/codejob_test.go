@@ -57,6 +57,9 @@ func TestCodeJob_Run_WithMessage_CloseLoop(t *testing.T) {
 }
 
 func TestCodeJob_MessageWithoutPR(t *testing.T) {
+	// Clean up any leftover .env from other tests
+	_ = os.Remove(".env")
+
 	job := devflow.NewCodeJob()
 	_, err := job.Run("some message", "", false)
 	if err == nil {

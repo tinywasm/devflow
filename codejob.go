@@ -28,6 +28,7 @@ type CodeJob struct {
 	drivers   []CodeJobDriver
 	log       func(...any)
 	publisher Publisher
+	releaseFn func(tag string) error
 }
 
 // NewCodeJob creates a CodeJob with the given ordered drivers.
@@ -48,6 +49,9 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 
 // SetPublisher injects a Publisher for close-loop operations.
 func (c *CodeJob) SetPublisher(p Publisher) { c.publisher = p }
+
+// SetReleaser injects a release function to be called after MergeAndPublish when -release flag is used.
+func (c *CodeJob) SetReleaser(fn func(tag string) error) { c.releaseFn = fn }
 
 // IsEnvironmentValid reports whether the current working directory has an
 // active codejob context: a running session, a pending PR, or a PLAN.md to dispatch.
@@ -70,7 +74,8 @@ func IsEnvironmentValid(dotenvPath string) bool {
 }
 
 // Run implements the unified API logic.
-func (c *CodeJob) Run(message, tag string) (string, error) {
+// isRelease indicates whether to create a GitHub Release after MergeAndPublish.
+func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 	env := NewDotEnv(".env")
 
 	// 1. If message provided -> close the loop
@@ -89,6 +94,13 @@ func (c *CodeJob) Run(message, tag string) (string, error) {
 		if res.Tag == "RE_DISPATCH" {
 			fmt.Println(res.Summary)
 			return c.Send(DefaultIssuePromptPath)
+		}
+
+		// If -release flag is set and releaseFn is configured, create the release
+		if isRelease && c.releaseFn != nil {
+			if err := c.releaseFn(res.Tag); err != nil {
+				return res.Summary, fmt.Errorf("release creation failed: %w", err)
+			}
 		}
 
 		return res.Summary, nil

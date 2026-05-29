@@ -36,7 +36,7 @@ Examples:
 		}
 	}
 
-	message, tag, isHelp := devflow.ParseCLIArgs(filteredArgs)
+	message, tag, isHelp, _ := devflow.ParseCLIArgs(filteredArgs)
 
 	if isHelp || (len(filteredArgs) == 1 && !devflow.IsEnvironmentValid(".env")) {
 		usage()

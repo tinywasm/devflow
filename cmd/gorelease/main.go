@@ -9,31 +9,24 @@ import (
 
 func main() {
 	usage := func() {
-		fmt.Fprintf(os.Stderr, `gorelease - Publish Go module + create GitHub Release with cross-platform binaries
+		fmt.Fprintf(os.Stderr, `gorelease - Create GitHub Release with cross-platform binaries
 
 Usage:
-    gorelease 'commit message' [tag]
+    gorelease [tag]
 
 Arguments:
-    message    Commit message (required)
-    tag        Tag name (optional, auto-generated if not provided)
+    tag        Tag name (optional, uses latest tag if not provided)
 
 Examples:
-    gorelease 'feat: new feature'
-    gorelease 'fix: bug' 'v1.2.3'
+    gorelease
+    gorelease v1.2.3
 
 `)
 	}
 
-	message, tag, isHelp := devflow.ParseCLIArgs(os.Args)
+	tag, isHelp := devflow.ParseReleaseArgs(os.Args)
 
 	if isHelp {
-		usage()
-		os.Exit(0)
-	}
-
-	// Message is mandatory
-	if message == "" && !devflow.IsEnvironmentValid(".env") {
 		usage()
 		os.Exit(0)
 	}
@@ -63,7 +56,7 @@ Examples:
 		os.Exit(1)
 	}
 
-	if err := goHandler.Release(message, tag, gh); err != nil {
+	if err := goHandler.ReleaseOnly(tag, gh); err != nil {
 		fmt.Println("Release failed:", err)
 		os.Exit(1)
 	}
