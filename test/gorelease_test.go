@@ -12,7 +12,7 @@ import (
 	"github.com/tinywasm/devflow"
 )
 
-// mockGoTest replaces GoTestCmdFn so Release→Push→Test does not spawn a real go test subprocess.
+// mockGoTest replaces GoTestCmdFn so ReleaseOnly does not spawn a real go test subprocess.
 // Returns a function that restores the original.
 func mockGoTest(t *testing.T) func() {
 	t.Helper()
@@ -23,13 +23,12 @@ func mockGoTest(t *testing.T) func() {
 	return func() { devflow.GoTestCmdFn = orig }
 }
 
-func TestGoRelease_SingleCmd(t *testing.T) {
-	defer mockGoTest(t)()
+func TestReleaseOnly_SingleCmd(t *testing.T) {
 	dir, cleanup := testCreateCmdDirs(t, "goflare")
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	mockGit := &MockGitClient{createdTag: "v0.3.0"}
+	mockGit := &MockGitClient{latestTag: "v0.3.0"}
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
 		var assets []string
@@ -44,9 +43,9 @@ func TestGoRelease_SingleCmd(t *testing.T) {
 	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.3.0"}
 	gh := newTestGitHub(fake)
 
-	err := goHandler.Release("feat: x", "", gh)
+	err := goHandler.ReleaseOnly("", gh)
 	if err != nil {
-		t.Fatalf("Release failed: %v", err)
+		t.Fatalf("ReleaseOnly failed: %v", err)
 	}
 
 	if fake.lastArgs[0] != "release" || fake.lastArgs[1] != "create" || fake.lastArgs[2] != "v0.3.0" {
@@ -65,13 +64,12 @@ func TestGoRelease_SingleCmd(t *testing.T) {
 	}
 }
 
-func TestGoRelease_MultipleCmd(t *testing.T) {
-	defer mockGoTest(t)()
+func TestReleaseOnly_MultipleCmd(t *testing.T) {
 	dir, cleanup := testCreateCmdDirs(t, "gopush", "gotest")
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	mockGit := &MockGitClient{createdTag: "v0.1.0"}
+	mockGit := &MockGitClient{latestTag: "v0.1.0"}
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, targets []devflow.CrossTarget, _ string) ([]string, error) {
 		var assets []string
@@ -92,9 +90,9 @@ func TestGoRelease_MultipleCmd(t *testing.T) {
 	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.1.0"}
 	gh := newTestGitHub(fake)
 
-	err := goHandler.Release("chore: release", "", gh)
+	err := goHandler.ReleaseOnly("", gh)
 	if err != nil {
-		t.Fatalf("Release failed: %v", err)
+		t.Fatalf("ReleaseOnly failed: %v", err)
 	}
 
 	// 2 cmds * 3 platforms = 6 assets
@@ -109,13 +107,12 @@ func TestGoRelease_MultipleCmd(t *testing.T) {
 	}
 }
 
-func TestGoRelease_ExplicitTag(t *testing.T) {
-	defer mockGoTest(t)()
+func TestReleaseOnly_ExplicitTag(t *testing.T) {
 	dir, cleanup := testCreateCmdDirs(t, "mytool")
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	mockGit := &MockGitClient{createdTag: "v1.0.0"}
+	mockGit := &MockGitClient{latestTag: "v0.5.0"}
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
 		return []string{filepath.Join(tmpDir, "mytool-linux-amd64")}, nil
@@ -124,13 +121,39 @@ func TestGoRelease_ExplicitTag(t *testing.T) {
 	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v1.0.0"}
 	gh := newTestGitHub(fake)
 
-	err := goHandler.Release("fix: bug", "v1.0.0", gh)
+	// Explicit tag v1.0.0 should be used, not GetLatestTag() result
+	err := goHandler.ReleaseOnly("v1.0.0", gh)
 	if err != nil {
-		t.Fatalf("Release failed: %v", err)
+		t.Fatalf("ReleaseOnly failed: %v", err)
 	}
 
-	if mockGit.LastPushTag != "v1.0.0" {
-		t.Errorf("Expected push with tag v1.0.0, got %s", mockGit.LastPushTag)
+	if fake.lastArgs[2] != "v1.0.0" {
+		t.Errorf("Expected tag v1.0.0, got %s", fake.lastArgs[2])
+	}
+}
+
+func TestReleaseOnly_UsesLatestTag(t *testing.T) {
+	dir, cleanup := testCreateCmdDirs(t, "mytool")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{latestTag: "v2.5.3"}
+	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
+		return []string{filepath.Join(tmpDir, "mytool-linux-amd64")}, nil
+	})
+
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v2.5.3"}
+	gh := newTestGitHub(fake)
+
+	// No explicit tag -> should call GetLatestTag()
+	err := goHandler.ReleaseOnly("", gh)
+	if err != nil {
+		t.Fatalf("ReleaseOnly failed: %v", err)
+	}
+
+	if fake.lastArgs[2] != "v2.5.3" {
+		t.Errorf("Expected tag v2.5.3 from GetLatestTag, got %s", fake.lastArgs[2])
 	}
 }
 
@@ -184,40 +207,38 @@ func TestCreateRelease_Args(t *testing.T) {
 	}
 }
 
-func TestGoRelease_Errors(t *testing.T) {
+func TestReleaseOnly_Errors(t *testing.T) {
 	t.Run("No cmd dir", func(t *testing.T) {
 		dir, cleanup := testCreateCmdDirs(t) // No args = no cmd dir
 		defer cleanup()
 		defer testChdir(t, dir)()
 
 		goHandler, _ := devflow.NewGo(&MockGitClient{})
-		err := goHandler.Release("feat: x", "", &devflow.GitHub{})
+		err := goHandler.ReleaseOnly("v1.0.0", &devflow.GitHub{})
 		if err == nil || !strings.Contains(err.Error(), "no cmd/ found") {
 			t.Errorf("Expected 'no cmd/ found' error, got %v", err)
 		}
 	})
 
-	t.Run("Push fails", func(t *testing.T) {
-		defer mockGoTest(t)()
+	t.Run("No tags when tag empty", func(t *testing.T) {
 		dir, cleanup := testCreateCmdDirs(t, "tool")
 		defer cleanup()
 		defer testChdir(t, dir)()
 
-		mockGit := &MockGitClient{pushErr: errors.New("tests failed")}
+		mockGit := &MockGitClient{latestTag: ""} // No tags
 		goHandler, _ := devflow.NewGo(mockGit)
-		err := goHandler.Release("feat: x", "", &devflow.GitHub{})
-		if err == nil || !strings.Contains(err.Error(), "tests failed") {
-			t.Errorf("Expected push failure, got %v", err)
+		err := goHandler.ReleaseOnly("", &devflow.GitHub{})
+		if err == nil || !strings.Contains(err.Error(), "no tags found") {
+			t.Errorf("Expected 'no tags found' error, got %v", err)
 		}
 	})
 
-	t.Run("TmpDir cleaned up on error", func(t *testing.T) {
-		defer mockGoTest(t)()
+	t.Run("TmpDir cleaned up on cross-compile error", func(t *testing.T) {
 		dir, cleanup := testCreateCmdDirs(t, "tool")
 		defer cleanup()
 		defer testChdir(t, dir)()
 
-		mockGit := &MockGitClient{createdTag: "v1"}
+		mockGit := &MockGitClient{latestTag: "v1"}
 		goHandler, _ := devflow.NewGo(mockGit)
 
 		var capturedTmpDir string
@@ -226,7 +247,7 @@ func TestGoRelease_Errors(t *testing.T) {
 			return nil, errors.New("compile error")
 		})
 
-		err := goHandler.Release("feat: x", "", &devflow.GitHub{})
+		err := goHandler.ReleaseOnly("", &devflow.GitHub{})
 		if err == nil {
 			t.Fatal("Expected error")
 		}
@@ -235,4 +256,83 @@ func TestGoRelease_Errors(t *testing.T) {
 			t.Errorf("TmpDir %s was not cleaned up", capturedTmpDir)
 		}
 	})
+}
+
+func TestCodeJob_ReleaseFlag(t *testing.T) {
+	// Test that SetReleaser is called when -release flag is used in close-loop
+	mockPublisher := &MockPublisher{
+		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
+			return devflow.PushResult{
+				Summary: "gopush ok",
+				Tag:     "v1.2.0",
+			}, nil
+		},
+	}
+
+	job := devflow.NewCodeJob()
+	job.SetPublisher(mockPublisher)
+
+	releaseCalled := false
+	var releaseTag string
+	job.SetReleaser(func(tag string) error {
+		releaseCalled = true
+		releaseTag = tag
+		return nil
+	})
+
+	// Set up .env with a pending PR to simulate close-loop scenario
+	env := devflow.NewDotEnv(".env")
+	_ = env.Set(devflow.EnvKeyCodejobPR, "https://github.com/owner/repo/pull/1")
+
+	// Run with -release flag
+	res, err := job.Run("fix: bug", "", true)
+	if err != nil {
+		t.Fatalf("Run with -release failed: %v", err)
+	}
+
+	if !releaseCalled {
+		t.Errorf("Release function should have been called with -release flag")
+	}
+	if releaseTag != "v1.2.0" {
+		t.Errorf("Expected release tag v1.2.0, got %s", releaseTag)
+	}
+
+	if !strings.Contains(res, "gopush ok") {
+		t.Errorf("Expected gopush result in response, got: %s", res)
+	}
+}
+
+func TestCodeJob_NoReleaseFlag(t *testing.T) {
+	// Test that SetReleaser is NOT called when -release flag is absent in close-loop
+	mockPublisher := &MockPublisher{
+		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
+			return devflow.PushResult{
+				Summary: "gopush ok",
+				Tag:     "v1.2.0",
+			}, nil
+		},
+	}
+
+	job := devflow.NewCodeJob()
+	job.SetPublisher(mockPublisher)
+
+	releaseCalled := false
+	job.SetReleaser(func(tag string) error {
+		releaseCalled = true
+		return nil
+	})
+
+	// Set up .env with a pending PR to simulate close-loop scenario
+	env := devflow.NewDotEnv(".env")
+	_ = env.Set(devflow.EnvKeyCodejobPR, "https://github.com/owner/repo/pull/1")
+
+	// Run WITHOUT -release flag
+	_, err := job.Run("fix: bug", "", false)
+	if err != nil {
+		t.Fatalf("Run without -release failed: %v", err)
+	}
+
+	if releaseCalled {
+		t.Errorf("Release function should not have been called without -release flag")
+	}
 }

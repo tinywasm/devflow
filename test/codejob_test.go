@@ -43,7 +43,7 @@ func TestCodeJob_Run_NoArgs_Dispatch(t *testing.T) {
     // Mock Publisher to satisfy Send's publish-before-dispatch
     job.SetPublisher(&MockPublisher{})
 
-	got, err := job.Run("", "")
+	got, err := job.Run("", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestCodeJob_Run_WithMessage_CloseLoop(t *testing.T) {
 
 func TestCodeJob_MessageWithoutPR(t *testing.T) {
 	job := devflow.NewCodeJob()
-	_, err := job.Run("some message", "")
+	_, err := job.Run("some message", "", false)
 	if err == nil {
 		t.Fatal("expected error when no PR found")
 	}
