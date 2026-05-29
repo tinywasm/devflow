@@ -15,6 +15,10 @@ import (
 
 var semverTagRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
 
+// GoTestCmdFn creates the command used to run 'go test'. Override in tests to avoid
+// launching a real nested go test subprocess (e.g. from Release→Push→Test).
+var GoTestCmdFn = testCommand
+
 // Test executes the test suite for the project.
 // timeoutSec sets the per-package timeout in seconds (0 = default 30s).
 func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
@@ -56,6 +60,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			return cache.GetCachedMessage(), nil
 		}
 	}
+
+	start := time.Now()
 
 	// Initialize Status
 	testStatus := "Failed"
@@ -181,7 +187,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	// This ensures we get the nice panic output from Go if possible
 	testCtx, testCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 	defer testCancel()
-	testCmd := testCommand(testCtx, "go", testArgs...)
+	testCmd := GoTestCmdFn(testCtx, "go", testArgs...)
 
 	testBuffer := &bytes.Buffer{}
 
@@ -366,7 +372,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	}
 
 	// Return error if tests or vet failed
-	summary := strings.Join(msgs, ", ")
+	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
 	if testStatus == "Failed" || vetStatus == "Issues" {
 		return summary, fmt.Errorf("%s", summary)
 	}
@@ -384,6 +390,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 // runCustomTests executes tests with custom go test flags (fast path)
 // Skips vet, badges, and cache, but runs WASM tests if detected
 func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec int, runAll bool) (string, error) {
+	start := time.Now()
 	var msgs []string
 	addMsg := func(ok bool, msg string) {
 		symbol := "✅"
@@ -439,7 +446,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	customCtx, customCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 	defer customCancel()
-	testCmd := testCommand(customCtx, "go", testArgs...)
+	testCmd := GoTestCmdFn(customCtx, "go", testArgs...)
 	testBuffer := &bytes.Buffer{}
 
 	// CRITICAL: Keep ConsoleFilter for clean output
@@ -602,7 +609,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		msgs = append(msgs, "coverage: "+coveragePercent+"%")
 	}
 
-	summary := strings.Join(msgs, ", ")
+	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
 	if testStatus == "Failed" {
 		return summary, fmt.Errorf("%s", summary)
 	}

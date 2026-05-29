@@ -1,8 +1,10 @@
 package devflow_test
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,7 +12,19 @@ import (
 	"github.com/tinywasm/devflow"
 )
 
+// mockGoTest replaces GoTestCmdFn so Release→Push→Test does not spawn a real go test subprocess.
+// Returns a function that restores the original.
+func mockGoTest(t *testing.T) func() {
+	t.Helper()
+	orig := devflow.GoTestCmdFn
+	devflow.GoTestCmdFn = func(_ context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.Command("echo", "ok  testmodule\t0.1s\ncoverage: 100% of statements in ./...")
+	}
+	return func() { devflow.GoTestCmdFn = orig }
+}
+
 func TestGoRelease_SingleCmd(t *testing.T) {
+	defer mockGoTest(t)()
 	dir, cleanup := testCreateCmdDirs(t, "goflare")
 	defer cleanup()
 	defer testChdir(t, dir)()
@@ -52,6 +66,7 @@ func TestGoRelease_SingleCmd(t *testing.T) {
 }
 
 func TestGoRelease_MultipleCmd(t *testing.T) {
+	defer mockGoTest(t)()
 	dir, cleanup := testCreateCmdDirs(t, "gopush", "gotest")
 	defer cleanup()
 	defer testChdir(t, dir)()
@@ -95,6 +110,7 @@ func TestGoRelease_MultipleCmd(t *testing.T) {
 }
 
 func TestGoRelease_ExplicitTag(t *testing.T) {
+	defer mockGoTest(t)()
 	dir, cleanup := testCreateCmdDirs(t, "mytool")
 	defer cleanup()
 	defer testChdir(t, dir)()
@@ -182,6 +198,7 @@ func TestGoRelease_Errors(t *testing.T) {
 	})
 
 	t.Run("Push fails", func(t *testing.T) {
+		defer mockGoTest(t)()
 		dir, cleanup := testCreateCmdDirs(t, "tool")
 		defer cleanup()
 		defer testChdir(t, dir)()
@@ -195,6 +212,7 @@ func TestGoRelease_Errors(t *testing.T) {
 	})
 
 	t.Run("TmpDir cleaned up on error", func(t *testing.T) {
+		defer mockGoTest(t)()
 		dir, cleanup := testCreateCmdDirs(t, "tool")
 		defer cleanup()
 		defer testChdir(t, dir)()

@@ -74,8 +74,11 @@ gotest -bench .     # Run benchmarks
 
 **Full suite (no arguments):**
 ```
-✅ vet ok, ✅ race detection ok, ✅ tests stdlib ok, ✅ tests wasm ok, ✅ coverage: 85%, ⚠️ slow: TestFoo (3.2s) (12.4s)
+vet ✅, race ✅, tests ✅, wasm ✅, coverage: 85% (12.4s)
 ```
+The total execution time is appended in parentheses at the end. Slow tests
+(`⚠️ slow: TestFoo (3.2s)`) are printed on their own line during the run, not
+inside the summary.
 
 **Partial runs:**
 - Displays individual package results when using flags.
@@ -90,12 +93,12 @@ gotest -bench .     # Run benchmarks
 
 **Custom flags (e.g., `gotest -run TestFoo`):**
 ```
-✅ tests stdlib ok
+tests ✅ (0.4s)
 ```
 
 **Custom flags with WASM tests (e.g., `gotest -run TestWasmFoo`):**
 ```
-✅ tests stdlib ok, ✅ tests wasm ok
+tests ✅, wasm ✅ (1.2s)
 ```
 
 **Cached run:**

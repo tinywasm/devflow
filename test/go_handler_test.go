@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -231,6 +232,7 @@ func TestGoPush_SkipTag(t *testing.T) {
 func TestGoPush_DependentOutput(t *testing.T) {
 	// This tests that dependents print to consoleOutput and NOT to summary
 	var consoleLines []string
+	var consoleMu sync.Mutex
 	mockGit := &MockGitClient{
 		createdTag: "v1.0.0",
 	}
@@ -278,7 +280,9 @@ func TestGoPush_DependentOutput(t *testing.T) {
 
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetConsoleOutput(func(s string) {
+		consoleMu.Lock()
 		consoleLines = append(consoleLines, s)
+		consoleMu.Unlock()
 	})
 	goHandler.SetRetryConfig(10*time.Millisecond, 2)
 
