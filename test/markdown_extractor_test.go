@@ -64,7 +64,12 @@ func noCache() {
 
 	// Create MarkDown instance (provide writer and reader functions)
 	m := devflow.NewMarkDown(tmp, outputDir, writerWithDirCreation()).
-		InputPath("templates/server.md", func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(tmp, name)) })
+		InputPath("templates/server.md", func(name string) ([]byte, error) {
+			if filepath.IsAbs(name) {
+				return os.ReadFile(name)
+			}
+			return os.ReadFile(filepath.Join(tmp, name))
+		})
 
 	// Ensure output file doesn't exist yet
 	outputFile := filepath.Join(outputDir, "main.go")
@@ -125,7 +130,12 @@ func TestExtractDoesNotOverwriteIfSame(t *testing.T) {
 
 	// Create MarkDown instance (provide writer and reader functions)
 	m := devflow.NewMarkDown(tmp, outputDir, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
-		InputPath("templates/test.md", func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(tmp, name)) })
+		InputPath("templates/test.md", func(name string) ([]byte, error) {
+			if filepath.IsAbs(name) {
+				return os.ReadFile(name)
+			}
+			return os.ReadFile(filepath.Join(tmp, name))
+		})
 
 	// First extraction
 	outputFile := "test.go"
@@ -184,7 +194,12 @@ func TestExtractOverwritesIfDifferent(t *testing.T) {
 
 	// Extract (should overwrite)
 	m := devflow.NewMarkDown(tmp, outputDir, func(name string, data []byte) error { return os.WriteFile(name, data, 0644) }).
-		InputPath("templates/test.md", func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(tmp, name)) })
+		InputPath("templates/test.md", func(name string) ([]byte, error) {
+			if filepath.IsAbs(name) {
+				return os.ReadFile(name)
+			}
+			return os.ReadFile(filepath.Join(tmp, name))
+		})
 	if err := m.Extract("test.go"); err != nil {
 		t.Fatalf("extract failed: %v", err)
 	}
