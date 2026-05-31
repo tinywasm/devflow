@@ -19,10 +19,7 @@ func TestGoPushFlags(t *testing.T) {
 		log:       func(args ...any) {},
 	}
 
-	goHandler, err := devflow.NewGo(mockGit)
-	if err != nil {
-		t.Fatal(err)
-	}
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// 1. Skip Tests and Skip Race
 	// Mock returns "Mock push ok"
@@ -86,7 +83,7 @@ func TestGoFailures(t *testing.T) {
 	mockGit := &MockGitClient{
 		log: func(args ...any) {},
 	}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Test Verify Failure (delete go.mod)
 	os.Remove("go.mod")
@@ -114,7 +111,7 @@ func TestGoUpdateModuleFail(t *testing.T) {
 	mockGit := &MockGitClient{
 		log: func(args ...any) {},
 	}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 	goHandler.SetRetryConfig(10*time.Millisecond, 2)
 
 	// Try to update a module in current dir (which is not a valid dependent in this context, or just fails `go get`)
@@ -134,7 +131,7 @@ func TestGoPushFailTest(t *testing.T) {
 	mockGit := &MockGitClient{
 		log: func(args ...any) {},
 	}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 	goHandler.SetConsoleOutput(func(string) {}) // suppress subprocess output
 
 	// Create failing test

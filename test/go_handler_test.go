@@ -19,7 +19,7 @@ func TestGoGetModulePath(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	path, err := goHandler.GetModulePath()
 	if err != nil {
@@ -37,7 +37,7 @@ func TestGoModVerify(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	err := goHandler.Verify()
 	if err != nil {
@@ -59,7 +59,7 @@ func TestExample(t *testing.T) {}
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	_, err := goHandler.Test([]string{}, false, 0, false, false) // quiet mode, full suite, default timeout, allow cache, runAll=false
 	if err != nil {
@@ -95,7 +95,7 @@ require github.com/test/main v0.0.1
 	os.WriteFile(indepDir+"/go.mod", []byte("module github.com/test/indep\n\ngo 1.20\n"), 0644)
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Search dependents
 	dependents, err := goHandler.FindDependentModules("github.com/test/main", tmpDir)
@@ -125,7 +125,7 @@ require github.com/tinywasm/devflow v0.0.1
 	os.WriteFile(gomodPath, []byte(content), 0644)
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Should find the dependency
 	if !goHandler.HasDependency(gomodPath, "github.com/tinywasm/devflow") {
@@ -150,10 +150,7 @@ func TestGoPush(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	goHandler, err := devflow.NewGo(mockGit)
-	if err != nil {
-		t.Fatalf("NewGo failed: %v", err)
-	}
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Create test file so tests pass (Go.Push runs tests by default)
 	// But actually, Go.Push runs tests using `go test`.
@@ -194,7 +191,7 @@ func TestGoPush_NoGoMod(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Run Push
 	result, err := goHandler.Push("test", "", false, false, false, false, false, false, "")
@@ -213,7 +210,7 @@ func TestGoPush_SkipTag(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Run Push with skipTag=true
 	result, err := goHandler.Push("test", "", true, true, true, true, true, false, "")
@@ -278,7 +275,7 @@ func TestGoPush_DependentOutput(t *testing.T) {
 		return originalExec(name, args...)
 	}
 
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 	goHandler.SetConsoleOutput(func(s string) {
 		consoleMu.Lock()
 		consoleLines = append(consoleLines, s)
@@ -356,7 +353,7 @@ func TestUpdateDependentModule(t *testing.T) {
 	t.Setenv("GOPROXY", "off")
 
 	mockGit := &MockGitClient{}
-	g, _ := devflow.NewGo(mockGit)
+	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetRetryConfig(time.Millisecond, 1)
 
 	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1")
@@ -385,7 +382,7 @@ func TestGoInstall(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "cmd/tool2/main.go"), []byte("package main\nfunc main() {}\n"), 0644)
 
 	mockGit := &MockGitClient{}
-	g, _ := devflow.NewGo(mockGit)
+	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetRootDir(tmpDir)
 
 	err := g.Install("v1.2.3")
@@ -509,7 +506,7 @@ func TestGoPush_RemoteAccessFailure(t *testing.T) {
 		log:            func(args ...any) {},
 	}
 
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	_, err := goHandler.Push("msg", "tag", true, true, true, true, false, false, "")
 
@@ -539,7 +536,7 @@ func TestGoPush_SkipTag_CallsAddBeforeCommit(t *testing.T) {
 		latestTag: "v0.0.0",
 	}
 
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Call Push with skipTag=true (non-Go project since we have no go.mod)
 	_, err := goHandler.Push("test message", "v1.0.0", false, false, false, false, true, false, "")
@@ -575,7 +572,7 @@ func TestGoPush_SkipVerify_DoesNotCallVerify(t *testing.T) {
 		latestTag:  "v0.0.0",
 	}
 
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Introduce an invalid go.mod to ensure verify would fail if called
 	os.WriteFile("go.mod", []byte("module github.com/test/repo\n\ngo 1.21\n\nrequire github.com/nonexistent/pkg v0.0.0\n"), 0644)
@@ -595,7 +592,7 @@ func TestParseVerifyError_UnknownRevision(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
-	goHandler, _ := devflow.NewGo(mockGit)
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 
 	// Write the broken go.mod and mock RunCommand via a patched verify
 	_ = goHandler

@@ -128,10 +128,7 @@ func TestAsyncUpdateFlow(t *testing.T) {
 	}
 
 	git, _ := devflow.NewGit()
-	g, err := devflow.NewGo(git)
-	if err != nil {
-		t.Fatalf("NewGo failed: %v", err)
-	}
+	g := newGoHandlerWithMockBackup(t, git)
 
 	// Speed up tests by reducing retry delay
 	g.SetRetryConfig(10*time.Millisecond, 2)
