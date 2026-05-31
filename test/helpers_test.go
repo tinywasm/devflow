@@ -100,3 +100,14 @@ func (m *MockPublisher) Publish(message, tag string, skipTests, skipRace, skipDe
 	}
 	return devflow.PushResult{Summary: "Mock published"}, nil
 }
+
+// newGoHandlerWithMockBackup creates a Go handler with a no-op backup mock.
+func newGoHandlerWithMockBackup(t *testing.T, git devflow.GitClient) *devflow.Go {
+	t.Helper()
+	h, err := devflow.NewGo(git)
+	if err != nil {
+		t.Fatalf("NewGo: %v", err)
+	}
+	h.SetBackup(&devflow.MockDevBackup{})
+	return h
+}

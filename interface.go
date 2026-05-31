@@ -83,3 +83,12 @@ type GoModInterface interface {
 	SetRootDir(path string)
 	GetReplacePaths() ([]ReplaceEntry, error)
 }
+
+// BackupRunner defines the interface for backup operations.
+// Allows mocking in tests to prevent real backup execution.
+type BackupRunner interface {
+	SetLog(fn func(...any))
+	SetCommand(command string) error
+	GetCommand() (string, error)
+	Run() (string, error)
+}

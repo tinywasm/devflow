@@ -21,7 +21,7 @@ type Go struct {
 	git            GitClient // Interface for better testing
 	log            func(...any)
 	consoleOutput  func(string) // output for ConsoleFilter (fmt.Println by default)
-	backup         *DevBackup
+	backup         BackupRunner
 	retryDelay     time.Duration
 	retryAttempts  int
 	crossCompileFn func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
@@ -94,6 +94,11 @@ func (g *Go) SetLog(fn func(...any)) {
 			g.backup.SetLog(fn)
 		}
 	}
+}
+
+// SetBackup replaces the backup runner (used in tests to inject a mock).
+func (g *Go) SetBackup(b BackupRunner) {
+	g.backup = b
 }
 
 // SetConsoleOutput sets the function for console output (used by ConsoleFilter)
