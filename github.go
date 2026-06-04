@@ -1,6 +1,7 @@
 package devflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -51,10 +52,14 @@ func (gh *GitHub) SetLog(fn func(...any)) {
 	}
 }
 
-// CreateRelease creates a GitHub Release and uploads assets
-func (gh *GitHub) CreateRelease(tag string, assets []string) (string, error) {
+// CreateRelease creates a GitHub Release and uploads assets.
+// If targetRepo is not empty, it uses the --repo flag to publish to that repository.
+func (gh *GitHub) CreateRelease(tag string, assets []string, targetRepo string) (string, error) {
 	runner := gh.getSecretRunner()
 	args := []string{"release", "create", tag, "--title", tag, "--notes", ""}
+	if targetRepo != "" {
+		args = append(args, "--repo", targetRepo)
+	}
 	args = append(args, assets...)
 
 	output, err := runner.Run("gh", args...)
@@ -73,6 +78,35 @@ func (gh *GitHub) GetCurrentUser() (string, error) {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 	return strings.TrimSpace(output), nil
+}
+
+// repoInfo returns basic information about a repository.
+// If repoRef is empty, it queries the repository in the current directory.
+func (gh *GitHub) repoInfo(repoRef string) (owner, name, visibility string, err error) {
+	runner := gh.getSecretRunner()
+	args := []string{"repo", "view", "--json", "owner,name,visibility"}
+	if repoRef != "" {
+		args = []string{"repo", "view", repoRef, "--json", "owner,name,visibility"}
+	}
+
+	output, err := runner.RunSilent("gh", args...)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	var data struct {
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Name       string `json:"name"`
+		Visibility string `json:"visibility"`
+	}
+
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return "", "", "", fmt.Errorf("failed to parse repo info JSON: %w", err)
+	}
+
+	return data.Owner.Login, data.Name, data.Visibility, nil
 }
 
 // RepoExists checks if a repository exists

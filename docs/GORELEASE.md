@@ -22,11 +22,22 @@ gorelease [tag]
 1. **Validation**: Verifies that the repository has a `cmd/` directory with at least one subdirectory.
 2. **Tag Resolution**: If no tag is provided, reads the latest tag from git.
 3. **Cross-Compilation**: Compiles all commands found in `cmd/` for the following platforms:
-    * Linux (amd64)
-    * macOS (arm64)
+    * Linux (amd64, arm64)
+    * macOS (arm64, amd64)
     * Windows (amd64)
-4. **GitHub Release**: Creates a GitHub Release using the `gh` CLI, with the tag name as
-   the title, and uploads the cross-compiled binaries as release assets.
+
+   It injects the version into `main.Version` and uses optimization flags (`-s -w -trimpath`).
+
+4. **Checksums**: Generates a `checksums.txt` file (SHA256) for all compiled binaries and includes it as a release asset.
+
+5. **Target Resolution**: Automatically decides where to publish the release:
+    * If `origin` is **PUBLIC**, it publishes to `origin` (classic behavior).
+    * If `origin` is **PRIVATE**, it derives a public repository name: `<owner>/<folder-name>`.
+      If that repository exists and is public, it publishes there using the `--repo` flag.
+      This allows maintaining private source code while distributing public binaries.
+
+6. **GitHub Release**: Creates a GitHub Release using the `gh` CLI, with the tag name as
+   the title, and uploads the cross-compiled binaries and checksums as release assets.
 5. **Cleanup**: Automatically removes the temporary directory used for compilation.
 
 ### Targets
@@ -36,7 +47,9 @@ The default compilation targets are:
 | OS | Architecture | Artifact Name |
 |---|---|---|
 | linux | amd64 | `<cmd>-linux-amd64` |
+| linux | arm64 | `<cmd>-linux-arm64` |
 | darwin | arm64 | `<cmd>-darwin-arm64` |
+| darwin | amd64 | `<cmd>-darwin-amd64` |
 | windows | amd64 | `<cmd>-windows-amd64.exe` |
 
 ### Requirements

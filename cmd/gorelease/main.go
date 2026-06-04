@@ -17,6 +17,16 @@ Usage:
 Arguments:
     tag        Tag name (optional, uses latest tag if not provided)
 
+Publication:
+    If the current repository is PRIVATE, gorelease automatically attempts to
+    publish the release to a PUBLIC repository named after the current directory.
+    E.g. from ~/Dev/tinywasm/app with origin PRIVATE: publishes to <owner>/app.
+
+Features:
+    - Automatic target resolution (private source -> public distribution).
+    - SHA256 checksums generation and upload.
+    - Version injection (main.Version) and binary optimization (-s -w -trimpath).
+
 Examples:
     gorelease
     gorelease v1.2.3
