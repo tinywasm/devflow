@@ -10,6 +10,7 @@ type GitHubClient interface {
 	DeleteRepo(owner, name string) error
 	IsNetworkError(err error) bool
 	GetHelpfulErrorMessage(err error) string
+	CreateRelease(tag string, assets []string, targetRepo string) (string, error)
 }
 
 // GitHubAuthenticator defines the interface for GitHub authentication.

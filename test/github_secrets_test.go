@@ -16,15 +16,22 @@ type fakeRunner struct {
 	lastInput string
 	output    string
 	err       error
+	respond   func(args []string) (string, error)
 }
 
 func (f *fakeRunner) Run(name string, args ...string) (string, error) {
 	f.lastArgs = args
+	if f.respond != nil {
+		return f.respond(args)
+	}
 	return f.output, f.err
 }
 
 func (f *fakeRunner) RunSilent(name string, args ...string) (string, error) {
 	f.lastArgs = args
+	if f.respond != nil {
+		return f.respond(args)
+	}
 	return f.output, f.err
 }
 

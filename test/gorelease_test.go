@@ -21,13 +21,19 @@ func TestReleaseOnly_SingleCmd(t *testing.T) {
 		var assets []string
 		for _, cmd := range cmds {
 			p := filepath.Join(tmpDir, cmd+"-linux-amd64")
-			os.WriteFile(p, []byte{}, 0644)
+			os.WriteFile(p, []byte("fake binary"), 0644)
 			assets = append(assets, p)
 		}
 		return assets, nil
 	})
 
-	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.3.0"}
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.3.0",
+		respond: func(args []string) (string, error) {
+			if len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+				return `{"owner":{"login":"org"},"name":"repo","visibility":"PUBLIC"}`, nil
+			}
+			return "https://github.com/org/repo/releases/tag/v0.3.0", nil
+		}}
 	gh := newTestGitHub(fake)
 
 	err := goHandler.ReleaseOnly("", gh)
@@ -67,14 +73,20 @@ func TestReleaseOnly_MultipleCmd(t *testing.T) {
 					suffix += ".exe"
 				}
 				p := filepath.Join(tmpDir, cmd+suffix)
-				os.WriteFile(p, []byte{}, 0644)
+				os.WriteFile(p, []byte("fake binary"), 0644)
 				assets = append(assets, p)
 			}
 		}
 		return assets, nil
 	})
 
-	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.1.0"}
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v0.1.0",
+		respond: func(args []string) (string, error) {
+			if len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+				return `{"owner":{"login":"org"},"name":"repo","visibility":"PUBLIC"}`, nil
+			}
+			return "https://github.com/org/repo/releases/tag/v0.1.0", nil
+		}}
 	gh := newTestGitHub(fake)
 
 	err := goHandler.ReleaseOnly("", gh)
@@ -82,15 +94,15 @@ func TestReleaseOnly_MultipleCmd(t *testing.T) {
 		t.Fatalf("ReleaseOnly failed: %v", err)
 	}
 
-	// 2 cmds * 3 platforms = 6 assets
+	// 2 cmds * 5 platforms = 10 assets
 	assetCount := 0
 	for _, arg := range fake.lastArgs {
 		if strings.Contains(arg, "gopush-") || strings.Contains(arg, "gotest-") {
 			assetCount++
 		}
 	}
-	if assetCount != 6 {
-		t.Errorf("Expected 6 assets, got %d", assetCount)
+	if assetCount != 10 {
+		t.Errorf("Expected 10 assets, got %d", assetCount)
 	}
 }
 
@@ -102,10 +114,18 @@ func TestReleaseOnly_ExplicitTag(t *testing.T) {
 	mockGit := &MockGitClient{latestTag: "v0.5.0"}
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
-		return []string{filepath.Join(tmpDir, "mytool-linux-amd64")}, nil
+		p := filepath.Join(tmpDir, "mytool-linux-amd64")
+		os.WriteFile(p, []byte("fake binary"), 0644)
+		return []string{p}, nil
 	})
 
-	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v1.0.0"}
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v1.0.0",
+		respond: func(args []string) (string, error) {
+			if len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+				return `{"owner":{"login":"org"},"name":"repo","visibility":"PUBLIC"}`, nil
+			}
+			return "https://github.com/org/repo/releases/tag/v1.0.0", nil
+		}}
 	gh := newTestGitHub(fake)
 
 	// Explicit tag v1.0.0 should be used, not GetLatestTag() result
@@ -127,10 +147,18 @@ func TestReleaseOnly_UsesLatestTag(t *testing.T) {
 	mockGit := &MockGitClient{latestTag: "v2.5.3"}
 	goHandler, _ := devflow.NewGo(mockGit)
 	goHandler.SetCrossCompileFn(func(tmpDir string, cmds []string, _ []devflow.CrossTarget, _ string) ([]string, error) {
-		return []string{filepath.Join(tmpDir, "mytool-linux-amd64")}, nil
+		p := filepath.Join(tmpDir, "mytool-linux-amd64")
+		os.WriteFile(p, []byte("fake binary"), 0644)
+		return []string{p}, nil
 	})
 
-	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v2.5.3"}
+	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v2.5.3",
+		respond: func(args []string) (string, error) {
+			if len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+				return `{"owner":{"login":"org"},"name":"repo","visibility":"PUBLIC"}`, nil
+			}
+			return "https://github.com/org/repo/releases/tag/v2.5.3", nil
+		}}
 	gh := newTestGitHub(fake)
 
 	// No explicit tag -> should call GetLatestTag()
@@ -178,7 +206,7 @@ func TestCreateRelease_Args(t *testing.T) {
 	fake := &fakeRunner{output: "https://github.com/org/repo/releases/tag/v1.0.0"}
 	gh := newTestGitHub(fake)
 
-	url, err := gh.CreateRelease("v1.0.0", []string{"/tmp/a", "/tmp/b"})
+	url, err := gh.CreateRelease("v1.0.0", []string{"/tmp/a", "/tmp/b"}, "")
 	if err != nil {
 		t.Fatalf("CreateRelease failed: %v", err)
 	}
