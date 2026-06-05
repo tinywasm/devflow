@@ -176,10 +176,18 @@ jobs:
 
 ### 5.1 Sobre el PAT (caso privado → público)
 
-- El `GITHUB_TOKEN` automático **solo** puede operar sobre el repo del workflow.
-- Para el publish cross-repo (`resolvePublishTarget` → `--repo <owner>/<public>`), crear un
-  **Fine-grained PAT** o **classic PAT** con scope `repo`, guardarlo como secret (p.ej.
-  `RELEASE_PAT`) y exponerlo como `GH_TOKEN`.
+> **Aclaración importante:** devflow **solo lee `GH_TOKEN` / `GITHUB_TOKEN`**. No existe una
+> variable "RELEASE_PAT" que devflow reconozca; `RELEASE_PAT` es únicamente un *nombre de secret*
+> de GitHub que tú mapeas a `GH_TOKEN` en el workflow. El PAT **no es obligatorio**: solo hace
+> falta en el caso cross-repo de abajo.
+
+- **Caso A — mismo repo y público (sin PAT):** basta el `GITHUB_TOKEN` automático del runner con
+  `permissions: contents: write`. Es el caso por defecto.
+- **Caso B — cross-repo (privado → público):** el `GITHUB_TOKEN` automático **solo** puede operar
+  sobre el repo del workflow, así que al escribir en otro repo (`resolvePublishTarget` →
+  `--repo <owner>/<public>`) dará **403**. Solo aquí se necesita un **Fine-grained PAT** o
+  **classic PAT** con scope `repo`, guardado como secret (p.ej. `RELEASE_PAT`) y expuesto como
+  `GH_TOKEN`.
 - Documentar claramente ambos casos para evitar errores 403 confusos.
 
 ---
@@ -216,9 +224,101 @@ jobs:
 ## 8. Preguntas abiertas / decisiones futuras (fuera de alcance)
 
 1. **Generalizar a otros secretos:** aplicar el mismo patrón env→keyring a la Jules API key
-   (`codejob_auth.go`) y a cualquier secreto. Hoy queda fuera de alcance (decisión: "Solo auth GitHub").
+   (`codejob_auth.go`) y a cualquier secreto. Detallado en la **Fase 2 (§9)**.
 2. **Endurecer `keyring.go`:** evitar el intento de `sudo apt/dnf/pacman` en entornos no
    interactivos / detectar `CI=true` para fallar rápido con mensaje claro.
 3. **Soporte de `gh` no instalado en CI:** los runners de GitHub ya traen `gh`; si se ejecuta en
    otro CI (GitLab, self-hosted) habría que documentar la instalación de `gh` o evaluar usar la
    API REST directamente.
+
+---
+
+## 9. Fase 2 — Capa `SecretStore` unificada (habilita `codejob` en la nube)
+
+> Estado: Propuesta (posterior a la Fase 1). Esta fase **no es necesaria** para arreglar
+> `gorelease`; generaliza el patrón para desbloquear `codejob` y futuras herramientas en CI/nube.
+
+### 9.1 Motivación
+
+La Fase 1 resuelve **solo** el token de GitHub. Pero el patrón "credencial atada al keyring +
+modo interactivo" se repite en otras herramientas, y el caso más afectado es **`codejob`**:
+
+| Herramienta | Secreto | Cómo lo obtiene hoy | Bloqueante en nube |
+|---|---|---|---|
+| gorelease / gopush | GitHub token | `EnsureGitHubAuth` → keyring + Device Flow | navegador interactivo (resuelto en Fase 1) |
+| codejob | Jules API key | `codejob_auth.go:53` `EnsureAPIKey` → keyring + **`term.ReadPassword`** | exige TTY humano |
+
+El bloqueante real de `codejob` es `codejob_auth.go:53`:
+
+```go
+raw, err := term.ReadPassword(int(os.Stdin.Fd()))  // ← exige un TTY humano
+```
+
+En un entorno headless (Actions, runner en la nube) **no hay TTY**: esa llamada falla o se cuelga,
+exista o no el keyring. `codejob` **nunca puede autenticarse sin un humano** escribiendo la key.
+
+### 9.2 Diseño: interfaz `SecretStore`
+
+Una capa única que aplica la regla **`env → keyring`** (extensible a más backends) para *cualquier*
+secreto, en vez de reimplementar el early-return en cada `EnsureX`.
+
+```go
+// SecretStore resuelve secretos con precedencia: entorno → keyring.
+type SecretStore interface {
+    // Get devuelve el valor del secreto. envKeys son los nombres de variables de
+    // entorno a probar (en orden); keyringKey es la clave de respaldo en el keyring.
+    Get(keyringKey string, envKeys ...string) (string, error)
+}
+```
+
+Implementación por defecto:
+
+```go
+func (s *defaultSecretStore) Get(keyringKey string, envKeys ...string) (string, error) {
+    for _, k := range envKeys {
+        if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+            return v, nil  // CI/nube: nunca toca keyring ni pide por TTY
+        }
+    }
+    // Local: keyring (y, si falta, el flujo interactivo propio de cada herramienta)
+    return s.keyring.Get(keyringKey)
+}
+```
+
+Mapeo de claves:
+
+| Secreto | keyringKey | envKeys |
+|---|---|---|
+| GitHub token | `github_token` | `GH_TOKEN`, `GITHUB_TOKEN` |
+| Jules API key | `jules_api_key` | `JULES_API_KEY` |
+
+### 9.3 Migración
+
+- `EnsureGitHubAuth` (Fase 1): su `githubTokenFromEnv()` pasa a ser `store.Get("github_token", "GH_TOKEN", "GITHUB_TOKEN")`.
+- `codejob_auth.go` `EnsureAPIKey`: anteponer `store.Get("jules_api_key", "JULES_API_KEY")`;
+  el `term.ReadPassword` queda **solo** como fallback interactivo cuando no hay env var ni keyring.
+
+### 9.4 Justificación: por qué habilita `codejob` en la nube
+
+1. **Elimina el único bloqueante real** (`term.ReadPassword`): con `JULES_API_KEY` como secret,
+   `codejob` se vuelve **100% no interactivo** → ejecutable ante un push/issue en un workflow.
+2. **Resuelve ambos secretos con un solo modelo**: como `codejob` también usa GitHub auth, Jules +
+   GitHub quedan cubiertos por la misma capa coherente.
+3. **Cero duplicación / un solo punto de prueba**: en lugar de copiar el early-return en cada
+   `EnsureX`, la precedencia vive y se testea en un sitio.
+4. **Extensible**: añadir mañana otro backend (Vault, AWS Secrets Manager, o `dotenv.go` como
+   backend de `.env`) es un cambio localizado, no N parches.
+
+### 9.5 Ventajas resumidas
+
+- Experiencia idéntica en local y nube para **todas** las herramientas.
+- Una sola regla de precedencia, testeable de forma aislada.
+- Base para integrar `codejob` en flujos de CI/CD y orquestación en la nube.
+
+### 9.6 Tareas Fase 2
+
+- [ ] Definir `SecretStore` + `defaultSecretStore` (env → keyring).
+- [ ] Migrar `EnsureGitHubAuth` para usar `SecretStore`.
+- [ ] Migrar `codejob_auth.go` `EnsureAPIKey` (env var antes de `term.ReadPassword`).
+- [ ] Tests: precedencia env/keyring por secreto; verificación de no-interactividad en `codejob`.
+- [ ] Documentar `JULES_API_KEY` en `docs/CODEJOB.md` + ejemplo de workflow de `codejob`.
