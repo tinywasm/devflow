@@ -25,17 +25,20 @@ import (
 const DevflowOAuthClientID = "Ov23lijHU2vxBCpShn1Q"
 
 // GitHub token key for keyring storage
+// Deprecated: use SecretGitHubToken with SecretStore
 const githubTokenKey = "github_token"
 
 // GitHubAuth handles GitHub authentication and token management
 type GitHubAuth struct {
-	log func(...any)
+	log   func(...any)
+	store *SecretStore
 }
 
 // NewGitHubAuth creates a new GitHub authentication handler
 func NewGitHubAuth() *GitHubAuth {
 	return &GitHubAuth{
-		log: func(...any) {},
+		log:   func(...any) {},
+		store: NewSecretStore(),
 	}
 }
 
@@ -48,6 +51,7 @@ func (a *GitHubAuth) Name() string {
 func (a *GitHubAuth) SetLog(fn func(...any)) {
 	if fn != nil {
 		a.log = fn
+		a.store.SetLog(fn)
 	}
 }
 
@@ -71,15 +75,7 @@ type tokenResponse struct {
 
 // EnsureGitHubAuth checks if GitHub is authenticated via keyring, and if not, initiates Device Flow
 func (a *GitHubAuth) EnsureGitHubAuth() error {
-	// Initialize keyring (auto-installs if needed)
-	kr, err := NewKeyring()
-	if err != nil {
-		return err
-	}
-	kr.SetLog(a.log)
-
-	// Try to load saved token from keyring
-	token, err := kr.Get(githubTokenKey)
+	token, src, err := a.store.Get(SecretGitHubToken)
 	if err == nil && token != "" {
 		// Verify the token works by configuring gh
 		if a.configureGhWithToken(token) == nil {
@@ -87,12 +83,23 @@ func (a *GitHubAuth) EnsureGitHubAuth() error {
 				return nil
 			}
 		}
-		// Token is invalid, remove it
-		kr.Delete(githubTokenKey)
+
+		// Token is invalid
+		if src == SourceEnv {
+			return fmt.Errorf("invalid GitHub token in environment variable (GH_TOKEN or GITHUB_TOKEN)")
+		}
+
+		// If it was from keyring, delete it and try to re-authenticate
+		a.store.Delete(SecretGitHubToken)
 	}
 
-	// Not authenticated - initiate Device Flow
-	token, err = a.DeviceFlowAuth(kr)
+	// Not authenticated - check if interactive
+	if !IsInteractive() {
+		return fmt.Errorf("no GitHub token found; set GH_TOKEN or GITHUB_TOKEN, or run locally to authenticate")
+	}
+
+	// Initiate Device Flow
+	token, err = a.DeviceFlowAuth()
 	if err != nil {
 		return err
 	}
@@ -102,7 +109,7 @@ func (a *GitHubAuth) EnsureGitHubAuth() error {
 }
 
 // DeviceFlowAuth initiates GitHub OAuth Device Flow and returns an access token
-func (a *GitHubAuth) DeviceFlowAuth(kr *Keyring) (string, error) {
+func (a *GitHubAuth) DeviceFlowAuth() (string, error) {
 	// Step 1: Request device and user codes
 	codeResp, err := a.requestDeviceCode()
 	if err != nil {
@@ -129,7 +136,7 @@ func (a *GitHubAuth) DeviceFlowAuth(kr *Keyring) (string, error) {
 	}
 
 	// Step 4: Save token to keyring
-	if err := kr.Set(githubTokenKey, token); err != nil {
+	if err := a.store.Set(SecretGitHubToken, token); err != nil {
 		a.log(fmt.Sprintf("Warning: could not save token: %v", err))
 	}
 

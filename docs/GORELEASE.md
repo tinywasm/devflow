@@ -75,6 +75,20 @@ gorelease
 gorelease v1.2.3
 ```
 
+## CI/CD Usage
+
+`gorelease` can be run in CI/CD environments (headless) by providing a GitHub token via environment variables.
+
+```yaml
+# GitHub Actions example
+- name: Run gorelease
+  run: go run github.com/tinywasm/devflow/cmd/gorelease@latest
+  env:
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Or a PAT with 'repo' scope
+```
+
+`gorelease` prioritizes `GH_TOKEN`, then `GITHUB_TOKEN`, and falls back to the system keyring only if neither is present.
+
 ## Integration with `codejob`
 
 The `-release` flag in `codejob` automatically triggers a release after `gopush`:

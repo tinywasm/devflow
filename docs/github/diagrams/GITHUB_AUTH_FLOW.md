@@ -5,7 +5,9 @@ This diagram illustrates how the `devflow` authentication system affects Git ope
 ```mermaid
 flowchart TD
     %% Initialization
-    A[User executes push / gopush] --> B["devflow/github_auth.go <br/> (Requests Device Code)"]
+    A[User executes push / gopush] --> SS{"SecretStore.Get('github_token')"}
+    SS -->|Env GH_TOKEN/GITHUB_TOKEN| H
+    SS -->|Not in env| B["devflow/github_auth.go <br/> (Requests Device Code)"]
     B --> C["Client ID: Ov23lij... <br/> (GitHub API)"]
     C --> D["Returns User Code <br/> (User opens browser)"]
 
