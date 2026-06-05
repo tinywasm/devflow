@@ -34,6 +34,7 @@ Dispatching a task automatically runs the setup wizard if the Jules API key is m
 
 Jules API key is managed via the system keyring (`github.com/zalando/go-keyring`):
 - **After first run**: reads silently from keyring — no env vars required in local use
+- **CI/CD / Headless**: use `JULES_API_KEY` and `GH_TOKEN` environment variables.
 
 GitHub repo and branch are auto-detected when not provided:
 - `SourceID` — via `gh repo view --json owner,name`
