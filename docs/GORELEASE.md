@@ -6,6 +6,12 @@ Create GitHub Release with cross-platform binaries for an existing tag.
 a Go project's `cmd/` binaries for multiple platforms and uploads them as assets to a
 GitHub Release.
 
+## Installation
+
+```bash
+go install github.com/tinywasm/devflow/cmd/gorelease@latest
+```
+
 ## Usage
 
 ```bash
