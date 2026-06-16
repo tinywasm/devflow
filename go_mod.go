@@ -340,7 +340,7 @@ func (g *GoModHandler) reconcilePaths(entries []ReplaceEntry) {
 
 // GetModulePath gets full module path
 func (g *Go) GetModulePath() (string, error) {
-	file, err := os.Open("go.mod")
+	file, err := os.Open(filepath.Join(g.rootDir, "go.mod"))
 	if err != nil {
 		return "", err
 	}
@@ -408,7 +408,7 @@ func (g *Go) Verify() error {
 		return fmt.Errorf("go.mod not found")
 	}
 
-	output, err := RunCommand("go", "mod", "verify")
+	output, err := RunCommandInDir(g.rootDir, "go", "mod", "verify")
 	if err == nil {
 		return nil
 	}

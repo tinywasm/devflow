@@ -368,6 +368,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	goVer := GetGoVersion()
 
 	bh := NewBadges()
+	bh.SetRootDir(g.rootDir)
 	bh.SetLog(g.log)
 	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, true); err != nil {
 
