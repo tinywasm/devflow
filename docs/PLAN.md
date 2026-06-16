@@ -1,112 +1,182 @@
-# devflow — PLAN: Completar rootDir en operaciones de archivo
+# devflow — PLAN: Recuperación automática de sesión `gh` en codejob (PAT vía `--with-token`)
 
-> Estado: Borrador para revisión · Objetivo: eliminar el uso restante del CWD del proceso
-> en operaciones de archivo/comando dentro de `devflow`, dejando solo `g.rootDir` como
-> directorio de trabajo. Prerequisito completado: comandos de test ya usan `cmd.Dir`/`RunCommandInDir`
-> (v0.4.30).
+> Estado: Borrador para revisión · Objetivo: eliminar el device-flow del navegador
+> (`Paste this code in browser: XXXX-XXXX`) durante codejob. Cuando la sesión de `gh`
+> expira, recuperarla automáticamente con un PAT del keyring vía `gh auth login --with-token`
+> — sin interacción, persistente, y arreglando `gh` globalmente (no solo codejob).
 >
 > ⚠️ Prescriptivo. Ver §5 (Invariantes) y §6 (Aceptación).
 
 ---
 
-## 1. Contexto (verificado en código)
+## 1. Problema (verificado en código)
 
-El dispatch anterior (v0.4.30) corrigió la ejecución de comandos en `gotest.go` y
-`git_test_cache.go` para usar `g.rootDir` vía `RunCommandInDir` y `cmd.Dir`. Sin embargo,
-quedan operaciones de archivo/comando que aún asumen el CWD del proceso:
+El flujo de codejob ejecuta comandos `gh` que dependen de la sesión OAuth de `gh`:
 
-| Sitio | Problema |
-|-------|---------|
-| `go_handler.go:33` `GoVersion()` | `os.ReadFile("go.mod")` — lee del CWD |
-| `go_mod.go:412` `Verify()` | `RunCommand("go", "mod", "verify")` — sin `Dir` |
-| `badges.go:81` `NewBadges` | `h.readmeFile = "README.md"` — escribe en CWD |
-| `badges.go:108` `BuildBadges()` | genera SVGs en CWD |
-| `badges.go:188` `UpdateReadme()` | `os.ReadFile(h.readmeFile)` — CWD |
+- `gh pr view` (`codejob_state.go:171`), `gh pr merge` (`codejob_state.go:205`) en `MergeAndPublish`.
+- `gh repo view` (`code_jules.go:397` vía `autoDetectOwnerRepo`) en el dispatch.
+- `gh api user` (`github.go:75`), `gh repo view` (`github.go:88,115`).
 
-Estas operaciones son invocadas desde `gotest.go` durante el full suite (`run_tests` sin args),
-por lo que en el daemon MCP escriben en el directorio del daemon en lugar del proyecto.
+Cuando la sesión OAuth de `gh` expira, esos comandos **disparan el device flow de GitHub**
+(`Paste this code in browser: 014A-7C00`), interactivo por diseño, que bloquea el proceso
+esperando input en el navegador y rompe el flujo a medias.
+
+**Por qué `gh auth refresh` NO sirve:** usa el mismo device flow OAuth y vuelve a pedir el
+código. No es silencioso.
+
+**Camino correcto (elegido):** detectar la expiración con una llamada que NO abre navegador
+(`gh api user`), y recuperar la sesión con `gh auth login --with-token`, que lee un PAT por
+stdin, lo persiste en la config de `gh` y NO es interactivo. A partir de ahí TODOS los `gh`
+funcionan — incluido el `gh` manual del usuario en la terminal.
+
+### Infraestructura ya existente (reutilizable)
+
+- `Keyring` (`keyring.go:16`) con `Set/Get/Delete` sobre `go-keyring`, servicio `"devflow"`.
+- `JulesAuth.EnsureAPIKey` (`codejob_auth.go:51`) ya implementa "leer del keyring; si falta,
+  pedir una vez al usuario y persistir" — plantilla exacta a copiar.
+- `RunCommandWithStdin` (`executor.go:64`) — pasa input por stdin sin exponerlo en CLI/logs.
+  Exactamente lo que `gh auth login --with-token` necesita.
 
 ## 2. Objetivo
 
-Todas las operaciones de archivo dentro de `devflow` usan `g.rootDir` (o el path configurado).
-El CWD del proceso queda libre de efectos secundarios del daemon.
+Cuando un `gh` del flujo codejob falle por sesión expirada, recuperar la sesión
+automáticamente desde un PAT del keyring (setup una sola vez, como el Jules key) y reintentar.
+Cero device flow, cero navegador, cero comandos que el usuario tenga que escribir en el caso normal.
 
 ## 3. Diseño
 
-### 3.1 `GoVersion()` — `go_handler.go:32`
+### 3.1 `GitHubAuth` — gestor de PAT en keyring (nuevo `codejob_gh_auth.go`)
+
+Espejo de `JulesAuth` (`codejob_auth.go`):
 
 ```go
-// Cambiar:
-data, err := os.ReadFile("go.mod")
-// Por:
-data, err := os.ReadFile(filepath.Join(g.rootDir, "go.mod"))
+const ghTokenKey = "github_pat"
+
+type GitHubAuth struct{ kr *Keyring }
+
+func NewGitHubAuth() (*GitHubAuth, error) { /* NewKeyring(), como JulesAuth */ }
+
+// EnsureToken returns the PAT from the keyring; if absent, prompts once and persists.
+func (a *GitHubAuth) EnsureToken() (string, error) {
+    tok, err := a.kr.Get(ghTokenKey)
+    if err == nil && tok != "" {
+        return tok, nil
+    }
+    fmt.Fprintf(os.Stderr,
+        "GitHub token not found. Create a fine-grained PAT (Contents + Pull requests: Read/Write) at %s\nEnter it now: ",
+        termLink("https://github.com/settings/tokens", "https://github.com/settings/tokens"))
+    tok = readSecret() // same secure stdin reader JulesAuth uses
+    if tok == "" {
+        return "", fmt.Errorf("no GitHub token provided")
+    }
+    if err := a.kr.Set(ghTokenKey, tok); err != nil {
+        return "", err
+    }
+    return tok, nil
+}
+
+func (a *GitHubAuth) HasToken() bool { /* como HasKey */ }
+func (a *GitHubAuth) Reset() error   { return a.kr.Delete(ghTokenKey) }
 ```
 
-### 3.2 `Verify()` — `go_mod.go:406`
+> Scope mínimo del PAT fine-grained: **Contents: Read/Write** y **Pull requests: Read/Write**.
+> Documentar en CODEJOB.md.
+
+### 3.2 `ensureGHSession` — detecta expiración y recupera (nuevo, en `github.go`)
 
 ```go
-// Cambiar:
-output, err := RunCommand("go", "mod", "verify")
-// Por:
-output, err := RunCommandInDir(g.rootDir, "go", "mod", "verify")
+// ensureGHSession verifies the gh session and, if expired, restores it non-interactively
+// from the keyring PAT via `gh auth login --with-token`. No-op when the session is healthy.
+func ensureGHSession() error {
+    // Cheap probe that NEVER opens a browser: fails fast if the session is invalid.
+    if _, err := RunCommandSilent("gh", "api", "user", "--jq", ".login"); err == nil {
+        return nil // session healthy
+    }
+
+    auth, err := NewGitHubAuth()
+    if err != nil {
+        return err
+    }
+    tok, err := auth.EnsureToken()
+    if err != nil {
+        return err
+    }
+
+    // Restore session non-interactively (token via stdin, never as CLI arg).
+    if out, err := RunCommandWithStdin(tok, "gh", "auth", "login", "--with-token"); err != nil {
+        return fmt.Errorf("gh auth restore failed (token invalid/expired?). Rotate with: codejob --reset-gh-token\n%s", strings.TrimSpace(out))
+    }
+
+    // Verify the restored session works.
+    if _, err := RunCommandSilent("gh", "api", "user", "--jq", ".login"); err != nil {
+        return fmt.Errorf("gh session still invalid after restore. Rotate with: codejob --reset-gh-token\n%w", err)
+    }
+    return nil
+}
 ```
 
-`ModExists()` (`:361`) también debe verificar `filepath.Join(g.rootDir, "go.mod")`.
+> `gh api user` es la sonda porque falla inmediatamente sin abrir navegador cuando no hay
+> sesión válida (a diferencia de `gh pr view`/`gh repo view`, que pueden disparar el device flow).
 
-### 3.3 `Badges` — `badges.go`
+### 3.3 Llamar `ensureGHSession` al inicio de ambos flujos
 
-`Badges` no tiene referencia a `rootDir`. Añadir campo `rootDir string` e inicializarlo:
+- `MergeAndPublish` (`codejob_state.go:161`): primera línea del cuerpo, antes de `gh pr view`.
+- `Send` (`codejob.go`, antes de `autoDetectTitle()` en `:245`): antes del primer `gh repo view`.
 
-```go
-// NewBadges — añadir parámetro opcional o setter:
-func (h *Badges) SetRootDir(dir string) { h.rootDir = dir }
-```
+Una sola llamada por flujo; si la sesión está sana, es solo el costo de un `gh api user` (~100ms).
 
-- `h.readmeFile` pasa a ser path absoluto: `filepath.Join(h.rootDir, "README.md")`.
-- `BuildBadges()` genera SVGs en `h.rootDir` en lugar de CWD.
+### 3.4 Comando de rotación `--reset-gh-token` (CLI)
 
-En `gotest.go`, donde se construye `Badges` para el full suite, pasar `g.rootDir`:
-
-```go
-bh := NewBadges(...)
-bh.SetRootDir(g.rootDir)
-```
-
-### 3.4 `exactCoverageFromProfile` — `gotest.go`
-
-Verificar que `go tool cover` use `RunCommandInDir(g.rootDir, ...)` — si `profilePath` es
-absoluto (generado con `os.CreateTemp`), el comando no necesita `Dir`; confirmar y documentar.
+En `cmd/codejob`: flag que llama `NewGitHubAuth().Reset()` y vuelve a pedir el PAT. Evita que
+el usuario tenga que adivinar cómo borrar el token del keyring cuando el PAT expira (~1 año).
 
 ## 4. Pasos
 
-1. `go_handler.go`: `GoVersion()` usa `filepath.Join(g.rootDir, "go.mod")`.
-2. `go_mod.go`: `Verify()` usa `RunCommandInDir(g.rootDir, ...)`. `ModExists()` verifica path absoluto.
-3. `badges.go`: añade `rootDir string` + `SetRootDir(dir string)`. `readmeFile`, `BuildBadges`, `UpdateReadme` usan `h.rootDir`.
-4. `gotest.go`: llama `bh.SetRootDir(g.rootDir)` después de construir `Badges`.
-5. Verificar `exactCoverageFromProfile`; documentar si ya es correcto.
+1. Crear `codejob_gh_auth.go` con `GitHubAuth` + `EnsureToken` + `HasToken` + `Reset` (espejo de JulesAuth).
+2. Crear `ensureGHSession()` en `github.go` (sonda `gh api user` → restore vía `--with-token`).
+3. Llamar `ensureGHSession()` al inicio de `MergeAndPublish` (`codejob_state.go:161`) y `Send` (`codejob.go`).
+4. Añadir flag `--reset-gh-token` en `cmd/codejob`.
+5. Docs: `CODEJOB.md` sección "Autenticación de GitHub"; `CODEJOB_FLOW.md` nodo de sesión.
 
 ## 5. Invariantes / prohibiciones
 
-- **No** uses `os.Chdir` (race con el daemon).
-- **No** cambies la firma pública de `GoVersion`, `Verify`, `NewBadges` más de lo necesario.
-- `g.rootDir` por defecto es `"."` — comportamiento CLI existente sin cambio.
-- **No** crees nuevas tools MCP aquí — este plan es solo corrección interna.
+- **No** uses `gh auth login` (sin `--with-token`) ni `gh auth refresh` — ambos disparan el
+  device flow interactivo (el bug que estamos eliminando).
+- **No** pases el PAT como argumento CLI (fuga en logs/errores); usa solo `RunCommandWithStdin`.
+- **No** uses `gh pr view`/`gh repo view` como sonda de salud — pueden abrir el navegador;
+  la sonda debe ser `gh api user`.
+- **No** llames `ensureGHSession` fuera del flujo codejob (no afecta gopush/badges/etc.).
+- **No** sobreescribas la sesión si `gh api user` ya funciona (no-op cuando está sana).
 
 ## 6. Aceptación
 
-1. `GoVersion()` lee `go.mod` del `rootDir` configurado, no del CWD.
-2. `Verify()` corre `go mod verify` en `rootDir`.
-3. `UpdateReadme()` escribe en `<rootDir>/README.md`.
-4. `go build ./... && go test ./...` verde.
-5. Tests existentes de `devflow/test/` pasan sin cambios.
+1. Con sesión `gh` expirada y un PAT válido en el keyring, `codejob` y `codejob 'msg'`
+   recuperan la sesión **sin abrir el navegador** y completan el flujo.
+2. Sin PAT en el keyring (y sesión expirada), codejob pide el token **una sola vez** (como el
+   Jules key), lo persiste, y restaura la sesión.
+3. Con sesión `gh` sana, `ensureGHSession` es no-op (solo la sonda `gh api user`) y el flujo
+   es idéntico al actual.
+4. Tras `--with-token`, el `gh` manual del usuario en la terminal también queda autenticado.
+5. Con PAT inválido/expirado, falla con `"...Rotate with: codejob --reset-gh-token"` — sin device flow.
+6. `go build ./... && go test ./...` verde.
 
 ## 7. Tests
 
-Añade a `devflow/test/`:
+Añadir `test/gh_auth_test.go` (mockear `ExecCommand` en `executor.go:12` + keyring; sin `gh` real ni red):
 
-1. **GoVersion rootDir:** con un módulo temporal (`testCreateGoModule`), `SetRootDir(dir)`,
-   aserta que `GoVersion()` no retorna error y lee la versión correcta.
-2. **Badges rootDir:** con `SetRootDir(tmpDir)`, aserta que `UpdateReadme()` escribe en
-   `tmpDir/README.md`, no en CWD.
-3. **Verify rootDir:** con `SetRootDir(tmpModuleDir)`, aserta que `Verify()` no falla por
-   CWD incorrecto.
+1. **Sesión sana → no-op:** mock `gh api user` exitoso; aserta que `ensureGHSession` NO llama
+   `gh auth login` y retorna nil.
+2. **Expirada + PAT en keyring → restore:** mock `gh api user` falla la 1ª vez y ok la 2ª;
+   keyring devuelve PAT; aserta que se invoca `gh auth login --with-token` con el PAT por stdin.
+3. **Restore falla (PAT inválido):** ambos `gh api user` fallan; aserta error con
+   `"Rotate with: codejob --reset-gh-token"` y que NO se llama `gh pr view`/`gh pr merge`.
+4. **PAT ausente → prompt una vez:** keyring vacío; aserta que se invoca el lector de secreto
+   una sola vez y se persiste (mock stdin).
+5. **Integración con MergeAndPublish:** mock que la sonda falle; aserta que `ensureGHSession`
+   corre ANTES de cualquier `gh pr view`/`gh pr merge`.
+
+## 8. Decisión abierta
+
+- ¿PAT clásico vs fine-grained? Recomendado **fine-grained** (scopes Contents + Pull requests,
+  por-repo) por mínimo privilegio. Caveat: expira (~1 año) → rotación vía `--reset-gh-token`.
+  Documentar el scope exacto en CODEJOB.md.
