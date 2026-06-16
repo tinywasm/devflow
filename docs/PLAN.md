@@ -160,7 +160,26 @@ behavior preserved.
 4. Tests run on the project root **without** `os.Chdir` (daemon watcher unaffected).
 5. `go build ./... && go test ./...` green (new + existing).
 
-## 9. Open decision
+## 9. Implementation Status & Remaining Work
+
+### Completed:
+- Created `GoTestProvider` in `gotest_mcp.go` implementing the `run_tests` tool.
+- Added `github.com/tinywasm/mcp` dependency to `go.mod`.
+- Refactored `gotest.go` and `git_test_cache.go` to respect `g.rootDir` for command execution (using `RunCommandInDir` and `cmd.Dir`).
+- Updated `NewTestCache` to accept `rootDir`.
+- Added integration tests in `test/gotest_mcp_test.go`.
+- Updated documentation in `docs/GOTEST.md`.
+
+### Remaining / Bugs:
+- **Incomplete File IO Refactoring:** While command execution is race-free and uses `rootDir`, several file system operations still rely on the process CWD. This must be fixed to avoid side effects in the daemon's directory:
+    - `exactCoverageFromProfile` in `gotest.go` should use `rootDir` for the `go tool cover` command (already using `profilePath` which is absolute, but verify).
+    - Badge update logic in `gotest.go` calls `bh.updateBadges("README.md", ...)` which currently writes to the CWD README instead of the project's README.
+    - `GoVersion()` in `go_handler.go` reads `go.mod` from CWD.
+    - `Verify()` in `go_mod.go` runs `go mod verify` in CWD.
+    - `UpdateDependents`, `FindDependentModules`, and `HasDependency` in `go_mod.go` need review for root directory consistency.
+- **Badges Handler:** The `Badges` struct and its methods (`NewBadges`, `BuildBadges`, `UpdateReadme`) need to be updated to consistently use the project's `rootDir` for all file operations.
+
+## 10. Open decision
 
 - Daemon-level (uses the daemon's `lastPath`) vs project-scoped via proxy. Recommended:
   project-scoped through `buildProjectProviders` reusing `h.GoHandler` — visible with the
