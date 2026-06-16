@@ -262,7 +262,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			// Add cushion for WASM tests too
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
-			wasmCmd := testCommand(wasmCtx, g.rootDir, "go", testArgs...)
+			wasmCmd := GoTestCmdFn(wasmCtx, g.rootDir, "go", testArgs...)
 			wasmCmd.Env = os.Environ()
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
@@ -368,6 +368,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	goVer := GetGoVersion()
 
 	bh := NewBadges()
+	bh.SetRootDir(g.rootDir)
 	bh.SetLog(g.log)
 	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, true); err != nil {
 
@@ -556,7 +557,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
-			wasmCmd := testCommand(wasmCtx, g.rootDir, "go", wasmTestArgs...)
+			wasmCmd := GoTestCmdFn(wasmCtx, g.rootDir, "go", wasmTestArgs...)
 			wasmCmd.Env = os.Environ()
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
@@ -1001,7 +1002,7 @@ func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
 
 	for _, name := range names {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-		cmd := testCommand(ctx, g.rootDir, "go", "test", "-exec", "wasmbrowsertest", "-run", "^"+name+"$", "-v", "./...")
+		cmd := GoTestCmdFn(ctx, g.rootDir, "go", "test", "-exec", "wasmbrowsertest", "-run", "^"+name+"$", "-v", "./...")
 		cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 		cmd.Stdout = nil
 		cmd.Stderr = nil
