@@ -1,345 +1,167 @@
-# PLAN: Manejador unificado de credenciales (`SecretStore`)
+# devflow — PLAN: Tool MCP `run_tests` (gotest)
 
-> Estado: Aprobado para implementar · Fecha: 2026-06-05
-> Objetivo: introducir **un único manejador de credenciales** (`SecretStore`) como pieza central
-> de devflow, con resolución **`entorno → keyring`**, consumido por **todas** las herramientas
-> (`gorelease`, `gopush`, `codejob`, …). Esto desbloquea su ejecución en CI/CD y nube sin
-> interacción humana, manteniendo intacta la experiencia local actual.
 
-> ⚠️ **Este documento es prescriptivo.** El agente que lo implemente debe ceñirse a las firmas,
-> nombres, rutas e invariantes aquí definidos. Si algo no está especificado, **no se inventa**:
-> se detiene y se pregunta. Ver §9 (Invariantes / Prohibiciones) y §11 (Criterios de aceptación).
+> Estado: Borrador para revisión · Objetivo: expone `gotest` como una tool MCP única y
+> mínima para que el LLM valide un proyecto (wasm + !wasm) con una sola llamada.
+>
+> ⚠️ Prescriptivo. Ver §6 (Invariantes) y §8 (Aceptación).
 
 ---
 
-## 1. Enfoque (leer antes que nada)
+## 1. Contexto (verificado en código)
 
-- **NO** es un trabajo por fases. **NO** se "arregla gorelease primero y luego se crea el manejador".
-- Se construye **primero** el manejador `SecretStore` como componente central, y **a continuación**
-  se migran los consumidores (`EnsureGitHubAuth`, `EnsureAPIKey`) para que lo usen.
-- Una sola regla de precedencia, en un solo sitio, testeada de forma aislada. Sin lógica de
-  resolución de credenciales duplicada por herramienta.
-
----
-
-## 2. Problema actual
-
-Cada herramienta resuelve sus credenciales por su cuenta y **todas atadas al keyring + modo
-interactivo**, lo que impide ejecutarlas en CI/CD o nube (sin TTY, sin navegador, sin keyring):
-
-| Consumidor | Secreto | Resolución actual | Bloqueante headless |
-|---|---|---|---|
-| `gorelease` / `gopush` | GitHub token | `github_auth.go:73` `EnsureGitHubAuth` → `NewKeyring()` (obligatorio) → si falta, **Device Flow** (navegador + polling) | navegador interactivo |
-| `codejob` | Jules API key | `codejob_auth.go:53` `EnsureAPIKey` → keyring → si falta, **`term.ReadPassword`** | exige TTY humano |
-
-Hechos relevantes del código:
-
-- `keyring.go:55` `ensureKeyringAvailable()` intenta instalar `gnome-keyring`/`libsecret` con
-  **`sudo apt/dnf/pacman`** si el keyring no existe → falla/cuelga en runners.
-- **Ningún camino lee variables de entorno** (`GH_TOKEN`, `GITHUB_TOKEN`, `JULES_API_KEY`).
-- `github_auth.go:75` y `codejob_auth.go:28` (`NewJulesAuth`) llaman `NewKeyring()` **de forma
-  anticipada**, antes de comprobar si hay credencial en el entorno → el `sudo` se dispara aun
-  cuando el secreto ya está disponible por env var.
-
----
-
-## 3. Arquitectura objetivo
-
-```
-                 ┌──────────────────────────────┐
-                 │        SecretStore           │   ← pieza central (nueva)
-                 │  Get(name) → env → keyring   │
-                 └──────────────┬───────────────┘
-                                │ (keyring lazy: solo si falla el entorno)
-          ┌─────────────────────┼─────────────────────┐
-          │                     │                      │
-   EnsureGitHubAuth      EnsureAPIKey (Jules)    (futuros consumidores)
-   (github_auth.go)      (codejob_auth.go)
-          │                     │
-   gorelease / gopush       codejob
-```
-
-Regla única de resolución de `SecretStore.Get(name)`:
-
-1. Probar las variables de entorno asociadas al secreto, en orden. La primera no vacía gana
-   (`source = env`). **No se toca el keyring.**
-2. Si ninguna env var está presente, inicializar el keyring **de forma perezosa** y leer su clave
-   (`source = keyring`).
-3. Si tampoco está en el keyring → `source = none` + error de "no encontrado" (el consumidor decide
-   si lanza adquisición interactiva o falla).
-
-El **modo interactivo** (Device Flow, `term.ReadPassword`) se mantiene **únicamente** como paso de
-*adquisición cuando el secreto no existe en ningún backend Y hay TTY*. La **lectura** siempre pasa
-por `SecretStore`.
-
----
-
-## 4. Especificación del componente `SecretStore`
-
-Crear un archivo nuevo: **`secret_store.go`** (paquete `devflow`).
-
-### 4.1 Tipos
+`gotest` es un método de librería en `Go`:
 
 ```go
-// SecretSource indica de dónde se resolvió un secreto.
-type SecretSource int
-
-const (
-    SourceNone    SecretSource = iota // no encontrado
-    SourceEnv                         // variable de entorno
-    SourceKeyring                     // keyring del sistema
-)
-
-// secretSpec describe cómo se resuelve un secreto lógico.
-type secretSpec struct {
-    keyringKey string   // clave en el keyring (compatibilidad con valores ya guardados)
-    envKeys    []string // variables de entorno a probar, en orden de prioridad
-}
+// devflow/gotest.go:24
+func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error)
 ```
 
-### 4.2 Registro de secretos (única fuente de verdad)
+Ejecuta vet + stdlib + race + coverage y auto-detecta/ejecuta tests WASM bajo el capó — un
+comando cubriendo wasm y !wasm (`devflow/docs/GOTEST.md`). Devuelve una línea resumen
+(`vet ✅, race ✅, tests ✅, coverage: 85% (12.4s)`) y un error en caso de fallo.
+
+El handler `Go` (`devflow/go_handler.go:19`) se construye con `NewGo(gitHandler)`
+(`:58`), tiene `SetRootDir(path)` (`:82`) y `SetConsoleOutput(fn)` (`:105`). **app ya
+posee uno**: `h.GoHandler *devflow.Go` (`app/handler.go:38`).
+
+### Critical gotcha — working directory
+
+`Test` runs in the **process CWD**, not `g.rootDir`. It calls `getModuleName(".")`
+(`devflow/gotest.go:32`) and spawns `exec.Command("go", …)` / `RunCommand(…)` with no `Dir`
+(e.g. `gotest.go:112,121,190,418,426,449,555`, plus `testCommand` at `:623`). The global MCP
+daemon is long-running and runs the build watcher concurrently, so **`os.Chdir` is unsafe**
+(process-global; would race the watcher/compiler). The tool must run tests on the project root
+**without** chdir.
+
+## 2. Objetivo
+
+A single tool `run_tests`, minimal args, that runs the full suite on the active project root
+and returns the summary. WASM handled automatically; the LLM provides nothing extra.
+
+## 3. Diseño
+
+### 3.1 Thread the working directory (prerequisite, race-free)
+
+Make `gotest` honor `g.rootDir` instead of the CWD:
+
+- `getModuleName(g.rootDir)` instead of `getModuleName(".")`.
+- Set `cmd.Dir = g.rootDir` on every `exec.Command`/`testCommand`/`RunCommand` site used by
+  `Test` (`gotest.go` and the `RunCommand` helpers it calls). `g.rootDir` defaults to `"."`,
+  so existing CLI behavior (`devflow/cmd/gotest`) is unchanged.
+
+> This is the correct fix vs `os.Chdir`; it keeps concurrent daemon work (watcher/compiler)
+> unaffected. `SetRootDir` (`go_handler.go:82`) already exists to supply it.
+
+### 3.2 The MCP provider
+
+New file `devflow/gotest_mcp.go` (package `devflow`), importing `github.com/tinywasm/mcp`:
 
 ```go
-// Nombres lógicos de los secretos gestionados.
-const (
-    SecretGitHubToken = "github_token"
-    SecretJulesAPIKey = "jules_api_key"
-)
+// GoTestProvider exposes the gotest suite as a single MCP tool.
+type GoTestProvider struct{ g *Go }
 
-// secretRegistry mapea cada secreto lógico a su spec. Es la ÚNICA fuente de verdad
-// para nombres de env var y claves de keyring. No duplicar estos literales en otros archivos.
-var secretRegistry = map[string]secretSpec{
-    SecretGitHubToken: {keyringKey: "github_token", envKeys: []string{"GH_TOKEN", "GITHUB_TOKEN"}},
-    SecretJulesAPIKey: {keyringKey: "jules_api_key", envKeys: []string{"JULES_API_KEY"}},
-}
+func NewGoTestProvider(g *Go) *GoTestProvider { return &GoTestProvider{g: g} }
+
+// Tools implements mcp.ToolProvider.
+func (p *GoTestProvider) Tools() []mcp.Tool { … }
 ```
 
-> Las `keyringKey` (`github_token`, `jules_api_key`) **deben coincidir exactamente** con las
-> constantes ya existentes (`githubTokenKey` en `github_auth.go:28`, `julesAPIKeyKey` en
-> `codejob_auth.go:11`) para no invalidar credenciales ya guardadas por usuarios.
+One tool:
 
-### 4.3 Struct y API pública
+- name: `run_tests`
+- Description: "Comprehensive Go test suite: runs vet, stdlib tests with race detection, exact
+  coverage analysis, and auto-detected WASM tests. Full suite (no args) includes badges update
+  and slow test detection. Fast path (with -run/flags) skips vet and badges. Intelligent caching
+  by git state; cache disabled with custom flags."
+- Resource: `"tests"`, Action: `'r'`
+- schema (raw JSON string, daemon-style — no ormc codegen needed):
+
+```json
+{ "type": "object", "properties": {
+  "run": { "type": "string", "description": "Optional: run only tests matching this name/pattern (e.g. TestFoo). Empty runs full suite: vet, race, coverage, WASM, badges. With custom flags uses fast path: vet and badges skipped, cache disabled." }
+}}
+```
+
+Execute:
 
 ```go
-// SecretStore resuelve credenciales con precedencia entorno → keyring.
-// El keyring se inicializa de forma perezosa: NUNCA se toca si la credencial
-// está disponible por variable de entorno (clave para CI/CD).
-type SecretStore struct {
-    log func(...any)
-    kr  *Keyring // lazy; nil hasta el primer fallback a keyring
+run := string(unquote(mcp.ExtractJSONValue(argsBytes, "run")))  // via mcp.ExtractJSONValue
+var summary string; var err error
+
+// Full suite: vet + race + coverage + WASM + badges + cache
+// Fast path: only go test + WASM auto-detect, no vet/badges/cache
+if run == "" {
+    summary, err = p.g.Test(nil, false, 0, false, false)        // full suite
+} else {
+    summary, err = p.g.Test([]string{"-run", run}, false, 0, false, false) // fast path
 }
 
-// NewSecretStore crea el manejador. NO inicializa el keyring (sin coste ni side effects).
-func NewSecretStore() *SecretStore
-
-// SetLog asigna el logger (propaga a Keyring cuando se inicialice).
-func (s *SecretStore) SetLog(fn func(...any))
-
-// Get resuelve el valor del secreto `name`. Devuelve el valor, su origen y error.
-//   - Si name no está en secretRegistry → error (programación).
-//   - Si se encuentra en env → (valor, SourceEnv, nil) SIN tocar keyring.
-//   - Si no hay env pero sí keyring → (valor, SourceKeyring, nil).
-//   - Si no está en ningún backend → ("", SourceNone, ErrSecretNotFound).
-func (s *SecretStore) Get(name string) (string, SecretSource, error)
-
-// Set persiste el valor en el keyring (único backend escribible).
-// Usado por la adquisición interactiva tras obtener un secreto nuevo.
-func (s *SecretStore) Set(name, value string) error
-
-// Delete elimina el valor del keyring (p.ej. token inválido).
-func (s *SecretStore) Delete(name string) error
+// Return summary (e.g. "vet ✅, race ✅, tests ✅, wasm ✅, coverage: 85% (12.4s)")
+// on both success and failure; gotest embeds ✅/❌ and filtered output.
+return mcp.Text(summary), nil
 ```
+
+Console noise: `SetConsoleOutput` should route to the project logger (or a no-op) so streamed
+test lines do not pollute stdout of the daemon; the returned `summary` is the LLM payload.
+
+### 3.3 Registration (project-scoped, single source)
+
+Per the app plan, aggregate via `buildProjectProviders` (`app/mcp_registry.go:67`) reusing
+the existing handler:
 
 ```go
-// ErrSecretNotFound se devuelve cuando un secreto conocido no está en ningún backend.
-var ErrSecretNotFound = errors.New("secret not found in environment or keyring")
+providers = append(providers, devflow.NewGoTestProvider(h.GoHandler))
 ```
 
-### 4.4 Comportamiento exacto de `Get`
+`h.GoHandler.SetRootDir(h.RootDir)` must be ensured before use so tests run on the project root
+(app wires this; `h.RootDir` is the active project root).
 
-1. `spec, ok := secretRegistry[name]`; si `!ok` → `fmt.Errorf("unknown secret %q", name)`.
-2. Para cada `e` en `spec.envKeys`: si `strings.TrimSpace(os.Getenv(e)) != ""` → devolver ese valor
-   con `SourceEnv`. **No inicializar keyring.**
-3. Inicializar keyring perezosamente (`s.keyring()` → `NewKeyring()` una sola vez, cachear).
-   Si `NewKeyring()` falla → devolver ese error (no envolver en `ErrSecretNotFound`).
-4. `v, err := s.kr.Get(spec.keyringKey)`: si `err == nil && v != ""` → `SourceKeyring`.
-   En cualquier otro caso → `("", SourceNone, ErrSecretNotFound)`.
+## 4. Steps
 
-`Set`/`Delete` resuelven `spec.keyringKey` vía registro e inicializan keyring perezosamente.
+1. `gotest.go`: thread `g.rootDir` into `getModuleName` and all `exec`/`RunCommand` `Dir`s.
+2. Create `devflow/gotest_mcp.go` with `GoTestProvider` + `run_tests`.
+3. Route `SetConsoleOutput` to the injected logger; return `summary` as the result.
+4. (app) register `devflow.NewGoTestProvider(h.GoHandler)` in `buildProjectProviders` and ensure
+   `SetRootDir(h.RootDir)`.
 
-### 4.5 Detección de entorno interactivo (robustez headless)
+## 5. Actualizaciones de documentación
 
-Añadir helper en `secret_store.go`:
+- `devflow/docs/GOTEST.md`: add an "MCP tool" section documenting `run_tests` (no args = full
+  suite; `run` = single test) and that wasm/!wasm run automatically.
 
-```go
-// IsInteractive indica si hay un TTY donde solicitar credenciales al usuario.
-func IsInteractive() bool {
-    return term.IsTerminal(int(os.Stdin.Fd()))
-}
-```
+## 6. Invariants / prohibitions
 
-Los consumidores la usan para **fallar rápido con mensaje accionable** en vez de colgarse cuando
-falta un secreto y no hay TTY (ver §5).
+- **Do NOT** add more args than optional `run` (no timeout/race/coverage flags exposed).
+- **Do NOT** use `os.Chdir` for the working directory (race with daemon). Use `cmd.Dir`.
+- **Do NOT** change `Test`'s signature or its summary format.
+- Keep CLI behavior identical (`g.rootDir` defaults to `"."`).
 
----
+## 7. Tests (backing)
 
-## 5. Migración de los consumidores
+Add `test/gotest_mcp_test.go` (external test package, like the rest of `devflow/test/`):
 
-### 5.1 `github_auth.go` — `GitHubAuth`
+1. **Full suite mapping:** `run==""` calls `Test(nil,false,0,false,false)` (inject a fake
+   `GoTestCmdFn`, `gotest.go:20`, to avoid a real nested `go test`).
+2. **Single test mapping:** `run="TestFoo"` calls `Test(["-run","TestFoo"], …)`.
+3. **Working dir:** with `SetRootDir(tmpModule)`, assert the spawned command runs against that
+   dir (assert `cmd.Dir` via the injected `GoTestCmdFn`).
+4. **Result:** Execute returns the summary text on both success and failure.
 
-- `GitHubAuth` deja de crear keyring directamente; pasa a tener un `store *SecretStore`.
-- `NewGitHubAuth()` crea `store: NewSecretStore()`. (Sin cambio de firma.)
-- `EnsureGitHubAuth()` se reescribe así (lógica, no literal):
+Regression: existing `devflow/test/*` (gotest, gorelease, cli) pass unchanged; CLI default CWD
+behavior preserved.
 
-```
-1. v, src, err := a.store.Get(SecretGitHubToken)
-2. si err == nil && v != "":
-     - configureGhWithToken(v); validar con `gh auth status`.
-     - si válido → return nil.
-     - si inválido:
-         · si src == SourceEnv → return error claro ("env GH_TOKEN/GITHUB_TOKEN inválido o sin scopes")
-           (NO borrar nada, NO Device Flow: en CI no hay humano).
-         · si src == SourceKeyring → a.store.Delete(SecretGitHubToken) y continuar al paso 3.
-3. (secreto ausente o keyring inválido) Adquisición interactiva:
-     - si !IsInteractive() → return error accionable:
-         "no GitHub token found; set GH_TOKEN or GITHUB_TOKEN, or run locally to authenticate"
-     - DeviceFlowAuth(...) [lógica ACTUAL sin cambios] → token
-     - a.store.Set(SecretGitHubToken, token)
-     - configureGhWithToken(token); return.
-```
+## 8. Acceptance (Definition of Done)
 
-- `DeviceFlowAuth` **mantiene su lógica actual**; solo cambia que persiste con `store.Set` en lugar
-  de `kr.Set`. Su firma `DeviceFlowAuth(kr *Keyring)` se ajusta a `DeviceFlowAuth()` usando
-  `a.store` (verificar y actualizar llamadas internas).
+1. `run_tests` with no args runs the full suite on the active project root and returns the
+   summary line.
+2. `run_tests(run="TestFoo")` runs only that test.
+3. WASM tests run automatically when present, with no extra LLM input.
+4. Tests run on the project root **without** `os.Chdir` (daemon watcher unaffected).
+5. `go build ./... && go test ./...` green (new + existing).
 
-### 5.2 `codejob_auth.go` — `JulesAuth`
+## 9. Open decision
 
-- `JulesAuth` cambia el campo `kr *Keyring` por `store *SecretStore`.
-- `NewJulesAuth() (*JulesAuth, error)`: **mantener la firma** (no romper llamadas), pero internamente
-  usar `NewSecretStore()` (que **no** inicializa keyring) y devolver `nil` error.
-- `HasKey()`: `_, _, err := a.store.Get(SecretJulesAPIKey); return err == nil`.
-- `EnsureAPIKey()`:
-
-```
-1. v, _, err := a.store.Get(SecretJulesAPIKey)
-2. si err == nil && v != "" → return v, nil
-3. (ausente) si !IsInteractive() → return error accionable:
-     "Jules API key not found; set JULES_API_KEY"
-4. term.ReadPassword(...) [ACTUAL] → key; a.store.Set(SecretJulesAPIKey, key); return key.
-```
-
-### 5.3 `github.go` / `cmd/gorelease/main.go` / `git_handler.go`
-
-- **Sin cambios de lógica.** `NewGitHub` sigue llamando `authenticator.EnsureGitHubAuth()`
-  (`github.go:41`) y el auth-retrier de git (`git_handler.go:89`) hereda el nuevo comportamiento
-  automáticamente.
-- Verificar que no haya otras referencias directas a `NewKeyring()` desde los consumidores migrados.
-
----
-
-## 6. Contrato de variables de entorno (documentar)
-
-| Secreto | Env vars (prioridad) | Clave keyring | Notas |
-|---|---|---|---|
-| GitHub token | `GH_TOKEN`, luego `GITHUB_TOKEN` | `github_token` | Estándar de `gh` CLI y GitHub Actions. |
-| Jules API key | `JULES_API_KEY` | `jules_api_key` | Para `codejob` headless. |
-
-Nota cross-repo de `gorelease` (privado → público): el `GITHUB_TOKEN` automático de Actions solo
-opera sobre el repo del workflow; para publicar en otro repo (`resolvePublishTarget` + `--repo`) se
-necesita un **PAT** con scope `repo` expuesto como `GH_TOKEN`. devflow **solo lee** `GH_TOKEN`/
-`GITHUB_TOKEN`; el nombre del secret en Actions (p.ej. `RELEASE_PAT`) es libre y se mapea a `GH_TOKEN`.
-
----
-
-## 7. Workflows de ejemplo (para docs)
-
-```yaml
-# gorelease en CI
-- name: Run gorelease
-  run: go run github.com/tinywasm/devflow/cmd/gorelease@latest
-  env:
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # cross-repo: usar ${{ secrets.RELEASE_PAT }}
-```
-
-```yaml
-# codejob en CI
-- name: Run codejob
-  run: go run github.com/tinywasm/devflow/cmd/codejob@latest ...
-  env:
-    GH_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
-    JULES_API_KEY:  ${{ secrets.JULES_API_KEY }}
-```
-
----
-
-## 8. Plan de pruebas (obligatorio)
-
-Crear `test/secret_store_test.go` (paquete de test externo, como el resto de `test/`).
-
-1. **Precedencia env:** con `GH_TOKEN` y `GITHUB_TOKEN` seteadas → gana `GH_TOKEN`, `source==SourceEnv`.
-2. **Trim:** env var con espacios/`"\n"` → se devuelve el valor recortado; env var solo-espacios
-   se trata como ausente.
-3. **Env ausente → no keyring:** inyectar un keyring falso/contador y verificar que con env var
-   presente **no** se invoca el keyring (clave anti-`sudo` en CI).
-4. **Secreto desconocido:** `Get("nope")` → error de "unknown secret".
-5. **No encontrado:** sin env y sin keyring → `ErrSecretNotFound`, `source==SourceNone`.
-6. **Consumidores (rama no interactiva):** con `IsInteractive()==false` y secreto ausente,
-   `EnsureGitHubAuth`/`EnsureAPIKey` devuelven el error accionable y **no** intentan Device Flow /
-   `ReadPassword`.
-
-> Para los puntos 3 y 6 puede ser necesario inyectar dependencias (un campo función o una pequeña
-> interfaz de keyring) en `SecretStore`/consumidores, igual que `SecretRunner` en `GitHub`. Hacerlo
-> de forma mínima y consistente con el patrón existente.
-
-**Regresión:** sin env vars y con TTY, el flujo local debe ser idéntico al actual. Todos los tests
-existentes (`test/gorelease_*_test.go`, `test/cli_test.go`, `test/llm_skill_test.go`, etc.) deben
-seguir pasando sin modificación.
-
----
-
-## 9. Invariantes y prohibiciones (NO inventar)
-
-- **NO** cambiar el `keyringService = "devflow"` ni las claves `github_token` / `jules_api_key`.
-- **NO** modificar la lógica del Device Flow (`requestDeviceCode`, `pollForToken`, `openBrowser`,
-  `configureGhWithToken`) ni del `term.ReadPassword`; solo cambia desde dónde se leen/persisten.
-- **NO** introducir backends nuevos (Vault, AWS, `.env`/`dotenv.go`) en esta entrega. El registro
-  queda preparado para ello, pero su implementación está **fuera de alcance**.
-- **NO** cambiar firmas públicas existentes salvo las explícitamente indicadas en §5
-  (`DeviceFlowAuth`). `NewGitHubAuth`, `NewJulesAuth`, `EnsureGitHubAuth`, `EnsureAPIKey`,
-  `HasKey`, y las interfaces de `interface.go` mantienen su firma.
-- **NO** añadir flags de CLI nuevos (`--ci`, etc.): la detección es automática (env → keyring,
-  + `IsInteractive`).
-- **NO** ejecutar `sudo`/instalaciones cuando la credencial venga del entorno (garantizado por la
-  inicialización perezosa del keyring).
-- Mantener el estilo del código existente (logging vía `log func(...any)`, manejo de errores con
-  `fmt.Errorf("...: %w", err)`).
-
----
-
-## 10. Checklist de implementación (orden recomendado)
-
-- [ ] Crear `secret_store.go`: tipos, `secretRegistry`, `SecretStore` (Get/Set/Delete lazy),
-      `ErrSecretNotFound`, `IsInteractive`.
-- [ ] Tests `test/secret_store_test.go` (§8.1–§8.5).
-- [ ] Migrar `github_auth.go` (`GitHubAuth.store`, `EnsureGitHubAuth`, `DeviceFlowAuth`) según §5.1.
-- [ ] Migrar `codejob_auth.go` (`JulesAuth.store`, `EnsureAPIKey`, `HasKey`) según §5.2.
-- [ ] Añadir tests de rama no interactiva (§8.6).
-- [ ] `go build ./... && go test ./...` en verde (regresión incluida).
-- [ ] Docs: `docs/GORELEASE.md` (sección CI/CD), `docs/CODEJOB.md` (env `JULES_API_KEY`),
-      `docs/github/diagrams/GITHUB_AUTH_FLOW.md` (rama entorno), y workflows de ejemplo (§7).
-- [ ] Verificar que no quedan llamadas directas a `NewKeyring()` en los consumidores migrados.
-
----
-
-## 11. Criterios de aceptación (Definition of Done)
-
-1. `SecretStore.Get` resuelve `entorno → keyring` con la precedencia de §4.2 y **no toca el keyring
-   cuando hay env var** (verificado por test).
-2. `gorelease` se ejecuta de principio a fin en CI con solo `GH_TOKEN` en el entorno, sin keyring,
-   sin navegador y sin `sudo`.
-3. `codejob` resuelve la Jules API key y el token de GitHub desde el entorno en CI, sin TTY.
-4. En local (con TTY, sin env vars) el comportamiento es **idéntico** al actual: Device Flow para
-   GitHub y `ReadPassword` para Jules, persistiendo en keyring.
-5. Cuando falta un secreto y no hay TTY, el proceso falla con un mensaje accionable que nombra la
-   variable de entorno a definir (no se cuelga ni intenta instalar keyring).
-6. `go test ./...` pasa, incluyendo los tests nuevos y los existentes sin modificar.
+- Daemon-level (uses the daemon's `lastPath`) vs project-scoped via proxy. Recommended:
+  project-scoped through `buildProjectProviders` reusing `h.GoHandler` — visible with the
+  active project and already root-configured.

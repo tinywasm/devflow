@@ -59,15 +59,17 @@ job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}), &MyDriv
 ```bash
 go install github.com/tinywasm/devflow/cmd/codejob@latest
 
-# Dispatch (default path: docs/PLAN.md)
-# Auto-setup wizard runs if API key is missing.
+# ── DESPACHAR ──────────────────────────────────────────────────────────────
+# Envía docs/PLAN.md al agente externo (Jules).
+# El wizard de setup corre automáticamente si falta el API key.
 codejob
 
-# Close the loop after reviewing PR
-# Merges PR and publishes via gopush.
-# If a new docs/PLAN.md exists, this automatically dispatches the next job.
-codejob 'fix: implemented feature'
-codejob 'fix: implemented feature' v0.3.0  # with explicit tag
+# ── PUBLICAR (cerrar el loop) ───────────────────────────────────────────────
+# Ejecutar DESPUÉS de revisar y aprobar el PR abierto por Jules.
+# Fusiona el PR y publica via gopush (git tag + push).
+# Si existe un nuevo docs/PLAN.md, despacha el siguiente job automáticamente.
+codejob 'feat: implemented feature'
+codejob 'feat: implemented feature' v0.3.0  # con tag explícito
 ```
 
 ### Go Library
