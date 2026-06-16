@@ -159,6 +159,9 @@ func MergePR() error {
 // MergeAndPublish merges the Jules PR, pulls the merged commit, commits any
 // cleanup files (e.g. .gitignore updated by HandleDone), and publishes via gopush.
 func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResult, error) {
+	if err := EnsureGHSession(); err != nil {
+		return PushResult{}, err
+	}
 	env := NewDotEnv(".env")
 	prURL, ok := env.Get(EnvKeyCodejobPR)
 	if !ok || prURL == "" {

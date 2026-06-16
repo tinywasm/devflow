@@ -221,6 +221,9 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 // driver in order until one succeeds. Returns an error if the file is missing,
 // empty, the publish fails, or all drivers fail.
 func (c *CodeJob) Send(issuePromptPath string) (string, error) {
+	if err := EnsureGHSession(); err != nil {
+		return "", err
+	}
 	info, err := os.Stat(issuePromptPath)
 	if err != nil {
 		return "", fmt.Errorf("prompt file not found: %w", err)

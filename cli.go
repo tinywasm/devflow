@@ -31,6 +31,20 @@ func ParseCLIArgs(args []string) (message, tag string, isHelp, isRelease bool) {
 	return
 }
 
+// ParseCodeJobArgs parses codejob CLI: codejob [message] [tag] [--reset-gh-token]
+// Returns message, tag, isHelp, isRelease, and isResetGHToken.
+func ParseCodeJobArgs(args []string) (message, tag string, isHelp, isRelease, isResetGHToken bool) {
+	message, tag, isHelp, isRelease = ParseCLIArgs(args)
+
+	for _, arg := range args[1:] {
+		if arg == "--reset-gh-token" {
+			isResetGHToken = true
+			break
+		}
+	}
+	return
+}
+
 // ParseReleaseArgs parses gorelease CLI: gorelease [tag]
 // Returns tag (may be empty) and isHelp.
 func ParseReleaseArgs(args []string) (tag string, isHelp bool) {

@@ -9,9 +9,23 @@ import (
 )
 
 func main() {
-	msg, tag, isHelp, isRelease := devflow.ParseCLIArgs(os.Args)
+	msg, tag, isHelp, isRelease, isResetGHToken := devflow.ParseCodeJobArgs(os.Args)
 	if isHelp {
 		showHelp()
+		return
+	}
+
+	if isResetGHToken {
+		auth, err := devflow.NewGitHubPATAuth()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+		if err := auth.Reset(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error resetting GitHub token:", err)
+			os.Exit(1)
+		}
+		fmt.Println("GitHub token reset successfully.")
 		return
 	}
 
@@ -36,7 +50,15 @@ func main() {
 	goHandler.SetLog(log)
 	goHandler.SetConsoleOutput(func(s string) { fmt.Println(s) })
 
-	gh, err := devflow.NewGitHub(log)
+	// Ensure gh session is valid before creating the GitHub handler
+	// to prevent the interactive device flow from triggering early.
+	if err := devflow.EnsureGHSession(); err != nil {
+		fmt.Fprintln(os.Stderr, "GitHub session error:", err)
+		os.Exit(1)
+	}
+
+	patAuth, _ := devflow.NewGitHubPATAuth()
+	gh, err := devflow.NewGitHub(log, patAuth)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub error:", err)
 		os.Exit(1)
@@ -69,10 +91,11 @@ func main() {
 }
 
 func showHelp() {
-	fmt.Println("Usage: codejob [message] [tag]")
+	fmt.Println("Usage: codejob [message] [tag] [--reset-gh-token]")
 	fmt.Println("\nArguments:")
-	fmt.Println("  message    Commit message (optional, used when closing a loop)")
-	fmt.Println("  tag        Explicit version tag (optional, e.g., v0.1.0)")
+	fmt.Println("  message            Commit message (optional, used when closing a loop)")
+	fmt.Println("  tag                Explicit version tag (optional, e.g., v0.1.0)")
+	fmt.Println("  --reset-gh-token   Remove the stored GitHub PAT from the keyring")
 	fmt.Println("\nHelp Commands:")
 	fmt.Println("  help, --help, -help, -h, h, ?, -?    Show this help message")
 	fmt.Println("\nDescription:")

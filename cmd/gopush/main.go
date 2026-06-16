@@ -55,7 +55,7 @@ Examples:
 		os.Exit(1)
 	}
 
-	auth := devflow.NewGitHubAuth()
+	auth := devflow.NewGitHubOAuth()
 	git.SetAuthRetrier(auth)
 
 	goHandler, err := devflow.NewGo(git)

@@ -32,9 +32,21 @@ Dispatching a task automatically runs the setup wizard if the Jules API key is m
 
 ## Authentication & Auto-Detection
 
+### Jules Auth
 Jules API key is managed via the system keyring (`github.com/zalando/go-keyring`):
 - **After first run**: reads silently from keyring — no env vars required in local use
 
+### GitHub Auth
+To prevent interactive Device Flow prompts during `codejob` (which can block the flow), `devflow` uses a fine-grained Personal Access Token (PAT) stored in the keyring to recover the `gh` session automatically if it expires.
+
+**Setup:**
+1. Create a **fine-grained PAT** at [github.com/settings/tokens](https://github.com/settings/tokens) with the following permissions:
+   - **Contents**: Read/Write
+   - **Pull requests**: Read/Write
+2. The first time `codejob` detects an expired session, it will prompt you for this PAT and save it in the keyring.
+3. To rotate the token, run: `codejob --reset-gh-token`.
+
+### Auto-Detection
 GitHub repo and branch are auto-detected when not provided:
 - `SourceID` — via `gh repo view --json owner,name`
 - `StartBranch` — via `git branch --show-current`

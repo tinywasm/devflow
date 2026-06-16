@@ -4,7 +4,8 @@ Orchestrator for dispatching coding tasks to external AI agents and closing the 
 
 ```mermaid
 flowchart TD
-    A[codejob args] --> B{Message provided?}
+    A[codejob args] --> GH[Ensure GH Session<br/>PAT recovery]
+    GH --> B{Message provided?}
     B -- No --> C{CODEJOB in .env?}
     C -- Yes --> D[Query agent session state]
     D --> E{PR ready?}
