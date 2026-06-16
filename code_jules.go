@@ -88,6 +88,9 @@ type julesGithubCtx struct {
 // If the source is not yet indexed in Jules (404 on new repos), it polls GET /sources
 // until the source appears or the timeout is exceeded.
 func (d *JulesDriver) Send(prompt, title string) (string, error) {
+	if err := EnsureGHSession(); err != nil {
+		return "", err
+	}
 	apiKey, err := d.resolveAPIKey()
 	if err != nil {
 		return "", err
