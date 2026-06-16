@@ -29,14 +29,14 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 	hasCustomArgs := len(customArgs) > 0
 
 	// Detect Module Name
-	moduleName, err := getModuleName(".")
+	moduleName, err := getModuleName(g.rootDir)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
 	}
 
 	// Check cache only for full suite runs
 	if !hasCustomArgs && !noCache {
-		cache := NewTestCache()
+		cache := NewTestCache(g.rootDir)
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
 		}
@@ -55,7 +55,7 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
 	if !noCache {
-		cache := NewTestCache()
+		cache := NewTestCache(g.rootDir)
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
 		}
@@ -94,7 +94,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			vetArgs = append(vetArgs, "-tags=integration")
 		}
 		vetArgs = append(vetArgs, "./...")
-		vetOutput, vetErr = RunCommand("go", vetArgs...)
+		vetOutput, vetErr = RunCommandInDir(g.rootDir, "go", vetArgs...)
 	}()
 
 	// Check for WASM test files (async)
@@ -110,6 +110,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 		nativeArgs = append(nativeArgs, "./...")
 		nativeCmd := exec.Command("go", nativeArgs...)
+		nativeCmd.Dir = g.rootDir
 		nativeOut, _ := nativeCmd.CombinedOutput()
 
 		// 2. Get WASM test files
@@ -119,6 +120,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 		wasmArgs = append(wasmArgs, "./...")
 		wasmCmd := exec.Command("go", wasmArgs...)
+		wasmCmd.Dir = g.rootDir
 		wasmCmd.Env = os.Environ()
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
@@ -187,7 +189,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	// This ensures we get the nice panic output from Go if possible
 	testCtx, testCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 	defer testCancel()
-	testCmd := GoTestCmdFn(testCtx, "go", testArgs...)
+	testCmd := GoTestCmdFn(testCtx, g.rootDir, "go", testArgs...)
 
 	testBuffer := &bytes.Buffer{}
 
@@ -260,7 +262,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			// Add cushion for WASM tests too
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
-			wasmCmd := testCommand(wasmCtx, "go", testArgs...)
+			wasmCmd := testCommand(wasmCtx, g.rootDir, "go", testArgs...)
 			wasmCmd.Env = os.Environ()
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
@@ -379,7 +381,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Save test cache on success (for gopush optimization)
 	// We save even if noCache=true, because this was a valid run
-	cache := NewTestCache()
+	cache := NewTestCache(g.rootDir)
 	if err := cache.SaveCache(summary); err != nil {
 		g.log("Warning: failed to save test cache:", err)
 	}
@@ -416,6 +418,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		}
 		nativeArgs = append(nativeArgs, "./...")
 		nativeCmd := exec.Command("go", nativeArgs...)
+		nativeCmd.Dir = g.rootDir
 		nativeOut, _ := nativeCmd.CombinedOutput()
 
 		wasmArgs := []string{"list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}"}
@@ -424,6 +427,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		}
 		wasmArgs = append(wasmArgs, "./...")
 		wasmCmd := exec.Command("go", wasmArgs...)
+		wasmCmd.Dir = g.rootDir
 		wasmCmd.Env = os.Environ()
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
@@ -446,7 +450,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	customCtx, customCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 	defer customCancel()
-	testCmd := GoTestCmdFn(customCtx, "go", testArgs...)
+	testCmd := GoTestCmdFn(customCtx, g.rootDir, "go", testArgs...)
 	testBuffer := &bytes.Buffer{}
 
 	// CRITICAL: Keep ConsoleFilter for clean output
@@ -552,7 +556,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
-			wasmCmd := testCommand(wasmCtx, "go", wasmTestArgs...)
+			wasmCmd := testCommand(wasmCtx, g.rootDir, "go", wasmTestArgs...)
 			wasmCmd.Env = os.Environ()
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
@@ -620,8 +624,9 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 // testCommand creates an exec.Cmd with graceful timeout handling.
 // On timeout: sends SIGINT first (lets the process flush output), then SIGKILL after 5s.
-func testCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+func testCommand(ctx context.Context, dir string, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
 	cmd.Cancel = func() error {
 		return cmd.Process.Signal(os.Interrupt)
 	}
@@ -751,11 +756,11 @@ func exactCoverageFromProfile(profilePath string) string {
 }
 
 func (g *Go) installWasmBrowserTest() error {
-	if _, err := RunCommandSilent("which", "wasmbrowsertest"); err == nil {
+	if _, err := RunCommandInDir(g.rootDir, "which", "wasmbrowsertest"); err == nil {
 		return nil
 	}
 
-	_, err := RunCommand("go", "install", "github.com/tinywasm/wasmbrowsertest@latest")
+	_, err := RunCommandInDir(g.rootDir, "go", "install", "github.com/tinywasm/wasmbrowsertest@latest")
 	if err != nil {
 		return fmt.Errorf("go install failed: %w", err)
 	}
@@ -987,7 +992,7 @@ func FindTimedOutTests(output string) []string {
 // Called after a bulk WASM run times out (wasmbrowsertest buffers output, so we can't
 // determine the culprit from the output buffer).
 func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
-	names := discoverWasmTestNames()
+	names := g.discoverWasmTestNames()
 	if len(names) <= 1 {
 		return names
 	}
@@ -996,7 +1001,7 @@ func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
 
 	for _, name := range names {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-		cmd := testCommand(ctx, "go", "test", "-exec", "wasmbrowsertest", "-run", "^"+name+"$", "-v", "./...")
+		cmd := testCommand(ctx, g.rootDir, "go", "test", "-exec", "wasmbrowsertest", "-run", "^"+name+"$", "-v", "./...")
 		cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 		cmd.Stdout = nil
 		cmd.Stderr = nil
@@ -1010,10 +1015,11 @@ func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
 	return nil
 }
 
-func discoverWasmTestNames() []string {
+func (g *Go) discoverWasmTestNames() []string {
 	listCmd := exec.Command("go", "list", "-f",
 		`{{range .TestGoFiles}}{{$.Dir}}/{{.}} {{end}}{{range .XTestGoFiles}}{{$.Dir}}/{{.}} {{end}}`,
 		"./...")
+	listCmd.Dir = g.rootDir
 	listCmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 	out, err := listCmd.Output()
 	if err != nil {

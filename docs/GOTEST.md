@@ -17,6 +17,15 @@ gotest [-t seconds] [go test flags]
 **No arguments**: Runs the full test suite (vet, race, cover, wasm, badges)
 **With arguments**: Passes flags to `go test` (fast path, no vet/wasm/badges/cache)
 
+### MCP Tool
+
+`gotest` is also available as a single MCP tool `run_tests` for LLMs:
+
+- **No arguments**: Runs the full suite on the active project root and returns the summary line.
+- **`run="TestName"`**: Runs only tests matching the specified name or pattern.
+
+WASM tests and project root detection are handled automatically.
+
 ### Options
 
 | Flag | Description | Default |

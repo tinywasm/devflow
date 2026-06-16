@@ -20,7 +20,7 @@ func TestTestCache_SaveAndValidate(t *testing.T) {
 	devflow.RunCommand("git", "add", ".")
 	devflow.RunCommand("git", "commit", "-m", "init")
 
-	cache := devflow.NewTestCache()
+	cache := devflow.NewTestCache(".")
 	testMsg := "vet ✅, tests ✅"
 
 	// Clean up any existing cache
@@ -62,7 +62,7 @@ func TestTestCache_InvalidateCache(t *testing.T) {
 	devflow.RunCommand("git", "add", ".")
 	devflow.RunCommand("git", "commit", "-m", "init")
 
-	cache := devflow.NewTestCache()
+	cache := devflow.NewTestCache(".")
 
 	// Save cache
 	if err := cache.SaveCache("test message"); err != nil {
@@ -88,7 +88,7 @@ func TestTestCache_CacheKey(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	cache := devflow.NewTestCache()
+	cache := devflow.NewTestCache(".")
 
 	key, err := cache.GetCacheKey()
 	if err != nil {
@@ -111,7 +111,7 @@ func TestTestCache_GitState(t *testing.T) {
 		t.Skip("Not in a git repository")
 	}
 
-	cache := devflow.NewTestCache()
+	cache := devflow.NewTestCache(".")
 
 	state, err := cache.GetGitState()
 	if err != nil {
@@ -136,7 +136,7 @@ func TestTestCache_GitState(t *testing.T) {
 }
 
 func TestTestCache_CacheDirectory(t *testing.T) {
-	cache := devflow.NewTestCache()
+	cache := devflow.NewTestCache(".")
 
 	expectedDir := filepath.Join(os.TempDir(), "gotest-cache")
 	if cache.CacheDir != expectedDir {
@@ -159,7 +159,7 @@ func TestTestCache_UntrackedFileInvalidatesCache(t *testing.T) {
 	devflow.RunCommand("git", "add", ".")
 	devflow.RunCommand("git", "commit", "-m", "init")
 
-	cache := devflow.NewTestCache()
+	cache := devflow.NewTestCache(".")
 	cache.InvalidateCache()
 
 	// Save cache simulating a successful full run
