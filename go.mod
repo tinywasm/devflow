@@ -12,7 +12,7 @@ require (
 
 require (
 	github.com/tinywasm/fetch v0.1.23 // indirect
-	github.com/tinywasm/form v0.2.8 // indirect
+	github.com/tinywasm/form v0.2.9 // indirect
 	github.com/tinywasm/json v0.5.2 // indirect
 	github.com/tinywasm/time v0.5.0 // indirect
 	github.com/tinywasm/unixid v0.2.23 // indirect
@@ -23,7 +23,7 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/tinywasm/context v0.0.18
-	github.com/tinywasm/fmt v0.24.0 // indirect
+	github.com/tinywasm/fmt v0.24.1 // indirect
 	github.com/tinywasm/wizard v0.0.22
 	golang.org/x/sys v0.41.0 // indirect
 )

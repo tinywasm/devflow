@@ -46,43 +46,65 @@ El daemon genera y persiste un API key en disco (`cfg.APIKeyPath`).
 
 El token va en el header: `Authorization: Bearer <apiKey>`
 
-## Herramientas MCP registradas
+## Herramientas MCP registradas (16 tools — registro estático al arrancar)
 
-### Global (daemon — siempre disponibles)
+Todas las tools se registran **una sola vez al iniciar el daemon**. No hay `list_changed`.
 
-| Tool | Resource | Action | Descripción |
-|------|----------|--------|-------------|
-| `start_development` | `project` | `c` | Inicia/cambia proyecto activo en modo headless |
+### Daemon tools (3) — siempre disponibles
 
-### Por proyecto (activos cuando hay proyecto corriendo)
+| Tool | Descripción |
+|------|-------------|
+| `start_development` | Inicia/cambia proyecto activo en modo headless |
+| `app_info` | URL, dir público, modo WASM, módulos del proyecto activo |
+| `app_get_logs` | Logs recientes con filtro de sección (e.g. `BUILD`, `SERVER`) |
 
-| Tool | Resource | Action | Descripción |
-|------|----------|--------|-------------|
-| `app_rebuild` | `app` | `u` | Recompila WASM + recarga entorno |
-| Tools de WasmClient | según módulo | — | Si WasmClient implementa `ToolProvider` |
-| Tools de Browser | `browser` | — | Interacción con devbrowser |
+### Browser tools (13) — visibles desde el arranque, "no listo" sin proyecto activo
 
-### Registro dinámico de tools
+| Tool | Descripción |
+|------|-------------|
+| `browser_navigate` | Navega a una URL |
+| `browser_click_element` | Click en un selector CSS |
+| `browser_fill_element` | Rellena un campo de texto |
+| `browser_swipe_element` | Gesto swipe en un elemento |
+| `browser_evaluate_js` | Ejecuta JavaScript y retorna resultado |
+| `browser_get_content` | Obtiene HTML/texto de la página |
+| `browser_get_console` | Logs de consola del browser |
+| `browser_get_errors` | Errores JS de la página |
+| `browser_get_network_logs` | Peticiones de red |
+| `browser_get_performance` | Métricas de rendimiento |
+| `browser_inspect_element` | Atributos y estilos de un elemento |
+| `browser_screenshot` | Captura pantalla |
+| `browser_emulate_device` | Emula viewport de dispositivo |
+
+### Arquitectura de registro (daemon, desde v0.5.28)
 
 ```
-ProjectToolProxy (mcp.ToolProvider)
-    ├── SetActive(providers...)   // llamado al iniciar proyecto
-    └── Tools()                   // delegado a providers activos
-          ├── Handler.Tools()     → app_rebuild
-          ├── WasmClient (si implementa ToolProvider)
-          └── BrowserAdapter      → GetMCPTools()
+daemon startup
+    ├── browser singleton = cfg.BrowserFactory(...)   // una sola instancia de larga vida
+    ├── daemonToolProvider (dtp)
+    │     ├── start_development
+    │     ├── app_get_logs
+    │     └── app_info
+    ├── BrowserAdapter{dtp.browser}                   // delega a browser.GetMCPTools()
+    └── mcp.NewServer([..cfg.McpToolHandlers, dtp, BrowserAdapter])
+
+start_development RPC
+    └── runProjectLoop() → onProjectReady(h)
+          ├── dtp.setActiveHandler(h)   // app_info / app_get_logs operativos
+          └── browser.OpenBrowser(...)  // browser_* operativos
 ```
+
+> **No existe `ProjectToolProxy`** (eliminado en v0.5.28). El browser singleton expone sus
+> tools desde el arranque; retornan error "not ready" hasta que un proyecto está activo.
 
 ## Flujo daemon/cliente
 
 ```
 tinywasm -mcp  →  runDaemon()
     ├── crea mcp.Server (Auth + SSE)
-    ├── registra daemonToolProvider  (start_development)
-    ├── registra ProjectToolProxy    (vacío inicialmente)
+    ├── registra daemonToolProvider + BrowserAdapter (estático)
     └── HTTP :3030
           ├── POST /mcp                → srv.HandleMessage (JSON-RPC 2.0)
-          ├── POST /mcp               [tinywasm/state, tinywasm/action interceptados antes]
           ├── GET  /logs              → SSE log stream
           ├── GET  /tinywasm/state    → estado del proyecto activo
           └── POST /tinywasm/action   → keyboard webhooks (q, r, start, stop, restart)
@@ -107,20 +129,20 @@ tinywasm (sin flags)  →  clientMode
 
 ## SSE (streaming de notificaciones)
 
-- Cambios en lista de tools → `notifications/tools/list_changed`
 - Logs del proyecto → canal `"logs"` (consumido por TUI cliente)
 - Notificaciones MCP → canal `"mcp"`
+- No se emite `notifications/tools/list_changed` (registro estático)
 
 ## Archivos clave
 
 | Archivo | Rol |
 |---------|-----|
-| `daemon.go` | `runDaemon()`: inicia MCP global, gestiona auth+SSE+HTTP |
+| `daemon.go` | `runDaemon()`: inicia MCP global, gestiona auth+SSE+HTTP; `daemonToolProvider` |
 | `mcp_ide.go` | `ConfigureIDEs()`, `WriteMCPConfig()`: auto-config de IDEs |
-| `mcp_registry.go` | `ProjectToolProxy`, `BrowserAdapter`, `buildProjectProviders()` |
-| `mcp-tools.go` | `Handler.Tools()` → tool `app_rebuild` |
-| `sse_adapter.go` | Adapta `tinywasm/sse` → `mcp.SSEPublisher` |
-| `start.go` | Wiring: llama `ConfigureIDEs` + inicia daemon o cliente |
+| `mcp_registry.go` | `BrowserAdapter`, `buildProjectProviders()` (modo standalone) |
+| `sse_publisher.go` | Ring buffer `[100]LogEntry`; `RecentLogs(section, limit)` |
+| `section-build.go` | Emite `✅ build ok` / `❌ build failed` en sección BUILD |
+| `start.go` | Wiring modo standalone: llama `ConfigureIDEs` + `buildProjectProviders` |
 
 ## Diagnóstico si el MCP no responde
 
@@ -130,9 +152,15 @@ curl http://localhost:3030/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"0"}}}'
 
-# 2. Si no responde, iniciar el daemon
+# 2. Ver tools disponibles (reemplaza <TOKEN> con TINYWASM_API_KEY del .env)
+curl http://localhost:3030/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":"1","params":{}}'
+
+# 3. Si no responde, iniciar el daemon
 tinywasm -mcp
 
-# 3. Verificar configuración en Claude Code
+# 4. Verificar configuración en Claude Code
 cat ~/.claude.json | grep -A5 mcpServers
 ```
