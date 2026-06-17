@@ -6,84 +6,77 @@ import (
 	"testing"
 
 	"github.com/tinywasm/devflow"
+	"github.com/tinywasm/mcp"
 )
 
 func TestGoTestProvider(t *testing.T) {
-	// Create a real temp module for the tests to pass g.Test initial checks
 	dir, cleanup := testCreateGoModule("example.com/mcptest")
 	defer cleanup()
 
-	// Setup
 	git, _ := devflow.NewGit()
 	g, _ := devflow.NewGo(git)
 	g.SetRootDir(dir)
 
-	var logs []string
-	g.SetLog(func(args ...any) {
-		logs = append(logs, args[0].(string))
-	})
-
 	provider := devflow.NewGoTestProvider(g)
 
-	// Mock GoTestCmdFn to capture arguments
 	var capturedDir string
 	var capturedArgs []string
 
-	// Preserve original
 	originalGoTestCmdFn := devflow.GoTestCmdFn
 	defer func() { devflow.GoTestCmdFn = originalGoTestCmdFn }()
 
 	devflow.GoTestCmdFn = func(ctx context.Context, dir string, name string, args ...string) *exec.Cmd {
 		capturedDir = dir
 		capturedArgs = args
-		// Return a command that exits with success
 		return exec.Command("true")
 	}
 
+	tools := provider.Tools()
+	if len(tools) != 1 || tools[0].Name != "run_tests" {
+		t.Fatalf("Expected 1 tool named run_tests")
+	}
+
+	call := func(args string) (*mcp.Result, error) {
+		return tools[0].Execute(nil, mcp.Request{
+			Params: mcp.CallToolParams{Arguments: args},
+		})
+	}
+
 	t.Run("Full Suite (no args)", func(t *testing.T) {
-		logs = nil
 		capturedDir = ""
 		capturedArgs = nil
 
-		tools := provider.GetMCPTools()
-		if len(tools) != 1 || tools[0].Name != "run_tests" {
-			t.Fatalf("Expected 1 tool named run_tests")
+		result, err := call("")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
 		}
-
-		tools[0].Execute(make(map[string]any))
-
+		if result == nil {
+			t.Fatal("Expected non-nil result")
+		}
 		if capturedDir != dir {
 			t.Errorf("Expected dir %s, got %q", dir, capturedDir)
 		}
-
-		// Full suite should NOT have -run but should have -v, -cover, etc. (from runFullTestSuite)
-		foundRun := false
 		for _, arg := range capturedArgs {
 			if arg == "-run" {
-				foundRun = true
+				t.Error("Full suite should not have -run arg")
 			}
-		}
-		if foundRun {
-			t.Error("Full suite should not have -run arg")
-		}
-
-		if len(logs) == 0 {
-			t.Error("Expected output in logs")
 		}
 	})
 
 	t.Run("Single Test (run arg)", func(t *testing.T) {
-		logs = nil
 		capturedDir = ""
 		capturedArgs = nil
 
-		tools := provider.GetMCPTools()
-		tools[0].Execute(map[string]any{"run": "TestFoo"})
-
+		result, err := call(`{"run":"TestFoo"}`)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Fatal("Expected non-nil result")
+		}
 		if capturedDir != dir {
 			t.Errorf("Expected dir %s, got %q", dir, capturedDir)
 		}
-
 		foundRun := false
 		for i, arg := range capturedArgs {
 			if arg == "-run" && i+1 < len(capturedArgs) && capturedArgs[i+1] == "TestFoo" {
@@ -92,11 +85,8 @@ func TestGoTestProvider(t *testing.T) {
 			}
 		}
 		if !foundRun {
-			t.Errorf("Single test run missing correct -run arg. Args: %v", capturedArgs)
-		}
-
-		if len(logs) == 0 {
-			t.Error("Expected output in logs")
+			t.Errorf("Missing -run TestFoo in args: %v", capturedArgs)
 		}
 	})
+
 }
