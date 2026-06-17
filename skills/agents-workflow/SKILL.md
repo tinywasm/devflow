@@ -39,7 +39,7 @@ flowchart TD
     D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB_PR in .env]
     E --> F[User asks Claude<br/>to review CHECK_PLAN.md]
     F --> G{Implementation<br/>correct?}
-    G -->|yes| H[User runs<br/>codejob commit msg]
+    G -->|yes| H[Claude or user runs<br/>codejob commit msg]
     G -->|errors| I[Claude writes<br/>new docs/PLAN.md<br/>with the fix]
     I --> B
     H --> J[codejob: merge PR<br/>gopush + tests<br/>delete CHECK_PLAN.md]
@@ -61,7 +61,7 @@ When the user asks Claude to review a `CHECK_PLAN.md`:
    - Any doc explicitly listed as a deliverable in `CHECK_PLAN.md` must exist and be accurate.
    - If documentation is missing or stale → write a new `docs/PLAN.md` with only the doc fixes.
 4. **Run or instruct tests** if needed (`gotest ./...`).
-5. **If everything is correct (code + docs):** tell the user to run `codejob 'commit message'` to close the loop.
+5. **If everything is correct (code + docs):** run `codejob 'commit message'` to close the loop (or tell the user to run it if they prefer).
 6. **If something is missing or broken:** write a new `docs/PLAN.md` with the specific fix. Do NOT edit code directly.
 
 Claude **never**:
@@ -75,11 +75,11 @@ Claude **runs `codejob` when the user says "despacha"** (dispatch). This sends `
 codejob   # dispatches docs/PLAN.md to Jules
 ```
 
-The `codejob 'commit message'` form (close loop / publish) is always a **user action** — Claude never runs it.
+The `codejob 'commit message'` form (close loop / publish) can be run by **Claude or the user**:
 
 ```bash
-codejob 'commit message'    # user only: merge PR + gopush + delete CHECK_PLAN.md
-codejob 'commit msg' v0.2.0 # user only: same with explicit tag
+codejob 'commit message'        # merge PR + gopush + delete CHECK_PLAN.md
+codejob 'commit msg' v0.2.0     # same with explicit tag
 ```
 
 ## Error Handling After Agent Execution
