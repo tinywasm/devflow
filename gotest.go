@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -207,6 +208,28 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	testCmd.Stdout = testPipe
 	testCmd.Stderr = testPipe
 	testErr = testCmd.Run()
+
+	// Run tests in submodule directories (own go.mod — not reached by ./...)
+	// Pass -coverpkg pointing to the parent module so coverage reflects the actual code under test.
+	covPkgFlag := fmt.Sprintf("-coverpkg=%s/...", moduleName)
+	for _, subDir := range findSubModuleDirs(g.rootDir) {
+		subArgs := []string{"test", "-v", "-cover", covPkgFlag, "-count=1", timeoutFlag, "./..."}
+		if !skipRace {
+			subArgs = append([]string{"test", "-race"}, subArgs[1:]...)
+		}
+		if runAll {
+			subArgs = append(subArgs[:len(subArgs)-1], "-tags=integration", "./...")
+		}
+		subCtx, subCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+		defer subCancel()
+		subCmd := GoTestCmdFn(subCtx, subDir, "go", subArgs...)
+		subCmd.Stdout = testPipe
+		subCmd.Stderr = testPipe
+		if err := subCmd.Run(); err != nil && testErr == nil {
+			testErr = err
+		}
+	}
+
 	testFilter.Flush()
 
 	testOutput = testBuffer.String()
@@ -240,7 +263,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Process coverage results from the profile generated during the test run above
 	if stdTestsRan {
-		if cov := exactCoverageFromProfile(coverProfilePath); cov != "" {
+		if cov := exactCoverageFromProfile(coverProfilePath); cov != "" && cov != "0" && cov != "0.0" {
 			coveragePercent = cov
 		} else {
 			coveragePercent = calculateAverageCoverage(testOutput)
@@ -468,6 +491,24 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	testCmd.Stdout = testPipe
 	testCmd.Stderr = testPipe
 	testErr := testCmd.Run()
+
+	// Run tests in submodule directories (own go.mod — not reached by ./...)
+	for _, subDir := range findSubModuleDirs(g.rootDir) {
+		subArgs := append([]string{"test"}, customArgs...)
+		if runAll {
+			subArgs = append(subArgs, "-tags=integration")
+		}
+		subArgs = append(subArgs, "./...")
+		subCtx, subCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+		defer subCancel()
+		subCmd := GoTestCmdFn(subCtx, subDir, "go", subArgs...)
+		subCmd.Stdout = testPipe
+		subCmd.Stderr = testPipe
+		if err := subCmd.Run(); err != nil && testErr == nil {
+			testErr = err
+		}
+	}
+
 	testFilter.Flush()
 
 	testOutput := testBuffer.String()
@@ -621,6 +662,26 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	// NO cache save, NO badges (as requested)
 	return summary, nil
+}
+
+// findSubModuleDirs returns immediate subdirectories that contain their own go.mod.
+// go test ./... does not cross module boundaries, so callers must run tests in each separately.
+func findSubModuleDirs(rootDir string) []string {
+	entries, err := os.ReadDir(rootDir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		sub := filepath.Join(rootDir, e.Name())
+		if _, err := os.Stat(filepath.Join(sub, "go.mod")); err == nil {
+			dirs = append(dirs, sub)
+		}
+	}
+	return dirs
 }
 
 // testCommand creates an exec.Cmd with graceful timeout handling.
