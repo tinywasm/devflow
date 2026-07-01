@@ -453,14 +453,23 @@ func (g *Go) Install(version string) error {
 
 	for _, cmd := range commands {
 		_ = gorun.StopApp(cmd) // Kill any running instance before install
-		pkg := "./cmd/" + cmd
 		args := []string{"install"}
 		if ldflags != "" {
 			args = append(args, ldflags)
 		}
+
+		// If the cmd subdir has its own go.mod it is a separate module;
+		// install from that directory instead of using ./cmd/<name> from root.
+		cmdDir := filepath.Join(g.rootDir, "cmd", cmd)
+		installDir := g.rootDir
+		pkg := "./cmd/" + cmd
+		if _, err := os.Stat(filepath.Join(cmdDir, "go.mod")); err == nil {
+			installDir = cmdDir
+			pkg = "."
+		}
 		args = append(args, pkg)
 
-		if _, err := RunCommandInDir(g.rootDir, "go", args...); err != nil {
+		if _, err := RunCommandInDir(installDir, "go", args...); err != nil {
 			return fmt.Errorf("failed to install %s: %w", cmd, err)
 		}
 	}

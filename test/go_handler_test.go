@@ -372,6 +372,67 @@ func TestUpdateDependentModule(t *testing.T) {
 	}
 }
 
+// TestGoInstall_SubmoduleCmdUsesOwnDir verifies that when a cmd subdirectory
+// has its own go.mod (a separate module), Install() runs `go install .` from
+// that subdirectory instead of `go install ./cmd/<name>` from the root, which
+// would fail with "does not contain package".
+func TestGoInstall_SubmoduleCmdUsesOwnDir(t *testing.T) {
+	type call struct{ args []string }
+	var calls []call
+
+	original := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = original }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && args[0] == "install" {
+			calls = append(calls, call{args: append([]string{name}, args...)})
+			// return success no-op
+			return exec.Command("true")
+		}
+		return original(name, args...)
+	}
+
+	tmpDir := t.TempDir()
+
+	// cmd/regular — part of root module (no go.mod)
+	os.MkdirAll(filepath.Join(tmpDir, "cmd/regular"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "cmd/regular/main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+
+	// cmd/ddlc — separate module (has its own go.mod)
+	os.MkdirAll(filepath.Join(tmpDir, "cmd/ddlc"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "cmd/ddlc/main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "cmd/ddlc/go.mod"), []byte("module github.com/test/ddlc\n\ngo 1.21\n"), 0644)
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
+	g.SetRootDir(tmpDir)
+
+	if err := g.Install("v0.9.18"); err != nil {
+		t.Fatalf("Install returned unexpected error: %v", err)
+	}
+
+	// The submodule cmd must NOT be installed via ./cmd/ddlc from the root
+	for _, c := range calls {
+		for _, arg := range c.args {
+			if arg == "./cmd/ddlc" {
+				t.Errorf("Install used ./cmd/ddlc from root — this fails when cmd has its own go.mod; args: %v", c.args)
+			}
+		}
+	}
+
+	// At least one call must use "." (install from the submodule dir itself)
+	foundDot := false
+	for _, c := range calls {
+		for _, arg := range c.args {
+			if arg == "." {
+				foundDot = true
+			}
+		}
+	}
+	if !foundDot {
+		t.Errorf("Expected at least one 'go install .' call for the submodule cmd; got: %v", calls)
+	}
+}
+
 func TestGoInstall(t *testing.T) {
 	tmpDir := t.TempDir()
 

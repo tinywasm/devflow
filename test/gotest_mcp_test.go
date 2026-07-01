@@ -31,6 +31,17 @@ func TestGoTestProvider(t *testing.T) {
 		return exec.Command("true")
 	}
 
+	// Mock ExecCommand to make go vet instant — avoids non-deterministic slowness
+	// under load that can push the test past the 30s binary timeout.
+	originalExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = originalExec }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && args[0] == "vet" {
+			return exec.Command("true")
+		}
+		return originalExec(name, args...)
+	}
+
 	tools := provider.Tools()
 	if len(tools) != 1 || tools[0].Name != "run_tests" {
 		t.Fatalf("Expected 1 tool named run_tests")
