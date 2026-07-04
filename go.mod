@@ -5,7 +5,7 @@ go 1.25.2
 require github.com/zalando/go-keyring v0.2.6
 
 require (
-	github.com/tinywasm/gorun v0.0.23
+	github.com/tinywasm/gorun v0.0.24
 	github.com/tinywasm/mcp v0.1.13
 	golang.org/x/term v0.40.0
 )
