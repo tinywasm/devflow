@@ -6,13 +6,14 @@ require github.com/zalando/go-keyring v0.2.6
 
 require (
 	github.com/tinywasm/gorun v0.0.24
-	github.com/tinywasm/mcp v0.1.13
+	github.com/tinywasm/mcp v0.1.14
 	golang.org/x/term v0.40.0
 )
 
 require (
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.6 // indirect
+	github.com/tinywasm/router v0.1.1 // indirect
 	github.com/tinywasm/time v0.5.0 // indirect
 	github.com/tinywasm/unixid v0.2.23 // indirect
 )
