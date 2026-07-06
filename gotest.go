@@ -382,8 +382,13 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 	}
 
-	// Badges
+	// Return error if tests or vet failed
+	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
+	if testStatus == "Failed" || vetStatus == "Issues" {
+		return summary, fmt.Errorf("%s", summary)
+	}
 
+	// Badges
 	licenseType := "MIT"
 	if checkFileExists("LICENSE") {
 		// naive check
@@ -394,13 +399,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	bh.SetRootDir(g.rootDir)
 	bh.SetLog(g.log)
 	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, true); err != nil {
-
-	}
-
-	// Return error if tests or vet failed
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
-	if testStatus == "Failed" || vetStatus == "Issues" {
-		return summary, fmt.Errorf("%s", summary)
+		g.log("Warning: failed to update badges:", err)
 	}
 
 	// Save test cache on success (for gopush optimization)
