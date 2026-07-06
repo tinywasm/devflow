@@ -1,110 +1,137 @@
-# Plan — Sync del arnés embebido en cada `AGENTS.md` (fuente única, cero deriva)
+# PLAN: badges get written to disk even when tests fail, and are left uncommitted
 
-> Herramienta de `tinywasm/devflow` que mantiene el **bloque canónico del arnés**
-> embebido e idéntico dentro del `AGENTS.md` de cada repositorio, desde una **fuente
-> única**, sin editar N repos a mano y sin que se desincronicen con el tiempo.
+## Symptom (observed firsthand, twice, in this same session)
 
----
+After running `gotest` (or `gopush`, which calls the same test path internally)
+in two unrelated repos (`tinywasm/wasmbrowsertest` and `tinywasm/devflow`
+itself), `git status` showed `docs/img/badges.svg` (and sometimes
+`README.md`'s badge section) as **modified**, even though nothing in the
+actual task touched those files. Both times the fix was to manually
+`git checkout -- docs/img/badges.svg` before committing the real change, to
+avoid an unrelated diff riding along. This is a symptom of a real ordering
+bug in `gotest`'s full-suite path, not something to keep working around by
+hand.
 
-## Reglas de Desarrollo
+## Root cause (confirmed by reading the code, `devflow/gotest.go`)
 
-Las reglas del arnés viven en el **`AGENTS.md` de la raíz de esta librería** — que
-esta misma herramienta genera y mantiene (se hace *dogfooding*: devflow es el primer
-consumidor). Este PLAN no las repite; describe solo el *cómo*.
-
----
-
-## El problema
-
-El arnés debe estar **embebido, en inglés, dentro de cada `AGENTS.md`**, porque cada
-librería es un repositorio independiente: un agente que trabaja solo en ese repo no
-tiene acceso a ningún documento global. Una referencia local (p.ej. "ver
-`ARNES_DE_CONSTRUCCION.md`") es un enlace roto para ese agente.
-
-Pero embeber a mano el mismo bloque en decenas de `AGENTS.md` **garantiza deriva**:
-con el tiempo cada copia se edita por separado y dejan de ser el mismo arnés — justo
-lo que el arnés prohíbe (una sola forma, no duplicar). La solución: **una fuente
-única** y una herramienta que la **propaga embebida** por marcadores, de forma
-idempotente. DRY en el origen, autocontenido en cada destino.
-
----
-
-## Diseño
-
-### 1. Fuente única del bloque canónico
-
-Un archivo con el bloque del arnés en inglés vive **una sola vez** dentro de devflow
-y se incrusta en el binario con `//go:embed` (mismo patrón que las skills):
-
-```
-devflow/agents/HARNESS.md      # texto canónico del arnés, en inglés
-```
+In `runFullTestSuite` (`gotest.go:56-414`), the badge update happens
+**unconditionally, before** the pass/fail check:
 
 ```go
-//go:embed agents/HARNESS.md
-var harnessBlock string
+// gotest.go:385-404
+// Badges
+
+licenseType := "MIT"
+...
+bh := NewBadges()
+bh.SetRootDir(g.rootDir)
+bh.SetLog(g.log)
+if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, true); err != nil {
+
+}
+
+// Return error if tests or vet failed
+summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
+if testStatus == "Failed" || vetStatus == "Issues" {
+    return summary, fmt.Errorf("%s", summary)
+}
 ```
 
-Editar el arnés = editar **este** archivo. Nada más.
+`bh.updateBadges(...)` writes to `README.md` (the `BADGES_SECTION` block) and
+`docs/img/badges.svg` **on disk**, regardless of `testStatus`/`vetStatus`.
+Only *after* that write does the function check whether tests/vet actually
+failed and return an error.
 
-### 2. Convención de marcadores en `AGENTS.md`
+This matters because of how the caller, `Push` (`go_handler.go:135-267`),
+uses that result:
 
-El bloque se inserta en una región delimitada por comentarios; todo lo de fuera es
-contenido propio de cada librería (reglas específicas, testing, etc.) y no se toca:
-
-```markdown
-<!-- BEGIN tinywasm-harness — generado por devflow; no editar dentro -->
-… bloque canónico del arnés …
-<!-- END tinywasm-harness -->
+```go
+// go_handler.go:192-200
+if !skipTests {
+    testSummary, err := g.Test([]string{}, skipRace, 0, false, false)
+    if err != nil {
+        return PushResult{}, fmt.Errorf("tests failed: %w", err)
+    }
+    summary = append(summary, testSummary)
+}
+...
+// step 3, git add/commit/push — only reached if the above didn't return early
 ```
 
-Reglas de la inserción (idempotente):
+When `Test()` returns an error (tests or vet failed), `Push()` returns
+**immediately**, before step 3's `git add`/`commit`/`push` ever runs. But
+the badge files were already rewritten on disk by `Test()`'s internal call
+to `updateBadges` moments earlier — so a **failed** `gopush`/`gotest` run
+leaves the working tree dirty with badge changes that:
 
-- Si existen los marcadores → se reemplaza **solo** lo que hay entre ellos.
-- Si no existen → se insertan justo después del título `# Agent Guide — …` (o al
-  inicio si no hay título), con los marcadores.
-- Si `AGENTS.md` no existe → se crea con título + bloque.
-- Correr la herramienta dos veces seguidas no produce diferencias (idempotencia).
+- reflect a failed/passing state that was never intended to be committed,
+- never get committed (the commit step is never reached),
+- never get reverted (nothing cleans them up),
+- silently ride along into whatever the *next* commit happens to be,
+  misattributing an unrelated badge diff to unrelated work (exactly what
+  happened twice in this session).
 
-Este es el mismo mecanismo de marcadores que ya usa el tool `badges` sobre el
-`README.md`, reutilizado — no se inventa uno nuevo.
+On a **successful** run, this ordering happens to work out fine: `Test()`
+writes the (correct, "Passing") badges, then `Push()` proceeds to step 3
+and commits everything including the fresh badges — no bug is visible on
+the happy path, which is presumably why this has gone unnoticed.
 
-### 3. Punto de ejecución — que nadie tenga que "acordarse"
+## The fix
 
-El arnés dice: un paso obligatorio que haya que recordar es un hueco. Por eso la
-sincronización **no** es un comando suelto que se te olvida correr:
+Badge state must only ever be persisted to disk when the run that produced
+it actually succeeded. Move the `updateBadges` call to *after* the
+pass/fail check in `runFullTestSuite`, so a failing run never touches
+`README.md`/`docs/img/badges.svg` at all — leaving the working tree exactly
+as it was before the test run, whether by direct `gotest` or via `gopush`.
 
-- **Paso pre-publicación en `gopush`.** Antes de cada publicación, `gopush`
-  reinyecta el bloque en el `AGENTS.md` del repo. Así, cualquier repo que se publique
-  queda al día automáticamente; la deriva se auto-corrige en cada release.
-- **Modo bajo demanda** (secundario): una invocación explícita para reinyectar sin
-  publicar (útil en un barrido puntual del ecosistema).
+## Tasks
 
----
+1. **Reorder `runFullTestSuite`** (`gotest.go`, currently lines 385-404): move
+   the entire "Badges" block (the `licenseType`/`goVer`/`bh := NewBadges()`/
+   `bh.updateBadges(...)` sequence) to *after* the
+   `if testStatus == "Failed" || vetStatus == "Issues" { return ... }` check,
+   i.e. only reachable on the success path, right before (or merged into)
+   the existing "Save test cache on success" block (`gotest.go:406-411`)
+   which already only runs on success — keep the ordering consistent with
+   that existing pattern.
 
-## Pasos de implementación
+2. **Verify no other caller depends on badges being updated even on
+   failure.** Search for other callers of `updateBadges`/`Badges` to confirm
+   this is the only call site in the full-suite path:
+   ```bash
+   grep -rn "updateBadges\|NewBadges()" --include=*.go .
+   ```
+   As of this writing there's exactly one call site (`gotest.go:393-396`);
+   if that's still true, the reorder is safe and total.
 
-1. Crear `devflow/agents/HARNESS.md` con el bloque canónico del arnés en inglés
-   (los 7 principios + "por qué arnés y no manual" + la prueba de fuego).
-2. Función `SyncHarness(agentsPath string) (changed bool, err error)`: lee el
-   `AGENTS.md`, reemplaza/inserta la región entre marcadores con `harnessBlock`,
-   escribe solo si cambió. Reutilizar el helper de marcadores de `badges`.
-3. Wire en `gopush`: llamar `SyncHarness` en la fase pre-publicación; si cambia el
-   `AGENTS.md`, incluirlo en el commit de release.
-4. Exponer el modo bajo demanda (subcomando o flag) para barridos.
-5. *Dogfooding*: generar el `AGENTS.md` de devflow con la propia herramienta.
+3. **Add a regression test** in `devflow`'s own test suite
+   (`test/gotest_test.go` or wherever `runFullTestSuite`-adjacent tests
+   live — check existing patterns there first) that:
+   - Sets up a minimal repo with a `README.md` containing the
+     `BADGES_SECTION` markers and a failing test.
+   - Runs the full-suite path.
+   - Asserts `README.md` and `docs/img/badges.svg` are **byte-identical** to
+     their pre-run state (i.e. untouched) when the run fails.
+   - Runs again with a passing test and asserts the badges **do** update in
+     that case — proving the fix doesn't regress the working (success)
+     path.
 
----
+4. **Re-run this exact repro to confirm the fix**: in any repo with an
+   existing `docs/img/badges.svg`, introduce a deliberate test failure,
+   run `gotest`, and confirm `git status` shows **no** changes to
+   `README.md`/`docs/img/badges.svg` afterward. Then fix the test and
+   re-run — confirm badges **do** update and get included when the
+   subsequent `gopush` commits.
 
-## Estrategia de pruebas y criterios de aceptación
+5. **Publish via `gopush`** once the fix is verified — do not hand-write the
+   commit, use the tool this bug is about (dogfooding also serves as a final
+   real-world check that a successful run still updates and commits badges
+   correctly).
 
-- **Idempotencia:** correr `SyncHarness` dos veces sobre el mismo archivo → segunda
-  corrida `changed == false`, sin diff. (Test directo, patrón del test de `badges`.)
-- **Preserva lo propio:** un `AGENTS.md` con reglas específicas fuera de los
-  marcadores conserva ese contenido intacto tras la sincronización.
-- **Inserción limpia:** sobre un `AGENTS.md` sin marcadores, la primera corrida los
-  añade tras el título; sobre uno inexistente, lo crea.
-- **Una sola fuente:** el texto del arnés aparece exactamente una vez en el código
-  fuente de devflow (`agents/HARNESS.md`); ningún otro archivo lo hardcodea.
-- **Cero referencias locales en el resultado:** el `AGENTS.md` resultante no contiene
-  ningún enlace a documentos fuera de su propio repositorio.
+## Out of scope
+
+- Any other badge-generation logic (SVG layout, badge content/colors,
+  `BADGES_SECTION` marker parsing) — this plan is only about *when* badges
+  get written relative to the pass/fail decision, not what gets written.
+- The separate, pre-existing `docs/PLAN.md` in this repo (harness-sync
+  feature) — unrelated topic, do not conflate or overwrite it.
