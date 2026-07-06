@@ -156,6 +156,18 @@ func MergePR() error {
 	return nil
 }
 
+// resolveDefaultBranch returns the repo's actual default branch (e.g. "main"
+// or "master") by reading the cached origin/HEAD ref, falling back to "main"
+// if that ref isn't set locally or the command fails.
+func resolveDefaultBranch() string {
+	out, err := RunCommandSilent("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	branch := strings.TrimSpace(out)
+	if err == nil && branch != "" {
+		return strings.TrimPrefix(branch, "origin/")
+	}
+	return "main"
+}
+
 // MergeAndPublish merges the Jules PR, pulls the merged commit, commits any
 // cleanup files (e.g. .gitignore updated by HandleDone), and publishes via gopush.
 func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResult, error) {
@@ -192,9 +204,13 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 		}
 	}
 
-	// Switch to main before merging to avoid 'gh pr merge' branch-switch errors
-	if out, err := RunCommandSilent("git", "checkout", "main"); err != nil {
-		return PushResult{}, fmt.Errorf("git checkout main failed: %w\n%s", err, out)
+	// Switch to the repo's default branch before merging to avoid 'gh pr
+	// merge' branch-switch errors. Not every repo uses "main" (e.g. forks of
+	// pre-2020 projects commonly still use "master") — resolve it instead of
+	// assuming.
+	defaultBranch := resolveDefaultBranch()
+	if out, err := RunCommandSilent("git", "checkout", defaultBranch); err != nil {
+		return PushResult{}, fmt.Errorf("git checkout %s failed: %w\n%s", defaultBranch, err, out)
 	}
 
 	// 2. merge PR and delete Jules branch on GitHub

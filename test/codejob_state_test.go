@@ -336,6 +336,55 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	}
 }
 
+// TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch is a regression
+// test: repos whose default branch is "master" (e.g. old forks) must not
+// have MergeAndPublish hardcode "git checkout main" — it should resolve and
+// use the actual default branch from origin/HEAD.
+func TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+
+	recorded := []string{}
+	mockFn := func(name string, args ...string) *exec.Cmd {
+		full := name + " " + strings.Join(args, " ")
+		recorded = append(recorded, full)
+		switch {
+		case full == "git status --porcelain":
+			return exec.Command("true")
+		case full == "git symbolic-ref --short refs/remotes/origin/HEAD":
+			return exec.Command("echo", "origin/master")
+		case strings.HasPrefix(full, "git rev-parse v"):
+			return exec.Command("sh", "-c", "exit 1")
+		default:
+			return exec.Command("true")
+		}
+	}
+	orig := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = orig }()
+	devflow.ExecCommand = mockFn
+
+	mockPub := &MockPublisher{}
+	devflow.MergeAndPublish(mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+
+	idxOf := func(prefix string) int {
+		for i, c := range recorded {
+			if strings.HasPrefix(c, prefix) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	if idxOf("git checkout master") < 0 {
+		t.Errorf("expected 'git checkout master' to be called, got calls: %v", recorded)
+	}
+	if idxOf("git checkout main") >= 0 {
+		t.Errorf("did not expect 'git checkout main' when default branch is master, got calls: %v", recorded)
+	}
+}
+
 func TestMergeAndPublish_TagOverride(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
