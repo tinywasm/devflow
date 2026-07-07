@@ -5,13 +5,13 @@ description: Global MCP daemon for tinywasm/app — how to start the server, ava
 
 # tinywasm/app — MCP Integration
 
-`tinywasm/app` es el orquestador central del entorno de desarrollo. Expone un servidor MCP global persistente en el puerto `3030`.
+`tinywasm/app` es el orquestador central del entorno de desarrollo. Expone un servidor MCP global persistente en el puerto `6060`.
 
 ## Cómo iniciar el MCP
 
 ```bash
-tinywasm -mcp          # inicia el daemon global (MCP + SSE en :3030)
-tinywasm               # abre el TUI cliente (se conecta al daemon en :3030)
+tinywasm -mcp          # inicia el daemon global (MCP + SSE en :6060)
+tinywasm               # abre el TUI cliente (se conecta al daemon en :6060)
 ```
 
 El daemon persiste entre proyectos. El TUI solo es un visor SSE — Ctrl+C lo cierra sin detener el servidor.
@@ -31,7 +31,7 @@ Formato Claude Code (`~/.claude.json`):
 {
   "mcpServers": {
     "tinywasm": {
-      "url": "http://localhost:3030/mcp",
+      "url": "http://localhost:6060/mcp",
       "type": "http"
     }
   }
@@ -103,14 +103,14 @@ start_development RPC
 tinywasm -mcp  →  runDaemon()
     ├── crea mcp.Server (Auth + SSE)
     ├── registra daemonToolProvider + BrowserAdapter (estático)
-    └── HTTP :3030
+    └── HTTP :6060
           ├── POST /mcp                → srv.HandleMessage (JSON-RPC 2.0)
           ├── GET  /logs              → SSE log stream
           ├── GET  /tinywasm/state    → estado del proyecto activo
           └── POST /tinywasm/action   → keyboard webhooks (q, r, start, stop, restart)
 
 tinywasm (sin flags)  →  clientMode
-    ├── detecta daemon en :3030
+    ├── detecta daemon en :6060
     ├── conecta GET /logs (SSE)
     └── TUI viewer (Bubble Tea)
           ├── Ctrl+C → detach (daemon sigue corriendo)
@@ -148,12 +148,12 @@ tinywasm (sin flags)  →  clientMode
 
 ```bash
 # 1. Verificar que el daemon corre
-curl http://localhost:3030/mcp \
+curl http://localhost:6060/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"0"}}}'
 
 # 2. Ver tools disponibles (reemplaza <TOKEN> con TINYWASM_API_KEY del .env)
-curl http://localhost:3030/mcp \
+curl http://localhost:6060/mcp \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <TOKEN>" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":"1","params":{}}'
