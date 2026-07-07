@@ -301,14 +301,14 @@ func TestConsoleFilter_GoVetFailure(t *testing.T) {
 
 	// Simulate go vet output with relative paths and sub-messages
 	cf.Add("# github.com/tinywasm/mcp\n")
-	cf.Add("./mcp.go:189:15: fmt.Fielder (missing method Pointers)\n")
+	cf.Add("./mcp.go:189:15: model.Fielder (missing method Pointers)\n")
 	cf.Add("    have Pointers() []unsafe.Pointer\n")
 	cf.Add("    want Pointers() []*fmt.Value\n")
 	cf.Flush()
 
 	expected := []string{
 		"# github.com/tinywasm/mcp",
-		"    mcp.go:189:15: fmt.Fielder (missing method Pointers)",
+		"    mcp.go:189:15: model.Fielder (missing method Pointers)",
 		"    have Pointers() []unsafe.Pointer",
 		"    want Pointers() []*fmt.Value",
 	}
@@ -339,8 +339,8 @@ func TestConsoleFilter_ReportedIssue(t *testing.T) {
 	cf.Add("/home/cesar/go/pkg/mod/github.com/tinywasm/mcp@v0.0.19/client.go:102:24: cannot use rpcRequest{…} (value of struct type rpcRequest) as \"github.com/tinywasm/fmt\".Fielder value in argument to json.Encode: rpcRequest does not implement \"github.com/tinywasm/fmt\".Fielder (missing method Pointers)\n")
 	cf.Flush()
 
-	// We WANT to see the file name and the error. 
-	
+	// We WANT to see the file name and the error.
+
 	foundFileRefs := 0
 	for _, line := range output {
 		if strings.Contains(line, "client.go:") {

@@ -1,7 +1,9 @@
 package devflow_test
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +15,31 @@ func TestGotest_BadgesOnlyOnSuccess(t *testing.T) {
 	// 1. Setup a temporary Go module
 	tmpDir, cleanup := testCreateGoModule("testbadges")
 	defer cleanup()
+
+	// Mock ExecCommand to make go vet/go tool cover instant — this test only
+	// cares about the pass/fail gating of badge updates, not real vet/coverage output.
+	originalExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = originalExec }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
+			return exec.Command("true")
+		}
+		return originalExec(name, args...)
+	}
+
+	// Mock GoTestCmdFn to avoid a real `go test -cover -coverpkg=./...` compile:
+	// that real subprocess took ~1-9s per call (2 calls in this test) and was the
+	// main source of slowness/flakiness under load. We only need to simulate the
+	// pass/fail exit status that runFullTestSuite reacts to.
+	shouldFail := true
+	originalGoTestCmdFn := devflow.GoTestCmdFn
+	defer func() { devflow.GoTestCmdFn = originalGoTestCmdFn }()
+	devflow.GoTestCmdFn = func(ctx context.Context, dir, name string, args ...string) *exec.Cmd {
+		if shouldFail {
+			return exec.CommandContext(ctx, "false")
+		}
+		return exec.CommandContext(ctx, "true")
+	}
 
 	// Add a README with badge markers
 	readmePath := filepath.Join(tmpDir, "README.md")
@@ -63,6 +90,7 @@ func TestGotest_BadgesOnlyOnSuccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmpDir, "fail_test.go"), []byte(passTest), 0644); err != nil {
 		t.Fatalf("Failed to fix test: %v", err)
 	}
+	shouldFail = false
 
 	// 5. Run tests - should PASS
 	_, err = g.Test(nil, true, 5, true, false)

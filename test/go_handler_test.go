@@ -58,6 +58,17 @@ func TestExample(t *testing.T) {}
 
 	defer testChdir(t, dir)()
 
+	// Mock ExecCommand to make go vet instant — avoids non-deterministic slowness
+	// under load that can push the test past the 30s binary timeout.
+	originalExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = originalExec }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
+			return exec.Command("true")
+		}
+		return originalExec(name, args...)
+	}
+
 	mockGit := &MockGitClient{}
 	goHandler := newGoHandlerWithMockBackup(t, mockGit)
 

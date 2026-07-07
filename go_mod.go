@@ -52,7 +52,11 @@ func (g *GoModHandler) load() error {
 	return nil
 }
 
-// RemoveReplace removes a replace directive for the given module
+// RemoveReplace removes a replace directive for the given module.
+// Local replace directives (target starting with "." or "/", e.g. "=> ./")
+// are preserved: subpackages (tests/, cmd/, etc.) commonly use a self-referencing
+// local replace to pull in the parent module without polluting the root go.mod,
+// and that must survive dependent-module updates.
 // Returns true if a replace was found and removed
 func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	// check if loaded
@@ -90,6 +94,10 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 
 		// Check for the module in replace
 		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && strings.Contains(trimmed, modulePath) {
+			if isLocalReplaceTarget(trimmed) {
+				newLines = append(newLines, line)
+				continue
+			}
 			removed = true
 			continue // skip this line
 		}
@@ -104,6 +112,26 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	}
 
 	return false
+}
+
+// isLocalReplaceTarget reports whether a replace directive line's target
+// (the part after "=>") is a self-reference to the current directory (e.g.
+// "=> ./"). Subpackages (tests/, cmd/, etc.) commonly declare their own
+// go.mod with a replace like this to pull in the parent module locally
+// without touching the root go.mod; other local paths (e.g. "../lib",
+// pointing at an unrelated sibling checkout) are still eligible for removal.
+func isLocalReplaceTarget(line string) bool {
+	parts := strings.SplitN(line, "=>", 2)
+	if len(parts) != 2 {
+		return false
+	}
+
+	target := strings.TrimSpace(parts[1])
+	if idx := strings.Index(target, "//"); idx != -1 {
+		target = strings.TrimSpace(target[:idx])
+	}
+
+	return filepath.Clean(target) == "."
 }
 
 // GetReplacePaths returns absolute paths from local replace directives.

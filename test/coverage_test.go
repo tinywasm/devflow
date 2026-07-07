@@ -3,7 +3,9 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -12,6 +14,23 @@ func TestGoPushFlags(t *testing.T) {
 	dir, cleanup := testCreateGoModule("github.com/test/repo")
 	defer cleanup()
 	defer testChdir(t, dir)()
+
+	// Mock ExecCommand (go vet/go tool cover) and GoTestCmdFn (go test) so this
+	// test exercises Push()'s flag dispatch without paying for 3 real compiles —
+	// one of them with -race, which was the dominant cost (~5-6s of this test's time).
+	originalExec := devflow.ExecCommand
+	defer func() { devflow.ExecCommand = originalExec }()
+	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
+			return exec.Command("true")
+		}
+		return originalExec(name, args...)
+	}
+	originalGoTestCmdFn := devflow.GoTestCmdFn
+	defer func() { devflow.GoTestCmdFn = originalGoTestCmdFn }()
+	devflow.GoTestCmdFn = func(ctx context.Context, dir, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "true")
+	}
 
 	// Use MockGitClient
 	mockGit := &MockGitClient{

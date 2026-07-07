@@ -383,7 +383,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	}
 
 	// Return error if tests or vet failed
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
+	summary := fmt.Sprintf("%s%s (%.1fs)", strings.Join(msgs, ", "), g.currentTagSuffix(), time.Since(start).Seconds())
 	if testStatus == "Failed" || vetStatus == "Issues" {
 		return summary, fmt.Errorf("%s", summary)
 	}
@@ -654,13 +654,26 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		msgs = append(msgs, "coverage: "+coveragePercent+"%")
 	}
 
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
+	summary := fmt.Sprintf("%s%s (%.1fs)", strings.Join(msgs, ", "), g.currentTagSuffix(), time.Since(start).Seconds())
 	if testStatus == "Failed" {
 		return summary, fmt.Errorf("%s", summary)
 	}
 
 	// NO cache save, NO badges (as requested)
 	return summary, nil
+}
+
+// currentTagSuffix returns " <latest-git-tag>" for appending to a summary line,
+// or "" if no git handler is configured or no tag exists yet.
+func (g *Go) currentTagSuffix() string {
+	if g.git == nil {
+		return ""
+	}
+	tag, err := g.git.GetLatestTag()
+	if err != nil || tag == "" {
+		return ""
+	}
+	return " " + tag
 }
 
 // findSubModuleDirs returns immediate subdirectories that contain their own go.mod.
@@ -801,7 +814,7 @@ func calculateAverageCoverage(output string) string {
 
 // exactCoverageFromProfile reads a coverage profile and returns the total percentage.
 func exactCoverageFromProfile(profilePath string) string {
-	out, err := exec.Command("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
+	out, err := ExecCommand("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
 	if err != nil {
 		return ""
 	}
