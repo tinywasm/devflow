@@ -5,6 +5,7 @@ import (
 
 	"github.com/tinywasm/context"
 	"github.com/tinywasm/mcp"
+	"github.com/tinywasm/model"
 )
 
 // GoTestProvider exposes the gotest suite as a single MCP tool.
@@ -17,6 +18,40 @@ func NewGoTestProvider(g *Go) *GoTestProvider {
 	return &GoTestProvider{g: g}
 }
 
+var GoTestArgsModel = model.Definition{
+	Name: "go_test_args",
+	Fields: model.Fields{
+		{Name: "run", Type: model.FieldText},
+	},
+}
+
+// GoTestArgs are the arguments accepted by the run_tests MCP tool.
+type GoTestArgs struct {
+	Run string
+}
+
+func (m *GoTestArgs) ModelName() string { return "go_test_args" }
+
+func (m *GoTestArgs) Schema() []model.Field { return GoTestArgsModel.Fields }
+
+func (m *GoTestArgs) Pointers() []any { return []any{&m.Run} }
+
+func (m *GoTestArgs) IsNil() bool { return m == nil }
+
+func (m *GoTestArgs) EncodeFields(w model.FieldWriter) {
+	w.String("run", m.Run)
+}
+
+func (m *GoTestArgs) DecodeFields(r model.FieldReader) {
+	if v, ok := r.String("run"); ok {
+		m.Run = v
+	}
+}
+
+func (m *GoTestArgs) Validate(action byte) error {
+	return model.ValidateFields(action, m)
+}
+
 // Tools implements mcp.ToolProvider.
 func (p *GoTestProvider) Tools() []mcp.Tool {
 	return []mcp.Tool{
@@ -26,35 +61,29 @@ func (p *GoTestProvider) Tools() []mcp.Tool {
 				"coverage analysis, and auto-detected WASM tests. Full suite (no args) includes badges update " +
 				"and slow test detection. Fast path (with -run/flags) skips vet and badges. Intelligent caching " +
 				"by git state; cache disabled with custom flags.",
-			InputSchema: `{"type":"object","properties":{"run":{"type":"string","description":"Optional: run only tests matching this name/pattern (e.g. TestFoo). Empty runs full suite: vet, race, coverage, WASM, badges."}}}`,
-			Execute:     p.execute,
+			Args:     new(GoTestArgs),
+			Resource: "tests",
+			Action:   'r',
+			Execute:  p.execute,
 		},
 	}
 }
 
 func (p *GoTestProvider) execute(_ *context.Context, req mcp.Request) (*mcp.Result, error) {
-	run := ""
+	var args GoTestArgs
 	if req.Params.Arguments != "" {
-		// Arguments is a JSON string; extract "run" key manually to avoid stdlib json dependency
-		// Simple extraction: look for "run":"<value>"
-		args := req.Params.Arguments
-		const key = `"run":"`
-		if i := indexOf(args, key); i >= 0 {
-			start := i + len(key)
-			end := indexOf(args[start:], `"`)
-			if end >= 0 {
-				run = args[start : start+end]
-			}
+		if err := req.Bind(&args); err != nil {
+			return nil, err
 		}
 	}
 
 	var summary string
 	var err error
 
-	if run == "" {
+	if args.Run == "" {
 		summary, err = p.g.Test(nil, false, 0, false, false)
 	} else {
-		summary, err = p.g.Test([]string{"-run", run}, false, 0, false, false)
+		summary, err = p.g.Test([]string{"-run", args.Run}, false, 0, false, false)
 	}
 
 	text := summary
@@ -62,13 +91,4 @@ func (p *GoTestProvider) execute(_ *context.Context, req mcp.Request) (*mcp.Resu
 		text += fmt.Sprintf("\nError: %v", err)
 	}
 	return mcp.Text(text), nil
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

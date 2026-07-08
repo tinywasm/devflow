@@ -20,6 +20,12 @@ Complete Go development automation: project init, testing, versioning, updates, 
 
 - **[GitHub Auth](docs/GITHUB.md)** - Configure GitHub authentication (OAuth, tokens, multi-account)
 
+## Roadmap
+
+- **[PLAN: bug-fix orchestrator](docs/PLAN.md)** - Master plan coordinating the sub-plans below
+- **[PLAN: gotest stall watchdog](docs/GOTEST_TIMEOUT_PLAN.md)** - Per-test stall detection replacing the per-package timeout budget ([diagram](docs/diagrams/GOTEST_WATCHDOG.md))
+- **[PLAN: gopush same-repo submodules](docs/GOPUSH_SELFDEP_PLAN.md)** - Stop gopush/codejob from re-dirtying a just-published module whose submodules depend on it
+
 ## Installation
 
 ```bash

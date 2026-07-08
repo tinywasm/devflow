@@ -324,6 +324,55 @@ func TestConsoleFilter_GoVetFailure(t *testing.T) {
 	}
 }
 
+// TestConsoleFilter_NonConsecutiveDuplicateLines reproduces the bug where
+// identical lines that appear in unrelated, non-adjacent blocks (e.g. an
+// HTTP request header and the matching HTTP response header, both reading
+// "Upgrade: websocket") get merged by the global dedup pass. This silently
+// drops the line from the second block instead of just collapsing genuine
+// consecutive repeats (like repeated panic stack frames).
+func TestConsoleFilter_NonConsecutiveDuplicateLines(t *testing.T) {
+	var output []string
+	record := func(s string) {
+		output = append(output, s)
+	}
+
+	cf := devflow.NewConsoleFilter(record)
+
+	cf.Add("=== RUN   TestFlateClientServer\n")
+	cf.Add("    deflate_test.go:70: Request:\n")
+	cf.Add("        GET / HTTP/1.1\n")
+	cf.Add("        Host: stubbed\n")
+	cf.Add("        Upgrade: websocket\n")
+	cf.Add("        Connection: Upgrade\n")
+	cf.Add("    deflate_test.go:73: Response:\n")
+	cf.Add("        HTTP/1.1 101 Switching Protocols\n")
+	cf.Add("        Upgrade: websocket\n")
+	cf.Add("        Connection: Upgrade\n")
+	cf.Add("--- FAIL: TestFlateClientServer (0.01s)\n")
+	cf.Flush()
+
+	upgradeCount := 0
+	connectionCount := 0
+	for _, line := range output {
+		if strings.Contains(line, "Upgrade: websocket") {
+			upgradeCount++
+		}
+		if strings.Contains(line, "Connection: Upgrade") {
+			connectionCount++
+		}
+		if strings.Contains(line, "(×2)") {
+			t.Errorf("Non-consecutive duplicate lines must not be merged with (×N), got: %q", line)
+		}
+	}
+
+	if upgradeCount != 2 {
+		t.Errorf("Expected 'Upgrade: websocket' to appear twice (once per block), got %d. Output:\n%s", upgradeCount, strings.Join(output, "\n"))
+	}
+	if connectionCount != 2 {
+		t.Errorf("Expected 'Connection: Upgrade' to appear twice (once per block), got %d. Output:\n%s", connectionCount, strings.Join(output, "\n"))
+	}
+}
+
 func TestConsoleFilter_ReportedIssue(t *testing.T) {
 	var output []string
 	record := func(s string) {

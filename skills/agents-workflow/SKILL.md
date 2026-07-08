@@ -139,6 +139,19 @@ RULE: cmd/*/main.go contains ONLY: argument parsing, dependency injection, and p
 - If the library already computes a value (e.g. a result prefix), `cmd/` uses the exported constant — never re-derives it inline.
 - If `cmd/` re-implements a check the library already does, move it to the library and call it from both.
 
+### Execution contract for AI-driven CLIs
+
+```
+RULE: Any cmd that may be run by an automation/LLM MUST be non-interactive by default,
+      separate stdout (data) from stderr (logs), and use deterministic exit codes.
+```
+
+- **No args → print help to stdout, exit `0`.** Never block on a TUI/stdin by default; interactive modes go behind an explicit flag (e.g. `-tui`).
+- **stdout = consumable data only; stderr = all logs/diagnostics** — use `fmt.Fprintln(os.Stderr, …)` for anything diagnostic so a caller capturing stdout gets clean output.
+- **Exit `0` on success/help/clean shutdown; non-zero on bad flags or startup failure.** Library returns errors; thin `main` maps them to codes.
+- **Rich results go through the protocol surface** (MCP/JSON-RPC tools), not free-form stdout.
+- Full rationale: see skill **core-principles → "AI-Consumable CLIs (Execution Contract)"**.
+
 ## MASTER_PLAN.md for Multi-Library Changes
 
 When a breaking change affects multiple repositories in the monorepo:
