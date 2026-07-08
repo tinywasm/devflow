@@ -10,9 +10,13 @@ flowchart TD
     C -- Yes --> D[Query agent session state]
     D --> E{PR ready?}
     E -- No --> F[Print status]
-    E -- Yes --> G[HandleDone:<br/>fetch, checkout branch,<br/>rename PLAN → CHECK_PLAN,<br/>clean .env]
+    E -- Yes --> G[CheckoutPRBranch:<br/>fetch, stash, checkout,<br/>verify, pop stash]
+    G -- Success --> G1[HandleDone:<br/>rename PLAN → CHECK_PLAN,<br/>clean .env]
+    G -- Failure --> G2[Print hints,<br/>CODEJOB preserved]
+    G2 --> U
+    G1 --> U
     C -- No --> C2{CODEJOB_PR in .env?}
-    C2 -- Yes --> P
+    C2 -- Yes --> CP
     C2 -- No --> H{API key exists?}
     H -- No --> H1[Run setup wizard]
     H1 --> I
@@ -23,7 +27,9 @@ flowchart TD
     L --> M[Save session to .env]
     B -- Yes --> N{CODEJOB_PR in .env?}
     N -- No --> O[Error: no pending PR]
-    N -- Yes --> P[Merge PR + delete branch]
+    N -- Yes --> CP[CheckoutPRBranch]
+    CP -- Failure --> O
+    CP -- Success --> P[Merge PR + delete branch]
     P --> Q[git pull]
     Q --> R[Cleanup: delete CHECK_PLAN.md,<br/>clean .env]
     R --> S{PLAN.md exists?}
@@ -31,8 +37,17 @@ flowchart TD
     S -- No --> T[gopush 'msg' tag<br/>full: deps + backup]
     T --> U[Done]
     M --> U
-    G --> U
 ```
+
+## Traceability (Test Map)
+
+| Diagram Edge / Branch | Test Name |
+|---|---|
+| CheckoutPRBranch: stash/pop success | `TestCheckoutPRBranch_DirtyTreeSuccess` |
+| CheckoutPRBranch: pop conflict | `TestCheckoutPRBranch_PopConflict` |
+| HandleDone: Success path | `TestHandleDone_HappyPath` |
+| HandleDone: Failure path (retryable) | `TestHandleDone_Retryability` |
+| MergeAndPublish: Checkout failure | `TestMergeAndPublish_Guard` |
 
 ## Usage
 

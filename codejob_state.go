@@ -55,35 +55,82 @@ func JulesSessionState(sessionID, apiKey string, client HTTPClient) (msg, prURL 
 	return "⏳ Jules: working...", "", false, nil
 }
 
-// HandleDone executes cleanup when Jules completes:
-// 1. git fetch --all
-// 2. git checkout <jules-branch> for local review
-// 3. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
-// 4. env.Delete(EnvKeyCodejob)
-// 5. env.Set(EnvKeyCodejobPR, prURL)
-// 6. Update .gitignore
-func HandleDone(env *DotEnv, git *Git, prURL string) error {
-	// 1. git fetch (non-fatal: state cleanup must proceed regardless)
-	RunCommandSilent("git", "fetch", "--all") //nolint: ignore fetch failure
+// CheckoutPRBranch fetches and hard-positions the working tree on the PR's
+// head branch. A dirty working tree is handled, not feared: local drift is
+// stashed with a labeled stash (CodejobStashMessage) and re-applied after the
+// switch; if re-applying conflicts, the stash is KEPT, the conflict files are
+// listed, and an error is returned. Returns the branch name on success.
+func CheckoutPRBranch(prURL string) (string, error) {
+	if prURL == "" {
+		return "", fmt.Errorf("empty PR URL")
+	}
 
-	// 2. checkout Jules branch for local review (non-fatal)
-	if prURL != "" {
-		branchOut, err := RunCommandSilent("gh", "pr", "view", prURL,
-			"--json", "headRefName", "--jq", ".headRefName")
-		if err == nil {
-			if branch := strings.TrimSpace(branchOut); branch != "" {
-				if _, checkoutErr := RunCommandSilent("git", "checkout", branch); checkoutErr != nil {
-					fmt.Printf("⚠️  Could not switch branch automatically — run manually:\n    git checkout %s\n", branch)
-				} else {
-					fmt.Printf("🔀 Switched to branch: %s\n", branch)
-				}
-			}
-		} else {
-			fmt.Printf("⚠️  Could not resolve branch from PR — switch manually:\n    gh pr checkout %s\n", prURL)
+	// 1. git fetch --all
+	if _, err := RunCommandSilent("git", "fetch", "--all"); err != nil {
+		return "", fmt.Errorf("git fetch --all failed: %w", err)
+	}
+
+	// 2. Resolve branch via gh pr view
+	branchOut, err := RunCommandSilent("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
+	if err != nil {
+		return "", fmt.Errorf("%s %s", HintManualPRCheckout, prURL)
+	}
+	branch := strings.TrimSpace(branchOut)
+	if branch == "" {
+		return "", fmt.Errorf("could not resolve branch name from PR %s", prURL)
+	}
+
+	// 3. Check for dirty working tree
+	statusOut, _ := RunCommandSilent("git", "status", "--porcelain")
+	isDirty := strings.TrimSpace(statusOut) != ""
+
+	// 4. Stash if dirty
+	if isDirty {
+		if _, err := RunCommandSilent("git", "stash", "push", "-u", "-m", CodejobStashMessage); err != nil {
+			return "", fmt.Errorf("git stash failed: %w", err)
 		}
 	}
 
-	// 3. rename PLAN.md
+	// 5. Checkout
+	if _, err := RunCommandSilent("git", "checkout", branch); err != nil {
+		// If checkout fails, try to restore stash before returning
+		if isDirty {
+			_, _ = RunCommandSilent("git", "stash", "pop")
+		}
+		return "", fmt.Errorf("%s\n    git checkout %s", HintManualCheckout, branch)
+	}
+
+	// 6. Verify checkout
+	currentBranch, err := RunCommandSilent("git", "branch", "--show-current")
+	if err != nil || strings.TrimSpace(currentBranch) != branch {
+		return "", fmt.Errorf("checkout verification failed: expected %s, got %s", branch, strings.TrimSpace(currentBranch))
+	}
+
+	// 7. Pop stash if we stashed
+	if isDirty {
+		if out, err := RunCommandSilent("git", "stash", "pop"); err != nil {
+			return branch, fmt.Errorf("conflict while re-applying local drift.\nStash kept: %s\nConflicts:\n%s", CodejobStashMessage, out)
+		}
+	}
+
+	return branch, nil
+}
+
+// HandleDone executes cleanup when Jules completes:
+// 1. Checkout PR branch (transactional, aborts on failure)
+// 2. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
+// 3. env.Delete(EnvKeyCodejob)
+// 4. env.Set(EnvKeyCodejobPR, prURL)
+// 5. Update .gitignore
+func HandleDone(env *DotEnv, git *Git, prURL string) error {
+	// 1. Checkout PR branch (transactional)
+	branch, err := CheckoutPRBranch(prURL)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("🔀 On PR branch %s — review docs/CHECK_PLAN.md against this tree.\n", branch)
+
+	// 2. rename PLAN.md
 	planPath := DefaultIssuePromptPath
 	if _, err := os.Stat(planPath); err == nil {
 		checkPlanPath := "docs/CHECK_PLAN.md"
@@ -92,19 +139,19 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 		}
 	}
 
-	// 4. delete from env
+	// 3. delete from env
 	if err := env.Delete(EnvKeyCodejob); err != nil {
 		return fmt.Errorf("could not update .env: %w", err)
 	}
 
-	// 5. persist PR URL for 'codejob done'
+	// 4. persist PR URL for 'codejob done'
 	if prURL != "" {
 		if err := env.Set(EnvKeyCodejobPR, prURL); err != nil {
 			return fmt.Errorf("could not save %s: %w", EnvKeyCodejobPR, err)
 		}
 	}
 
-	// 6. .gitignore update
+	// 5. .gitignore update
 	if git != nil {
 		if err := git.GitIgnoreAdd("CHECK_*.md"); err != nil {
 			return fmt.Errorf("could not update .gitignore: %w", err)
@@ -181,13 +228,8 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 0. Ensure we are on the Jules branch before committing anything
-	branchOut, err := RunCommandSilent("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
-	var julesBranch string
-	if err == nil {
-		julesBranch = strings.TrimSpace(branchOut)
-		if julesBranch != "" {
-			RunCommandSilent("git", "checkout", julesBranch)
-		}
+	if _, err := CheckoutPRBranch(prURL); err != nil {
+		return PushResult{}, err
 	}
 
 	// 1. Pre-merge: if working tree is dirty, commit corrections to Jules branch and push

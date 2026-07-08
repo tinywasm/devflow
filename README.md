@@ -37,6 +37,7 @@ Or install a single command — see each tool's doc linked above.
 
 ## Features
 
+- **Transactional CodeJob** - Branch switching is atomic; state (PLAN.md, .env) is only mutated after a verified checkout.
 - **Intelligent push** - Auto-pulls with `--rebase` on non-fast-forward rejection
 - **Zero config** - Auto-detects tests, project structure, WASM environments
 - **Minimal output** - Single-line summaries for terminals and LLMs
