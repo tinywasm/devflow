@@ -114,7 +114,7 @@ CODEJOB_PR=https://github.com/owner/repo/pull/1
 
 The `codejob` command becomes dual-mode:
 - **If session active**: Queries Jules API. If a Pull Request is ready, it performs cleanup:
-    1. `git fetch --all` to get the Jules branch.
+    1. `CheckoutPRBranch`: fetches, stashes local drift, and hard-positions the tree on the Jules branch. This is **transactional**: if checkout or stashing fails, cleanup aborts and state is preserved for retry.
     2. Renames `docs/PLAN.md` to `docs/CHECK_PLAN.md`.
     3. Removes `CODEJOB` from `.env`.
     4. Sets `CODEJOB_PR` in `.env`.

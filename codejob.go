@@ -19,6 +19,14 @@ const (
 	EnvKeyCodejob = "CODEJOB"
 	// EnvKeyCodejobPR holds the GitHub PR URL pending merge.
 	EnvKeyCodejobPR = "CODEJOB_PR"
+
+	// CodejobStashMessage is the label for the git stash created during branch switching.
+	CodejobStashMessage = "codejob: local drift before review"
+
+	// HintManualCheckout is the message shown when automatic branch switch fails.
+	HintManualCheckout = "⚠️  Could not switch branch automatically — run manually:"
+	// HintManualPRCheckout is the message shown when PR branch resolution fails.
+	HintManualPRCheckout = "⚠️  Could not resolve branch from PR — switch manually:"
 )
 
 // CodeJob orchestrates sending a coding task to a chain of AI agent drivers.

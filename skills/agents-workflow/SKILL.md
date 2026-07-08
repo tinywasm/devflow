@@ -36,7 +36,7 @@ flowchart TD
     A[Claude writes<br/>docs/PLAN.md] --> B[User runs codejob<br/>dispatches to Jules]
     B --> C[Jules opens PR<br/>on a branch]
     C --> D[User runs codejob<br/>no args]
-    D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB_PR in .env]
+    D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB_PR in .env<br/>ON SUCCESSFUL CHECKOUT]
     E --> F[User asks Claude<br/>to review CHECK_PLAN.md]
     F --> G{Implementation<br/>correct?}
     G -->|yes| H[Claude or user runs<br/>codejob commit msg]
@@ -65,7 +65,7 @@ When the user asks Claude to review a `CHECK_PLAN.md`:
 6. **If something is missing or broken:** write a new `docs/PLAN.md` with the specific fix. Do NOT edit code directly.
 
 Claude **never**:
-- Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob`.
+- Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob`. The rename only happens after a successful branch checkout; if it fails, it is safe to re-run `codejob`.
 - Runs `gopush` directly — `codejob` calls it internally.
 - Applies multi-file code fixes directly — always via a new `PLAN.md`.
 
