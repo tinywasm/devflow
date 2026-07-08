@@ -20,6 +20,8 @@ description: Go development principles including SRP, dependency injection, fram
     - **Exit codes as contract:** `0` on success (including help printed and clean shutdown); non-zero on bad/conflicting flags or startup failure. The agent branches on the code, not on prose. Library functions return errors; the thin `main` maps them to exit codes (that mapping is the only logic allowed in `main`).
     - **Structured results belong to the tool surface:** when an agent needs rich results, expose them through the program's protocol layer (e.g. MCP/JSON-RPC tools), not by parsing free-form stdout.
 
+- **Views belong to the consumer (libraries render no pages):** A reusable library exposes flows, data and contracts — routes (`POST /login`), models (`model.Definition`), callbacks, tokens. HOW anything looks (HTML pages, branding, layout composition) is created by the **consuming app** in its composition root (e.g. `config/`), typically with `tinywasm/form` over the library's generated models plus the app's own CSS. A library that renders its own HTML page is a design smell: split the flow (stays in the library) from the view (moves to the consumer). Published layout skeletons (`tinywasm/layout`) are the one exception — layout structure IS their single responsibility, and even they define only WHERE things go, never WHAT they contain.
+
 - **Framework-less Development:** For Web projects, use only the **Standard Library** (HTML/CSS/JS). No external frameworks or libraries are allowed.
 - **CSS-First Interactivity:** Minimize JavaScript usage. All UI interactivity (toggles, menus, states) must be implemented using pure CSS whenever possible.
 - **Minimalist JS:** Use JavaScript only as a last resort for logic that cannot be handled by CSS or the Go backend.

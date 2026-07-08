@@ -20,9 +20,14 @@ gopush 'commit message' [tag]
 
 1. Verifies `go.mod`
 2. Runs `gotest` (vet, tests, race, coverage, badges)
-3. Commits changes with your message
-4. Creates/uses tag
-5. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead).
+3. **Internal submodules sync**: Any submodule inside the repo that depends on the parent module is automatically updated:
+   - Ensures a relative `replace` points to the local parent.
+   - Bumps the parent requirement to the next tag.
+   - Runs `go mod tidy`.
+   These changes are included in the same release commit.
+4. Commits changes with your message
+5. Creates/uses tag
+6. Intelligent push: Pushes to remote (auto-pulls/rebases if remote is ahead).
 6. Automatically installs binaries with version tag (if `cmd/` exists)
 7. Finds dependent modules in search path
 8. For each dependent (in parallel):

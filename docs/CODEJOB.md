@@ -101,7 +101,7 @@ job := devflow.NewCodeJob(devflow.NewJulesDriver(cfg))
 
 ## Integrated Flow (via gopush)
 
-`codejob` uses `gopush` to sync changes before dispatch and to publish changes when "closing the loop".
+`codejob` uses `gopush` to sync changes before dispatch and to publish changes when "closing the loop". It inherits all `gopush` behavior, including **automatic internal submodule syncing** when publishing a release.
 
 ## State Check & Cleanup
 

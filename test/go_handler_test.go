@@ -568,6 +568,10 @@ func (m *MockGitClient) HasPendingChanges() (bool, error) {
 	return true, nil
 }
 
+func (m *MockGitClient) GenerateNextTag() (string, error) {
+	return "v0.0.1", nil
+}
+
 func TestGoPush_RemoteAccessFailure(t *testing.T) {
 	dir, cleanup := testCreateGoModule("github.com/test/repo")
 	defer cleanup()

@@ -199,9 +199,11 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		summary = append(summary, "Tests skipped")
 	}
 
-	// 3. Execute git push workflow
+	// 3. Prepare internal submodules and execute git push workflow
 	var pushResult PushResult
 	var err error
+
+	modulePath, _ := g.GetModulePath()
 
 	if skipTag {
 		if err := g.git.Add(); err != nil {
@@ -223,6 +225,22 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 			pushResult.Summary = "No changes to commit"
 		}
 	} else {
+		// Hoist tag computation so we can sync internal submodules BEFORE commit
+		nextTag := tag
+		if nextTag == "" && g.git != nil {
+			var err error
+			nextTag, err = g.git.GenerateNextTag()
+			if err != nil {
+				g.log("Warning: could not generate next tag for submodule sync:", err)
+			}
+		}
+
+		if nextTag != "" && modulePath != "" {
+			if err := g.syncInternalSubmodules(modulePath, nextTag); err != nil {
+				g.log("Warning: failed to sync internal submodules:", err)
+			}
+		}
+
 		pushResult, err = g.git.Push(message, tag)
 		if err != nil {
 			return PushResult{}, fmt.Errorf("push workflow failed: %w", err)
@@ -241,7 +259,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	}
 
 	// 5. Get module name
-	modulePath, err := g.GetModulePath()
+	modulePath, err = g.GetModulePath()
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: could not get module path: %v", err))
 		return PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil

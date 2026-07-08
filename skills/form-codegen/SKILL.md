@@ -1,156 +1,107 @@
 ---
 name: form-codegen
-description: Unified form validation architecture across tinywasm/fmt, tinywasm/dom, tinywasm/form, tinywasm/json, and tinywasm/orm. Use when working on input widgets, ormc code generation, field validation, widget assignment, or form API design.
+description: Model authoring and form generation across tinywasm/model, tinywasm/orm (ormc), tinywasm/form, tinywasm/json, and tinywasm/dom. Use when creating or modifying models/DTOs, input widgets, ormc code generation, field validation, widget assignment, or form API design.
 ---
 
-# Form + Codegen Unified Architecture
+# Models + Forms: typed `model.Definition` → ormc → everything else
 
-## Overview
+## The ONE pattern (source of truth)
 
-Form creation and validation uses the same code on frontend (WASM) and backend (server). The `fmt.Widget` interface is the bridge — it carries validation logic AND UI rendering capability.
-
-**One way to create forms: `form.New(parentID, &struct)` (schema-driven).** No declarative API.
-
-## Library Roles
-
-| Library | Responsibility | Knows About |
-|---|---|---|
-| **fmt** | Field, Permitted, Widget interface, ValidateFields() | Nothing else |
-| **dom** | HTML layout elements (Div, H1, Button, Nav...). NO form functions | fmt only |
-| **form** | Schema-driven form creation via `form.New()` | fmt, dom, form/input |
-| **form/input** | Concrete widgets with validation (Email, Text, etc.) | fmt only |
-| **json** | Zero-reflection JSON codec using Fielder | fmt only |
-| **orm** | DB mapping + ormc code generator | fmt only (generated code imports form/input) |
-
-## Key Design Rule
-
-**dom does NOT have form functions.** No Email(), Form(), Password(), Select(), Textarea(), Input() in dom. These are form concerns with validation — they live in form/input as widgets. dom only provides pure HTML layout elements.
-
-## Widget Assignment: Go Type Defaults + Explicit Override
-
-ormc assigns widgets based on Go type defaults. No Resolver, no aliases, no name matching.
-
-**Only structs with `// ormc:form` or `// ormc:formonly` directive get widgets.**
-
-| Directive | DB/ORM | Widgets |
-|---|---|---|
-| _(none)_ | yes | no |
-| `// ormc:form` | yes | yes |
-| `// ormc:formonly` | no | yes |
-
-### Defaults by Go type
-
-| Go type | Default Widget |
-|---|---|
-| `string` | `input.Text()` |
-| `int`, `int64`, etc. | `input.Number()` |
-| `float32`, `float64` | `input.Number()` |
-| `bool` | `input.Checkbox()` |
-
-### Tag override
-
-- `input:"email"` → uses `input.Email()` instead of default
-- `input:"textarea,required,min=5"` → override + Permitted modifiers
-- `input:"required,min=5"` → keep default widget + modifiers only
-- `input:"-"` → excluded from form (no widget)
-
-## Validation Flow (Same Code Front + Back)
-
-```
-fmt.ValidateFields(action, model)
-  → for each field in Schema():
-    → field.Validate(value)
-      → 1. NotNull check (required)
-      → 2. Widget.Validate(value) — semantic (email format, date format)
-      → 3. Permitted.Validate(field, value) — characters, length
-```
-
-Runs identically in:
-- **Frontend:** form.Validate() in WASM
-- **Backend:** after orm.Insert() or manual validation
-
-## Example
+A model is authored as a **typed `model.Definition` literal**. The var name
+MUST end in `Model` — that is how `ormc` discovers it:
 
 ```go
-// ormc:form
-type User struct {
-    ID        string  `db:"pk"`              // string → input.Text()
-    Email     string  `input:"email"`        // override → input.Email()
-    Bio       string  `input:"textarea"`     // override → input.Textarea()
-    Age       int     `db:"not_null"`        // int → input.Number()
-    Active    bool                           // bool → input.Checkbox()
-    SecretKey string  `input:"-"`            // excluded from form
+import (
+    "github.com/tinywasm/form/input"
+    "github.com/tinywasm/model"
+)
+
+var LoginDataModel = model.Definition{
+    Name: "login_data",
+    Fields: model.Fields{
+        {Name: "email",    Type: model.FieldText, NotNull: true, Widget: input.Email()},
+        {Name: "password", Type: model.FieldText, NotNull: true, Widget: input.Password()},
+    },
+}
+
+var ProductModel = model.Definition{
+    Name: "product",
+    Fields: model.Fields{
+        {Name: "id",    Type: model.FieldInt,  DB: &model.FieldDB{PK: true, AutoInc: true}},
+        {Name: "name",  Type: model.FieldText, NotNull: true, Permitted: model.Permitted{Minimum: 2}, Widget: input.Text()},
+        {Name: "price", Type: model.FieldFloat, Widget: input.Number()},
+    },
 }
 ```
 
-## Custom Inputs (web/input/)
+- **DB tables**: fields carry `DB: &model.FieldDB{...}` metadata.
+- **Form-only DTOs** (login, filters, …): NO `DB` metadata — same pattern,
+  just no table.
+- **UI binding**: `Widget: input.Email()` etc. (typed expression from
+  `tinywasm/form/input`). A field without `Widget` gets NO input in forms.
 
-Projects can define custom widgets in `web/input/` that override stdlib inputs. ormc discovers them via AST scanning. Custom takes priority over stdlib.
-
-## Cross-Library Execution Order
-
-When making changes that span libraries:
-
-1. **dom** first (remove form functions — unblocks clean separation)
-2. **fmt** if interface changes needed (currently stable)
-3. **form/input** (currently complete — Permitted cleanup done)
-4. **orm** (pending: widget assignment + tag support)
-5. **json** only if codec changes needed (currently stable)
-
-## ormc Usage in PLAN.md (for agents)
-
-`ormc` is a CLI code generator. **Agents must never write `Schema()`, `Pointers()`, `ModelName()`, or `Validate()` by hand** — these are always generated.
-
-### Installation
+Then generate:
 
 ```bash
+go generate ./...   # runs ormc (//go:generate ormc); install:
 go install github.com/tinywasm/orm/cmd/ormc@latest
 ```
 
-### What ormc generates (per directive)
+`ormc` parses the Definition literal (including the `Widget:` expressions)
+and **generates the concrete Go struct** plus `ModelName()`, `Schema()`,
+`Pointers()`, `Validate()`, `EncodeFields()`/`DecodeFields()` (typed codec)
+and the `*List` type, into the generated `*_orm.go` file. **Never edit
+generated files — they are overwritten on every run.**
 
-| Directive | Generated methods |
-|---|---|
-| `// ormc:form` | `ModelName()`, `Schema()` (with widgets), `Pointers()`, `Validate()`, `*List` type |
-| `// ormc:formonly` | `Schema()` (with widgets), `Pointers()`, `Validate()`, `*List` type — NO `ModelName()` |
-| _(none)_ | `ModelName()`, `Schema()` (no widgets), `Pointers()`, `Validate()`, `*List` type |
+## FORBIDDEN (these are the bugs this skill exists to prevent)
 
-Output file: `model_orm.go` in the same package. **Never edit `model_orm.go` — it is overwritten on each `ormc` run.**
+- ❌ **Struct tags as source of truth** (`input:"email"`, `db:"pk"` on
+  hand-written structs). The Definition literal is typed; tags are the old,
+  removed pattern.
+- ❌ **Hand-writing the struct or any generated method**
+  (`Schema`, `Pointers`, `ModelName`, `Validate`, `Encode/DecodeFields`).
+- ❌ **Stdlib `encoding/json`** anywhere. Only `tinywasm/json`, which works
+  exclusively through the generated typed codec — a hand-written DTO without
+  generated `Encode/DecodeFields` cannot travel.
+- ❌ **`form.RegisterInput` as a fix for empty forms.** `form.New` binds
+  inputs ONLY via `Field.Widget` from the schema — there is no name matching.
+  If a form renders without fields, the Definition is missing `Widget:`
+  entries → fix the Definition and regenerate; never patch at the consumer.
 
-### How to instruct an agent
+## Library roles
 
-In `PLAN.md`, always say:
+| Library | Responsibility | Knows about |
+|---|---|---|
+| **model** | `Definition`, `Field`, `Fielder`, `Widget` iface, `Permitted`, `ValidateFields`, typed codec contracts | nothing else |
+| **orm / ormc** | DB mapping + THE code generator (Definition → struct + methods) | model |
+| **form** | `form.New(parentID, &Generated{})` — schema-driven form; SSR + reactive render | model, dom, form/input |
+| **form/input** | Concrete widgets with validation (`Email`, `Password`, `Phone`, `Text`, `Number`, `Checkbox`, `Textarea`, …) | model |
+| **json** | Zero-reflection codec over generated `Encode/DecodeFields` | model |
+| **dom** | Pure HTML layout elements + signals. **NO form functions** (no `Input()`, `Form()`, …) | — |
 
-1. Add the struct with the correct directive to `model.go` (or the appropriate model file).
-2. Run `ormc` from the module root.
-3. Do NOT write `Schema()`, `Pointers()`, `ModelName()`, or `Validate()` manually.
-
-Example instruction in a plan:
+## Validation flow (same code front + back)
 
 ```
-Add to `modules/foo/model.go`:
-
-    // ormc:form
-    type Foo struct {
-        ID   int64
-        Name string
-    }
-
-Then run:
-
-    ormc
-
-ormc will generate Schema(), Pointers(), ModelName(), Validate() in model_orm.go.
-Do NOT write these methods manually.
+model.ValidateFields(action, m)
+  → per field: NotNull → Widget.Validate (semantic) → Permitted (chars/length)
 ```
 
-### ID field convention
+Runs identically in WASM (`form.Validate()`) and on the server (after decode,
+before persistence).
 
-`ormc` auto-detects `ID` as primary key (auto-increment). No `db:"pk"` tag needed for the standard `ID int64` pattern. Only add `db:` tags to override defaults.
+## How to instruct an agent in a PLAN.md
 
-## Plans Location
+1. Write the `model.Definition` literal(s) — var name ending in `Model`,
+   every form-visible field with an explicit `Widget:`.
+2. Delete any hand-written struct the Definition replaces (ormc generates it;
+   names would collide).
+3. Run `go generate ./...` (ormc). Verify the generated schema carries the
+   widgets and codecs.
+4. Regression test: `form.New(id, &Generated{})` yields exactly the expected
+   number of inputs — catches a future regeneration that loses widgets.
 
-- dom: `tinywasm/dom/docs/PLAN.md` — pending: remove form functions
-- form: `tinywasm/form/docs/PLAN.md` — complete
-- orm: `tinywasm/orm/docs/PLAN.md` — pending execution
-- Flow diagram: `tinywasm/orm/docs/diagrams/ORMC_FLOW.md`
+## Custom inputs
+
+A project may define custom widgets (same `model.Widget` contract) and use
+them in its Definitions like any `input.Xxx()`. They live with the consumer;
+stdlib widgets live in `tinywasm/form/input`.
