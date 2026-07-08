@@ -125,21 +125,24 @@ Shows only failed tests with error details, filters out passing tests. Failed ru
 
 ## Timeout
 
-By default, each package has a **30-second** timeout. If a test hangs or takes too long, Go's test framework kills the package and `gotest` reports the offending test:
+`gotest` uses a **per-test stall watchdog** (default 30s). Unlike Go's native cumulative package timeout, `gotest` kills the process only if a *single* test makes no progress for the specified duration.
 
+If a test stalls:
 ```
-❌ timeout: TestSlowOperation (exceeded 30s)
+❌ timeout: TestSlowOperation stalled >30s (no progress)
 ```
 
 Override with `-t`:
 ```bash
-gotest -t 120       # 120s per package
+gotest -t 120       # 120s per test stall
 ```
 
-If you pass `-timeout` directly (Go's native flag), `gotest` respects it and does not inject its own:
-```bash
-gotest -timeout 2m  # Go-native flag, gotest won't override
+A **backstop timeout** (10x the watchdog limit) is also injected into `go test -timeout` to catch genuine package-level hangs where the watchdog might be bypassed. If hit, it reports:
 ```
+❌ timeout: package exceeded 300s total (backstop)
+```
+
+If you pass `-timeout` directly (Go's native flag), `gotest` still injects its watchdog using that value (or its default if not parseable), but respects your explicit package timeout.
 
 ## Notes
 

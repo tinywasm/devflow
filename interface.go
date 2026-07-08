@@ -44,6 +44,7 @@ type GitClient interface {
 	PushWithTags(tag string) (bool, error)
 	PushWithoutTags() (bool, error)
 	HasPendingChanges() (bool, error)
+	GenerateNextTag() (string, error)
 }
 
 // FolderWatcher defines interface for adding/removing directories to watch

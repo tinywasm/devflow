@@ -93,13 +93,17 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 		}
 
 		// Check for the module in replace
-		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && strings.Contains(trimmed, modulePath) {
-			if isLocalReplaceTarget(trimmed) {
-				newLines = append(newLines, line)
-				continue
+		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) {
+			// Extract module path from line
+			mod, _ := parseReplaceLine(trimmed, inReplaceBlock)
+			if mod == modulePath {
+				if isLocalReplaceTarget(trimmed) {
+					newLines = append(newLines, line)
+					continue
+				}
+				removed = true
+				continue // skip this line
 			}
-			removed = true
-			continue // skip this line
 		}
 
 		newLines = append(newLines, line)
@@ -112,6 +116,23 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	}
 
 	return false
+}
+
+func parseReplaceLine(line string, inBlock bool) (modPath, targetPath string) {
+	s := line
+	if !inBlock {
+		s = strings.TrimPrefix(s, "replace ")
+	}
+	parts := strings.Split(s, "=>")
+	if len(parts) != 2 {
+		return "", ""
+	}
+	modPath = strings.TrimSpace(parts[0])
+	targetPath = strings.TrimSpace(parts[1])
+	if idx := strings.Index(targetPath, "//"); idx != -1 {
+		targetPath = strings.TrimSpace(targetPath[:idx])
+	}
+	return modPath, targetPath
 }
 
 // isLocalReplaceTarget reports whether a replace directive line's target
@@ -162,24 +183,9 @@ func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 		}
 
 		if strings.HasPrefix(trimmed, "replace ") || inReplaceBlock {
-			// Extract part after "replace " if not in block
-			lineContent := trimmed
-			if !inReplaceBlock {
-				lineContent = strings.TrimPrefix(trimmed, "replace ")
-			}
-
-			// Format is usually: module => path
-			parts := strings.Split(lineContent, "=>")
-			if len(parts) != 2 {
+			modPath, localPath := parseReplaceLine(trimmed, inReplaceBlock)
+			if modPath == "" || localPath == "" {
 				continue
-			}
-
-			modPath := strings.TrimSpace(parts[0])
-			localPath := strings.TrimSpace(parts[1])
-
-			// Clean up comments if any
-			if idx := strings.Index(localPath, "//"); idx != -1 {
-				localPath = strings.TrimSpace(localPath[:idx])
 			}
 
 			// Check if localPath is actually a local path or a versioned module.
@@ -230,13 +236,73 @@ func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
 		}
 
 		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && trimmed != "" {
-			if exceptModule != "" && strings.Contains(trimmed, exceptModule) {
+			mod, _ := parseReplaceLine(trimmed, inReplaceBlock)
+			if exceptModule != "" && mod == exceptModule {
 				continue
 			}
 			return true
 		}
 	}
 	return false
+}
+
+// EnsureReplace ensures that a replace directive exists for the given module path
+// pointing to the given local path. Returns true if the file was modified.
+func (m *GoModHandler) EnsureReplace(modulePath, localPath string) bool {
+	// check if loaded
+	if len(m.Lines) == 0 {
+		if err := m.load(); err != nil {
+		}
+	}
+
+	// Check if already exists
+	found := false
+	inReplaceBlock := false
+	for _, line := range m.Lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "replace (") {
+			inReplaceBlock = true
+			continue
+		}
+		if inReplaceBlock && trimmed == ")" {
+			inReplaceBlock = false
+			continue
+		}
+
+		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) {
+			mod, target := parseReplaceLine(trimmed, inReplaceBlock)
+			if mod == modulePath && filepath.Clean(target) == filepath.Clean(localPath) {
+				found = true
+				break
+			}
+		}
+	}
+
+	if found {
+		return false
+	}
+
+	// Add it. If there's a replace block, add it there. Otherwise, add a single-line replace.
+
+	// Try to find a place to insert
+	inserted := false
+	var newLines []string
+	for _, line := range m.Lines {
+		newLines = append(newLines, line)
+		if !inserted && strings.HasPrefix(strings.TrimSpace(line), "replace (") {
+			newLines = append(newLines, "\t"+modulePath+" => "+localPath)
+			inserted = true
+		}
+	}
+
+	if !inserted {
+		// Just append at the end
+		newLines = append(newLines, "", "replace "+modulePath+" => "+localPath)
+	}
+
+	m.Lines = newLines
+	m.Modified = true
+	return true
 }
 
 // Save writes changes back to the file if modified
@@ -545,9 +611,12 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 	return nil
 }
 
-// FindDependentModules searches for modules that have modulePath as dependency
+// FindDependentModules searches for modules that have modulePath as dependency.
+// It excludes modules located inside the current project's root directory.
 func (g *Go) FindDependentModules(modulePath, searchPath string) ([]string, error) {
 	var dependents []string
+
+	absRoot, _ := filepath.Abs(g.rootDir)
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -559,8 +628,16 @@ func (g *Go) FindDependentModules(modulePath, searchPath string) ([]string, erro
 			return nil
 		}
 
+		dir := filepath.Dir(path)
+		absDir, _ := filepath.Abs(dir)
+
+		// Exclude internal submodules
+		if strings.HasPrefix(absDir, absRoot+string(os.PathSeparator)) || absDir == absRoot {
+			return nil
+		}
+
 		if g.HasDependency(path, modulePath) {
-			dependents = append(dependents, filepath.Dir(path))
+			dependents = append(dependents, dir)
 		}
 
 		return nil

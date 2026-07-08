@@ -171,7 +171,11 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	var testErr error
 	var testOutput string
 
-	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
+	// Watchdog and backstop timeout semantincs:
+	// -t N now means "max N seconds per test stall"
+	// backstop is 10x larger to catch overall package hangs
+	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec*10)
+
 	tmpCovDir, _ := os.MkdirTemp("", "gotest-cov")
 	defer os.RemoveAll(tmpCovDir)
 	coverProfilePath := fmt.Sprintf("%s/cover.out", tmpCovDir)
@@ -186,10 +190,18 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		testArgs = append(testArgs[:1], append([]string{"-race"}, testArgs[1:]...)...)
 	}
 
-	// Safety net: context kills process 10s after Go's -timeout should have fired
-	// This ensures we get the nice panic output from Go if possible
-	testCtx, testCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+	// Watchdog setup
+	testCtx, testCancel := context.WithCancel(context.Background())
 	defer testCancel()
+
+	var watchdogFired bool
+	wd := NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+		watchdogFired = true
+		testCancel()
+	})
+	wd.Start()
+	defer wd.Stop()
+
 	testCmd := GoTestCmdFn(testCtx, g.rootDir, "go", testArgs...)
 
 	testBuffer := &bytes.Buffer{}
@@ -201,6 +213,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			s := string(p)
 			testBuffer.Write(p)
 			testFilter.Add(s)
+			wd.Add(s)
 			return len(p), nil
 		},
 	}
@@ -220,30 +233,43 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		if runAll {
 			subArgs = append(subArgs[:len(subArgs)-1], "-tags=integration", "./...")
 		}
-		subCtx, subCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+
+		subCtx, subCancel := context.WithCancel(context.Background())
 		defer subCancel()
+
+		// Re-initialize watchdog for submodule run
+		wd = NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+			watchdogFired = true
+			subCancel()
+		})
+		wd.Start()
+
 		subCmd := GoTestCmdFn(subCtx, subDir, "go", subArgs...)
 		subCmd.Stdout = testPipe
 		subCmd.Stderr = testPipe
 		if err := subCmd.Run(); err != nil && testErr == nil {
 			testErr = err
 		}
+		wd.Stop()
 	}
 
 	testFilter.Flush()
 
 	testOutput = testBuffer.String()
 
-	// Detect process-level timeout (killed by context)
-	if testCtx.Err() == context.DeadlineExceeded {
-		timedOut := FindTimedOutTests(testOutput)
-		if len(timedOut) > 0 {
-			for _, name := range timedOut {
-				addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
+	// Detect process-level timeout (killed by watchdog or backstop)
+	if testCtx.Err() == context.Canceled && watchdogFired {
+		culprits := wd.Culprits()
+		if len(culprits) > 0 {
+			for _, name := range culprits {
+				addMsg(false, fmt.Sprintf("timeout: %s stalled >%ds (no progress)", name, timeoutSec))
 			}
 		} else {
-			addMsg(false, fmt.Sprintf("timeout: tests exceeded %ds", timeoutSec))
+			addMsg(false, fmt.Sprintf("timeout: stall detected (>%ds)", timeoutSec))
 		}
+		testStatus = "Failed"
+	} else if testCtx.Err() == context.DeadlineExceeded {
+		addMsg(false, fmt.Sprintf("timeout: package exceeded %ds total (backstop)", timeoutSec*10))
 		testStatus = "Failed"
 	}
 
@@ -459,7 +485,27 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	}()
 
 	// Inject timeout if user didn't already pass -timeout
-	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
+	// Use -v for watchdog to work, ConsoleFilter will suppress the noise
+	if !HasVFlag(customArgs) {
+		customArgs = append([]string{"-v"}, customArgs...)
+	}
+
+	// Parse custom timeout if present
+	for _, arg := range customArgs {
+		if strings.HasPrefix(arg, "-t=") {
+			if t, err := strconv.Atoi(strings.TrimPrefix(arg, "-t=")); err == nil {
+				timeoutSec = t
+			}
+		} else if strings.HasPrefix(arg, "-timeout=") {
+			// Try to parse go's duration format
+			dStr := strings.TrimPrefix(arg, "-timeout=")
+			if d, err := time.ParseDuration(dStr); err == nil {
+				timeoutSec = int(d.Seconds())
+			}
+		}
+	}
+
+	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec*10)
 	if !HasTimeoutFlag(customArgs) {
 		customArgs = append(customArgs, timeoutFlag)
 	}
@@ -471,8 +517,17 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	}
 	testArgs = append(testArgs, "./...")
 
-	customCtx, customCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+	customCtx, customCancel := context.WithCancel(context.Background())
 	defer customCancel()
+
+	var watchdogFired bool
+	wd := NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+		watchdogFired = true
+		customCancel()
+	})
+	wd.Start()
+	defer wd.Stop()
+
 	testCmd := GoTestCmdFn(customCtx, g.rootDir, "go", testArgs...)
 	testBuffer := &bytes.Buffer{}
 
@@ -483,6 +538,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 			s := string(p)
 			testBuffer.Write(p)
 			testFilter.Add(s)
+			wd.Add(s)
 			return len(p), nil
 		},
 	}
@@ -498,14 +554,24 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 			subArgs = append(subArgs, "-tags=integration")
 		}
 		subArgs = append(subArgs, "./...")
-		subCtx, subCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+
+		subCtx, subCancel := context.WithCancel(context.Background())
 		defer subCancel()
+
+		// Re-initialize watchdog for submodule run
+		wd = NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+			watchdogFired = true
+			subCancel()
+		})
+		wd.Start()
+
 		subCmd := GoTestCmdFn(subCtx, subDir, "go", subArgs...)
 		subCmd.Stdout = testPipe
 		subCmd.Stderr = testPipe
 		if err := subCmd.Run(); err != nil && testErr == nil {
 			testErr = err
 		}
+		wd.Stop()
 	}
 
 	testFilter.Flush()
@@ -513,16 +579,20 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	testOutput := testBuffer.String()
 
 	// Detect process-level timeout
-	if customCtx.Err() == context.DeadlineExceeded {
-		timedOut := FindTimedOutTests(testOutput)
-		if len(timedOut) > 0 {
-			for _, name := range timedOut {
-				addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
+	customTestStatus := "Failed"
+	if customCtx.Err() == context.Canceled && watchdogFired {
+		culprits := wd.Culprits()
+		if len(culprits) > 0 {
+			for _, name := range culprits {
+				addMsg(false, fmt.Sprintf("timeout: %s stalled >%ds (no progress)", name, timeoutSec))
 			}
 		} else {
-			addMsg(false, fmt.Sprintf("timeout: tests exceeded %ds", timeoutSec))
+			addMsg(false, fmt.Sprintf("timeout: stall detected (>%ds)", timeoutSec))
 		}
-		// Will be caught by EvaluateTestResults as a failure
+	} else if customCtx.Err() == context.DeadlineExceeded {
+		addMsg(false, fmt.Sprintf("timeout: package exceeded %ds total (backstop)", timeoutSec*10))
+	} else {
+		customTestStatus = "" // Not a context-triggered failure
 	}
 
 	// Wait for WASM detection to complete
@@ -530,6 +600,9 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	// Process stdlib test results (without race detection reporting)
 	testStatus, _, stdTestsRan, msgs := EvaluateTestResults(testErr, testOutput, moduleName, msgs, false)
+	if customTestStatus != "" {
+		testStatus = customTestStatus
+	}
 
 	// Initialize coveragePercent for custom runs (not calculated for stdlib in fast path usually, but we need it for comparison)
 	coveragePercent := "0"
@@ -853,6 +926,16 @@ func ShouldEnableWasm(nativeOut, wasmOut string) bool {
 	// This means it has a //go:build wasm tag or similar.
 	for f := range wasmFiles {
 		if !nativeFiles[f] {
+			return true
+		}
+	}
+	return false
+}
+
+// HasVFlag checks if -v is already present in the args
+func HasVFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-v" || arg == "-test.v" {
 			return true
 		}
 	}
