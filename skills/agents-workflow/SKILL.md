@@ -19,6 +19,35 @@ Claude acts **only as a planning and documentation agent**:
 - **Create `docs/PLAN.md`** whenever the task involves modifying or creating Go code. The user reviews it before dispatching.
 - `docs/PLAN.md` is ALWAYS at the **module root level** (next to `go.mod`), never inside sub-packages.
 
+### Never clobber an existing plan — `PLAN.md` becomes an execution queue
+
+Before writing `docs/PLAN.md`, check whether one already exists with a pending plan:
+
+1. **Existing plan found** → copy its full content to a descriptive file: `docs/PLAN_<TOPIC>.md` (topic in SCREAMING_SNAKE, e.g. `PLAN_KIND_UNIFICATION_INPUTSCHEMA.md`).
+2. Write the new plan to its own `docs/PLAN_<NEW_TOPIC>.md`.
+3. Rewrite `docs/PLAN.md` as an **execution queue**. The dispatch message the agent receives is always *"execute the plan described in docs/PLAN.md"*, so the queue MUST open with an explicit instruction that resolves that message to all of them:
+
+   ```markdown
+   # PLAN — execution queue for `<module>`
+
+   > If you were told to "execute the plan described in docs/PLAN.md", execute
+   > **ALL the plans below, in order (top to bottom)**. Each plan is
+   > self-contained; finish one (its acceptance criteria green) before starting
+   > the next. Never mix changes from one plan into another.
+
+   | Order | Plan | Subject |
+   |-------|------|---------|
+   | 1 | [PLAN_<TOPIC>.md](PLAN_<TOPIC>.md) | ... |
+
+   After completing all plans, run `gotest ./...` one final time: everything green.
+   ```
+
+4. **No existing plan** → write the plan directly in `docs/PLAN.md` (single-topic case; it stays dispatchable by `codejob` as-is).
+
+### Master plan naming — never overwrite `MASTER_PLAN.md`
+
+Multi-repo orchestrators at the monorepo root use a **descriptive name consistent with the task**: `docs/<TOPIC>_MASTER_PLAN.md` (e.g. `SIZE_OPTIMIZATION_MASTER_PLAN.md`, `MCP_DAEMON_HARDENING_MASTER_PLAN.md`). A bare `docs/MASTER_PLAN.md` likely already exists from a previous wave — never overwrite or reuse it for a new topic.
+
 ## Planning Process (Q&A First)
 
 The planning agent MUST perform a conversational Q&A with the user before writing any `PLAN.md`:
@@ -99,6 +128,7 @@ In all cases: Claude **does not execute** the fix directly. It only writes the `
 - Acts as the entry point for an **external agent with zero context** about this project.
 - Must be fully self-contained: include all relevant constraints, interfaces, conventions, and examples inline.
 - Link to relevant docs (`README.md`, `ARCHITECTURE.md`) but repeat critical rules inline — do not assume the agent will read them.
+- **Cross-repo references MUST be GitHub web URLs** (e.g. `https://github.com/tinywasm/<repo>/blob/main/docs/X.md`), never local relative paths (`../../other-repo/...`) — the executing agent only has the repo being dispatched. In-repo relative links are fine. Either way the critical content is restated inline; external links are optional reading.
 - Structure into clear, sequential execution steps with a stages table at the end.
 - Never include `gopush` or `codejob` inside the plan — both are local developer tools managed outside the agent. `codejob` calls `gopush` internally when closing the loop; the agent must not call either.
 - Every `PLAN.md` MUST include a header line referencing the workflow skill, so the agent understands the context it operates in. Example:
@@ -152,13 +182,13 @@ RULE: Any cmd that may be run by an automation/LLM MUST be non-interactive by de
 - **Rich results go through the protocol surface** (MCP/JSON-RPC tools), not free-form stdout.
 - Full rationale: see skill **core-principles → "AI-Consumable CLIs (Execution Contract)"**.
 
-## MASTER_PLAN.md for Multi-Library Changes
+## Master plans for Multi-Library Changes
 
 When a breaking change affects multiple repositories in the monorepo:
 
-- Create `docs/MASTER_PLAN.md` at the monorepo root as the orchestrator.
-- Each affected library has its own self-contained `docs/PLAN.md`.
-- `MASTER_PLAN.md` defines the dependency graph: what can run in parallel and what must wait.
+- Create `docs/<TOPIC>_MASTER_PLAN.md` at the monorepo root as the orchestrator (descriptive name — see "Master plan naming" above; never a bare `MASTER_PLAN.md`).
+- Each affected library has its own self-contained `docs/PLAN.md` (or `docs/PLAN_<TOPIC>.md` queued in `PLAN.md` when the library already had a pending plan).
+- The master plan defines the dependency graph: what can run in parallel and what must wait.
 
 ```mermaid
 flowchart LR

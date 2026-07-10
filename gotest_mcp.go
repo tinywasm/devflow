@@ -21,7 +21,7 @@ func NewGoTestProvider(g *Go) *GoTestProvider {
 var GoTestArgsModel = model.Definition{
 	Name: "go_test_args",
 	Fields: model.Fields{
-		{Name: "run", Type: model.FieldText},
+		{Name: "run", Type: model.Text()},
 	},
 }
 
