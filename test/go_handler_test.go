@@ -367,7 +367,7 @@ func TestUpdateDependentModule(t *testing.T) {
 	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1")
+	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1", "")
 
 	// We expect a failure at "go get" because the module doesn't exist in registry
 	if err == nil {
@@ -471,16 +471,20 @@ func TestGoInstall(t *testing.T) {
 
 // MockGitClient for testing
 type MockGitClient struct {
-	checkAccessErr         error
-	pushErr                error
-	latestTag              string
-	createdTag             string
-	pushResult             devflow.PushResult
-	pushWithoutTagsCalled  bool
-	log                    func(...any)
-	AddCalls               int
-	CommitCalls            int
-	LastPushTag            string
+	checkAccessErr        error
+	pushErr               error
+	latestTag             string
+	createdTag            string
+	pushResult            devflow.PushResult
+	pushWithoutTagsCalled bool
+	log                   func(...any)
+	AddCalls              int
+	CommitCalls           int
+	LastPushTag           string
+	LastPushMessage       string
+	statusPorcelainOut    string
+	diffShortStatOut      string
+	CommitPathsCalls      [][]string
 }
 
 func (m *MockGitClient) CheckRemoteAccess() error {
@@ -489,6 +493,7 @@ func (m *MockGitClient) CheckRemoteAccess() error {
 
 func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
 	m.LastPushTag = tag
+	m.LastPushMessage = message
 	if m.checkAccessErr != nil {
 		return devflow.PushResult{}, m.checkAccessErr
 	}
@@ -570,6 +575,48 @@ func (m *MockGitClient) HasPendingChanges() (bool, error) {
 
 func (m *MockGitClient) GenerateNextTag() (string, error) {
 	return "v0.0.1", nil
+}
+
+func (m *MockGitClient) StatusPorcelain() (string, error) {
+	return m.statusPorcelainOut, nil
+}
+
+func (m *MockGitClient) CommitPaths(message string, paths ...string) (bool, error) {
+	m.CommitCalls++
+	m.CommitPathsCalls = append(m.CommitPathsCalls, append([]string{message}, paths...))
+	return true, nil
+}
+
+func (m *MockGitClient) DiffShortStat() (string, error) {
+	return m.diffShortStatOut, nil
+}
+
+// TestGoPush_AppendsShortStatBody: the root push keeps the user's title intact
+// and appends the staged `git diff --shortstat` as the commit body (PLAN.md
+// Fase 2) — quantitative context with zero AI and zero typing.
+func TestGoPush_AppendsShortStatBody(t *testing.T) {
+	mockGit := &MockGitClient{
+		latestTag:        "v0.0.0",
+		diffShortStatOut: "3 files changed, 42 insertions(+), 7 deletions(-)",
+	}
+
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
+
+	_, err := goHandler.Push("feat: nueva feature", "v0.0.1", true, true, true, true, false, false, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+
+	if !strings.HasPrefix(mockGit.LastPushMessage, "feat: nueva feature") {
+		t.Errorf("user title must stay first, got: %q", mockGit.LastPushMessage)
+	}
+	if !strings.Contains(mockGit.LastPushMessage, "3 files changed") {
+		t.Errorf("commit message must include the shortstat body, got: %q", mockGit.LastPushMessage)
+	}
 }
 
 func TestGoPush_RemoteAccessFailure(t *testing.T) {
