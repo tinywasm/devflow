@@ -5,18 +5,23 @@ description: Multi-agent planning workflow with PLAN.md as master orchestrator, 
 
 # CodeJob Agent Workflow
 
-## Claude's Role in This Workflow
+> How to write the actual content of a `PLAN.md` (structure, precision level,
+> quality checklist, TinyWasm-specific rules) is a separate domain: see skill
+> **plan-authoring**. This skill covers the process around it — when to
+> create one, the Q&A gate, dispatch, review, and local execution.
 
-Claude acts **only as a planning and documentation agent**:
+## The Planning Agent's Role in This Workflow
+
+The agent reading this skill (Claude, Gemini, or any other installed LLM) acts **only as a planning and documentation agent**:
 
 - Only edits `.md` files. Never executes code, shell commands, or compilers unless the user explicitly requests it.
-- Never renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md`. The lifecycle of those files is managed automatically by `codejob`.
+- Never renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md`. The lifecycle of those files is managed automatically by `codejob`. **Single exception:** when the user decides a plan runs LOCALLY, it is renamed to `docs/LAST_PLAN_EXECUTED.md` — see "Local Execution Flow" below.
 - Never applies a code fix directly when it affects more than 1 file: write a new `PLAN.md` and let codejob dispatch it.
 
 ## When to Create `PLAN.md` vs Edit Directly
 
 - **Edit `.md` files directly** (SKILL.md, README.md, ARCHITECTURE.md, etc.) — documentation changes need no plan.
-- **Create `docs/PLAN.md`** whenever the task involves modifying or creating Go code. The user reviews it before dispatching.
+- **Create `docs/PLAN.md`** whenever the task involves modifying or creating Go code. The user reviews it before dispatching. Content rules: skill **plan-authoring**.
 - `docs/PLAN.md` is ALWAYS at the **module root level** (next to `go.mod`), never inside sub-packages.
 
 ### Never clobber an existing plan — `PLAN.md` becomes an execution queue
@@ -44,6 +49,27 @@ Before writing `docs/PLAN.md`, check whether one already exists with a pending p
 
 4. **No existing plan** → write the plan directly in `docs/PLAN.md` (single-topic case; it stays dispatchable by `codejob` as-is).
 
+### Local Execution Flow — `LAST_PLAN_EXECUTED.md`
+
+Not every plan is dispatched. When the user decides an existing `docs/PLAN.md`
+will be executed **locally** (immediately, in-session, instead of via codejob):
+
+1. **Rename `docs/PLAN.md` → `docs/LAST_PLAN_EXECUTED.md` at that moment.**
+   This frees `docs/PLAN.md` (no clash with codejob's rename/delete lifecycle
+   or with other plans queued later) and marks the plan as locally owned.
+2. Execute the work with `LAST_PLAN_EXECUTED.md` as the spec.
+3. It is **committed together with its implementation on `gopush`** (the only
+   publish path) — the executed spec lands in git history next to the code it
+   produced.
+4. On the NEXT local execution in the same repo: **overwrite the content** of
+   the existing `docs/LAST_PLAN_EXECUTED.md` with the new plan — never create
+   numbered variants (`LAST_PLAN_EXECUTED_2.md`). Git history preserves every
+   previous version, so the repo keeps a detailed, commit-anchored record of
+   what was done and when.
+5. Its content ROTATES: other documents may point to it only as "the most
+   recent locally executed plan" — never cite its sections or rely on
+   specific content (same staleness rule as `PLAN.md` references).
+
 ### Master plan naming — never overwrite `MASTER_PLAN.md`
 
 Multi-repo orchestrators at the monorepo root use a **descriptive name consistent with the task**: `docs/<TOPIC>_MASTER_PLAN.md` (e.g. `SIZE_OPTIMIZATION_MASTER_PLAN.md`, `MCP_DAEMON_HARDENING_MASTER_PLAN.md`). A bare `docs/MASTER_PLAN.md` likely already exists from a previous wave — never overwrite or reuse it for a new topic.
@@ -53,32 +79,40 @@ Multi-repo orchestrators at the monorepo root use a **descriptive name consisten
 The planning agent MUST perform a conversational Q&A with the user before writing any `PLAN.md`:
 
 1. Read the relevant code before asking — do not ask questions the code already answers.
-2. Offer options with justification and wait for user decisions on every architectural choice.
-3. Only write `docs/PLAN.md` once all decisions are resolved.
+2. **Investigate prior art before proposing a mechanism**: the repo's git history, predecessor repos (pre-split origins), and settled decision records (ARCHITECTURE/DESIGN). When a decision record rejects an approach, verify its scope — it may have rejected a *different variant* than the one under consideration (e.g. "never execute the user's package" does not cover executing dependency packages).
+3. **Never present a single take-it-or-leave-it proposal for an architectural choice.** Offer at least two candidate approaches with honest trade-offs and a recommendation, and wait for the user's decision. Writing a plan around an un-offered choice invalidates the plan.
+4. Only write `docs/PLAN.md` once all decisions are resolved.
 
 **The Q&A stays in chat. `PLAN.md` contains only final resolutions.**
+
+## Plans Are Ephemeral — Rationale Lives in Permanent Docs
+
+`PLAN.md` is deleted when the loop closes (renamed `CHECK_PLAN.md`, then removed by `codejob`). Consequences:
+
+- Anything that must outlive execution — decision rationale, rejected alternatives, contracts — goes to **permanent docs** (`ARCHITECTURE.md`, `DESIGN.md`) **before dispatch** (documentation-first). The plan's documentation stage then says **VERIFY the docs against the implementation**, never "create" them.
+- **Permanent docs (README, ARCHITECTURE, DESIGN, SPECS, diagrams) must NEVER link to or cite `PLAN.md`/`CHECK_PLAN.md`**, including section references like "PLAN §8" — they are guaranteed dead references. If a doc written ahead of implementation needs an interim marker, use a self-deleting note — `STATUS (remove this note when X lands): …` — and make its removal an explicit task in the plan.
 
 ## Plan Lifecycle
 
 ```mermaid
 flowchart TD
-    A[Claude writes<br/>docs/PLAN.md] --> B[User runs codejob<br/>dispatches to Jules]
+    A[Planning agent writes<br/>docs/PLAN.md] --> B[User runs codejob<br/>dispatches to Jules]
     B --> C[Jules opens PR<br/>on a branch]
     C --> D[User runs codejob<br/>no args]
     D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB_PR in .env<br/>ON SUCCESSFUL CHECKOUT]
-    E --> F[User asks Claude<br/>to review CHECK_PLAN.md]
+    E --> F[User asks planning agent<br/>to review CHECK_PLAN.md]
     F --> G{Implementation<br/>correct?}
-    G -->|yes| H[Claude or user runs<br/>codejob commit msg]
-    G -->|errors| I[Claude writes<br/>new docs/PLAN.md<br/>with the fix]
+    G -->|yes| H[Planning agent or user runs<br/>codejob commit msg]
+    G -->|errors| I[Planning agent writes<br/>new docs/PLAN.md<br/>with the fix]
     I --> B
     H --> J[codejob: merge PR<br/>gopush + tests<br/>delete CHECK_PLAN.md]
 ```
 
-### Key rules for Claude when reviewing `CHECK_PLAN.md`
+### Key rules for the planning agent when reviewing `CHECK_PLAN.md`
 
 `CHECK_PLAN.md` is the **original `PLAN.md` renamed automatically by `codejob`** after Jules opens a PR. It is the spec of what was supposed to be implemented.
 
-When the user asks Claude to review a `CHECK_PLAN.md`:
+When the user asks the planning agent to review a `CHECK_PLAN.md`:
 
 1. **Read `CHECK_PLAN.md`** to understand what was planned (stages, expected outputs, criteria).
 2. **Inspect the actual code** in the repo to verify each stage was executed correctly.
@@ -93,18 +127,18 @@ When the user asks Claude to review a `CHECK_PLAN.md`:
 5. **If everything is correct (code + docs):** run `codejob 'commit message'` to close the loop (or tell the user to run it if they prefer).
 6. **If something is missing or broken:** write a new `docs/PLAN.md` with the specific fix. Do NOT edit code directly.
 
-Claude **never**:
-- Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob`. The rename only happens after a successful branch checkout; if it fails, it is safe to re-run `codejob`.
+The planning agent **never**:
+- Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob` (sole exception: the rename to `LAST_PLAN_EXECUTED.md` when the user opts for local execution — see "Local Execution Flow"). The codejob rename only happens after a successful branch checkout; if it fails, it is safe to re-run `codejob`.
 - Runs `gopush` directly — `codejob` calls it internally.
 - Applies multi-file code fixes directly — always via a new `PLAN.md`.
 
-Claude **runs `codejob` when the user says "despacha"** (dispatch). This sends `docs/PLAN.md` to the Jules agent:
+The planning agent **runs `codejob` when the user says "despacha"** (dispatch). This sends `docs/PLAN.md` to the execution agent (Jules):
 
 ```bash
 codejob   # dispatches docs/PLAN.md to Jules
 ```
 
-The `codejob 'commit message'` form (close loop / publish) can be run by **Claude or the user**:
+The `codejob 'commit message'` form (close loop / publish) can be run by **the planning agent or the user**:
 
 ```bash
 codejob 'commit message'        # merge PR + gopush + delete CHECK_PLAN.md
@@ -115,118 +149,10 @@ codejob 'commit msg' v0.2.0     # same with explicit tag
 
 When `gotest` fails or the agent reports errors:
 
-| Scenario | Claude's action |
+| Scenario | Planning agent's action |
 |---|---|
 | Error in 1 file | Write new `PLAN.md` with the exact fix (include code) |
 | Error in 2+ files | Write new self-contained `PLAN.md` with all changes |
 | Design logic error | Q&A with user → new `PLAN.md` with resolved decision |
 
-In all cases: Claude **does not execute** the fix directly. It only writes the `PLAN.md`.
-
-## `PLAN.md` Rules
-
-- Acts as the entry point for an **external agent with zero context** about this project.
-- Must be fully self-contained: include all relevant constraints, interfaces, conventions, and examples inline.
-- Link to relevant docs (`README.md`, `ARCHITECTURE.md`) but repeat critical rules inline — do not assume the agent will read them.
-- **Cross-repo references MUST be GitHub web URLs** (e.g. `https://github.com/tinywasm/<repo>/blob/main/docs/X.md`), never local relative paths (`../../other-repo/...`) — the executing agent only has the repo being dispatched. In-repo relative links are fine. Either way the critical content is restated inline; external links are optional reading.
-- Structure into clear, sequential execution steps with a stages table at the end.
-- Never include `gopush` or `codejob` inside the plan — both are local developer tools managed outside the agent. `codejob` calls `gopush` internally when closing the loop; the agent must not call either.
-- Every `PLAN.md` MUST include a header line referencing the workflow skill, so the agent understands the context it operates in. Example:
-  ```
-  > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
-  ```
-
-## Code Quality Checklist (include inline in every code PLAN)
-
-Every `PLAN.md` that touches Go code MUST state these constraints explicitly. Agents have zero context — if a rule is not in the plan, it will be violated.
-
-### No hardcoded strings — typed constants only
-
-```
-RULE: Every repeated string (env key, file path, prefix, flag name, URL) MUST be
-a named constant in the library package. String literals are forbidden in logic.
-```
-
-- Env var names → exported constants: `const EnvKeyFoo = "FOO"`
-- File paths → exported constants: `const DefaultXPath = "docs/X.md"`
-- Result/output prefixes → exported constants shared between producer and consumer
-- Help flag lists → a single `var helpFlags = []string{...}` — never duplicated
-- CLI help text that references paths/names → use `fmt.Sprintf` with constants, not literals
-
-### Thin `cmd/` — all logic belongs in the library
-
-```
-RULE: cmd/*/main.go contains ONLY: argument parsing, dependency injection, and print/exit.
-      Every conditional, validation, or environment check is an exported library function.
-```
-
-- ✅ `devflow.IsEnvironmentValid(dotenvPath)` — exported, testable
-- ❌ `func isEnvironmentValid() bool { ... }` inside `cmd/` — untestable, unreachable from tests
-- If the function reads env vars, accesses files, or makes decisions → it belongs in the library
-
-### No logic duplication between library and cmd
-
-- If the library already computes a value (e.g. a result prefix), `cmd/` uses the exported constant — never re-derives it inline.
-- If `cmd/` re-implements a check the library already does, move it to the library and call it from both.
-
-### Execution contract for AI-driven CLIs
-
-```
-RULE: Any cmd that may be run by an automation/LLM MUST be non-interactive by default,
-      separate stdout (data) from stderr (logs), and use deterministic exit codes.
-```
-
-- **No args → print help to stdout, exit `0`.** Never block on a TUI/stdin by default; interactive modes go behind an explicit flag (e.g. `-tui`).
-- **stdout = consumable data only; stderr = all logs/diagnostics** — use `fmt.Fprintln(os.Stderr, …)` for anything diagnostic so a caller capturing stdout gets clean output.
-- **Exit `0` on success/help/clean shutdown; non-zero on bad flags or startup failure.** Library returns errors; thin `main` maps them to codes.
-- **Rich results go through the protocol surface** (MCP/JSON-RPC tools), not free-form stdout.
-- Full rationale: see skill **core-principles → "AI-Consumable CLIs (Execution Contract)"**.
-
-## Master plans for Multi-Library Changes
-
-When a breaking change affects multiple repositories in the monorepo:
-
-- Create `docs/<TOPIC>_MASTER_PLAN.md` at the monorepo root as the orchestrator (descriptive name — see "Master plan naming" above; never a bare `MASTER_PLAN.md`).
-- Each affected library has its own self-contained `docs/PLAN.md` (or `docs/PLAN_<TOPIC>.md` queued in `PLAN.md` when the library already had a pending plan).
-- The master plan defines the dependency graph: what can run in parallel and what must wait.
-
-```mermaid
-flowchart LR
-    A[Phase A\ngate] --> B[Phase B]
-    A --> C[Phase C]
-    B --> D[Phase D]
-    C --> D
-```
-
-- Mark explicitly which phases are **gates** (block the next ones) and which are **parallel**.
-
-## Modular Stage Files
-
-For complex features, use `PLAN.md` as a master checklist and break tasks into numbered stage files:
-
-```
-docs/
-├── PLAN.md                    # Master orchestrator — index + checklist
-├── PLAN_STAGE_1_MODELS.md     # Stage 1: data structures
-├── PLAN_STAGE_2_CORE.md       # Stage 2: core logic
-└── PLAN_STAGE_3_TESTS.md      # Stage 3: tests
-```
-
-Each stage file MUST include navigation at the top:
-```
-← [Stage 1](PLAN_STAGE_1_MODELS.md) | Next → [Stage 3](PLAN_STAGE_3_TESTS.md)
-```
-
-## Legacy Reference Code
-
-When porting established logic, append snippets of the original code at the bottom of the relevant stage file. Explicitly tell the agent which logic to recycle and which dependencies to replace.
-
-## TinyWasm-Specific Rules
-
-Apply to all plans within the `tinywasm/*` ecosystem:
-
-- **No standard library** in WASM-compiled packages: use `tinywasm/fmt` instead of `errors`, `strconv`, `strings`.
-- **Value embedding only**: embed `dom.Element` as a value, never as a pointer (`*dom.Element`). Pointer embeds cause double heap allocation and GC pressure in TinyGo.
-- **SSR split by extension**: CSS, SVG, JS, and heavy HTML strings MUST live in extension-named files with `//go:build !wasm`: `css.go` (RootCSS/RenderCSS), `js.go` (RenderJS), `html.go` (RenderHTML), `svg.go` (IconSvg). Never in `ssr.go` (convention eliminated). These files must never reach the WASM binary.
-- **No `front.go`**: WASM interactivity goes in the main component file via `OnMount()`. TinyGo eliminates it as dead code on SSR builds.
-- **`docs/PLAN.md` at module root**: always next to `go.mod`, never inside sub-packages.
+In all cases: the planning agent **does not execute** the fix directly. It only writes the `PLAN.md`.
