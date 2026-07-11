@@ -54,6 +54,69 @@ func HasActiveCodejobSession(dir string) bool {
 	return ok && val != ""
 }
 
+// WorkTreeDirtyBeyond returns true if the git worktree has changes beyond the allowed files.
+// It ignores .env and .gitignore files automatically.
+func WorkTreeDirtyBeyond(git GitClient, allowed ...string) (bool, error) {
+	out, err := git.StatusPorcelain()
+	if err != nil {
+		return false, err
+	}
+
+	if out == "" {
+		return false, nil
+	}
+
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if len(line) < 3 {
+			continue
+		}
+
+		// git status --porcelain output:
+		// XY PATH
+		// XY is 2 characters
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		file := strings.TrimSpace(parts[1])
+		// If the file is quoted, unquote it (simplistic version)
+		file = strings.Trim(file, "\"")
+		if file == "" {
+			continue
+		}
+
+		// Always ignore .env and .gitignore
+		if file == ".env" || file == ".gitignore" {
+			continue
+		}
+
+		// Check if it's in the allowed list
+		isAllowed := false
+		for _, a := range allowed {
+			if file == a {
+				isAllowed = true
+				break
+			}
+		}
+
+		if !isAllowed {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// CascadeStatus constants represent the possible outcomes of a module update in a cascade.
+const (
+	CascadeStatusPublished = "published"
+	CascadeStatusDepsOnly  = "deps only"
+	CascadeStatusSkipped   = "skipped"
+	CascadeStatusFailed    = "failed"
+)
+
 // NewGo creates a new Go handler and verifies Go installation
 func NewGo(gitHandler GitClient) (*Go, error) {
 	// Verify go installation
@@ -241,6 +304,13 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 			}
 		}
 
+		// Phase 2: Append shortstat to commit message
+		if g.git != nil {
+			if stat, err := g.git.DiffShortStat(); err == nil && stat != "" {
+				message = message + "\n\n" + stat
+			}
+		}
+
 		pushResult, err = g.git.Push(message, tag)
 		if err != nil {
 			return PushResult{}, fmt.Errorf("push workflow failed: %w", err)
@@ -293,7 +363,7 @@ func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, s
 // This is called for each module that depends on the one we just published
 // UpdateDependentModule updates a specific dependent module
 // It modifies go.mod to require the new version and runs go mod tidy
-func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, error) {
+func (g *Go) UpdateDependentModule(depDir, modulePath, version, rootCause string) (string, error) {
 	depName := filepath.Base(depDir)
 
 	// 1-2. Load and modify go.mod
@@ -363,6 +433,9 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	if output, err := RunCommandInDir(depDir, "gotest", "-t", "60", "-no-cache"); err != nil {
 		cause := extractFirstFailure(output)
 		g.consoleOutput(fmt.Sprintf("📦 %s → %s ❌", depName, cause))
+
+		// REVERT: If tests fail, revert changes to go.mod/go.sum
+		RunCommandInDir(depDir, "git", "checkout", "--", "go.mod", "go.sum")
 		return "", fmt.Errorf("tests failed: %w", err)
 	}
 
@@ -379,7 +452,30 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version string) (string, 
 	}
 	depHandler.SetRootDir(depDir)
 
-	commitMsg := fmt.Sprintf("deps: update %s to %s", filepath.Base(modulePath), version)
+	// Phase 1 security: dirty-guard
+	dirty, err := WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
+	if err != nil {
+		return "", fmt.Errorf("dirty check failed: %w", err)
+	}
+
+	commitMsg := BuildDepsCommitMessage([]DepBump{{ModulePath: modulePath, NewVersion: version}}, rootCause)
+
+	if dirty {
+		// A2: commit ONLY go.mod/go.sum, push without tag, skip cascade
+		committed, err := git.CommitPaths(commitMsg, "go.mod", "go.sum")
+		if err != nil {
+			return "", fmt.Errorf("dirty commit failed: %w", err)
+		}
+		if committed {
+			if _, err := git.PushWithoutTags(); err != nil {
+				return "", fmt.Errorf("dirty push failed: %w", err)
+			}
+		}
+		g.consoleOutput(fmt.Sprintf("📦 %s → %s (dirty tree) ⚠", depName, CascadeStatusDepsOnly))
+		return fmt.Sprintf("updated (%s, no tag)", CascadeStatusDepsOnly), nil
+	}
+
+	// Clean tree: full flow
 	_, err = depHandler.Push(commitMsg, "", true, true, true, true, true, false, "")
 	if err != nil {
 		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ push failed", depName))
