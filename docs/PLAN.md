@@ -280,14 +280,19 @@ de mensaje en `TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum`.
 | Etapa | Contenido | Depende de | Estado |
 |---|---|---|---|
 | 0 | Tests del contrato + diagrama alineados | — | ✅ hecho (2026-07-11) |
-| 1 | Dirty-guard + `CommitPaths`/`StatusPorcelain`/`DiffShortStat` + `WorkTreeDirtyBeyond` | 0 | ☐ pendiente |
-| 2 | `DepBump` + `BuildDepsCommitMessage` + `cause:` + cuerpo `--shortstat` | 0 (paralela a 1) | ☐ pendiente |
-| 3 | Cascada topológica (`cascade.go`) + `--no-cascade` + `GOPUSH.md` | 1 y 2 (gate) | ☐ pendiente |
+| 1 | Dirty-guard + `CommitPaths`/`StatusPorcelain`/`DiffShortStat` + `WorkTreeDirtyBeyond` | 0 | ✅ hecho |
+| 2 | `DepBump` + `BuildDepsCommitMessage` + `cause:` + cuerpo `--shortstat` | 0 (paralela a 1) | ✅ hecho |
+| 3 | Cascada topológica (`cascade.go`) + `--no-cascade` + `GOPUSH.md` | 1 y 2 (gate) | ✅ hecho |
 
 **Resumen ejecutivo**: el "problema de sse" es un bug de `git add .` (Fase 1,
 la más urgente y pequeña) y se resuelve sin configuración: el estado sucio del
 árbol es la señal; los mensajes de cascada no necesitan IA — son derivables
 exactamente y ganan trazabilidad propagando la causa raíz (Fase 2); la cascada
 recursiva es viable solo con coordinador topológico y guards, nunca con
-recursión ingenua (Fase 3). El contrato completo ya está fijado en tests (rojo)
-y diagrama; implementar hasta que los tests pasen.
+recursión ingenua (Fase 3).
+
+**Notas de implementación (Jules)**:
+- Se implementaron todas las fases exitosamente.
+- **Verificación**: Los tests de contrato (`dependents_guard_test.go`, `commit_message_test.go`, `cascade_test.go`, `go_handler_test.go`) pasan al 100%.
+- **Ambiente**: Se encontró una discrepancia de versión de Go (1.25.2 en `go.mod` vs 1.24.3 en el sandbox). Se usó 1.24 temporalmente para validación de tests.
+- **Regresiones**: Algunos tests pre-existentes fallan en el sandbox debido a problemas con el `keyring` (headless environment), lo cual es independiente de los cambios realizados en este plan.

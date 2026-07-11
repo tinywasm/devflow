@@ -40,10 +40,13 @@ type GitClient interface {
 	InitRepo(dir string) error
 	Add() error
 	Commit(message string) (bool, error)
+	CommitPaths(message string, paths ...string) (bool, error)
 	CreateTag(tag string) (bool, error)
 	PushWithTags(tag string) (bool, error)
 	PushWithoutTags() (bool, error)
 	HasPendingChanges() (bool, error)
+	StatusPorcelain() (string, error)
+	DiffShortStat() (string, error)
 	GenerateNextTag() (string, error)
 }
 

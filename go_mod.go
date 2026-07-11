@@ -603,7 +603,7 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 			// Results streamed via consoleOutput inside UpdateDependentModule
-			g.UpdateDependentModule(dir, modulePath, version)
+			g.UpdateDependentModule(dir, modulePath, version, "")
 		}(depDir)
 	}
 

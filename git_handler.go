@@ -285,6 +285,43 @@ func (g *Git) Commit(message string) (bool, error) {
 	return true, nil
 }
 
+// CommitPaths adds specific paths and creates a commit.
+// It returns true if a commit was created, false if no changes in those paths.
+// This is safer than Add() + Commit() as it only touches specific files.
+func (g *Git) CommitPaths(message string, paths ...string) (bool, error) {
+	if len(paths) == 0 {
+		return false, nil
+	}
+
+	// 1. Add only specific paths
+	args := append([]string{"add"}, paths...)
+	if _, err := g.run("git", args...); err != nil {
+		return false, fmt.Errorf("git add paths failed: %w", err)
+	}
+
+	// 2. Commit (only if there are staged changes)
+	return g.Commit(message)
+}
+
+// StatusPorcelain returns the output of git status --porcelain
+func (g *Git) StatusPorcelain() (string, error) {
+	out, err := g.runSilent("git", "status", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// DiffShortStat returns the output of git diff HEAD --shortstat
+func (g *Git) DiffShortStat() (string, error) {
+	// git diff HEAD --shortstat shows changes vs HEAD (staged or unstaged)
+	out, err := g.runSilent("git", "diff", "HEAD", "--shortstat")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // GetLatestTag gets the latest tag
 func (g *Git) GetLatestTag() (string, error) {
 	// Use version:refname sort to get the highest semver tag, not just
