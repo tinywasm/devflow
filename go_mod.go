@@ -340,6 +340,14 @@ func (g *GoModHandler) SetOnSSRFileChange(fn func(string)) {
 	g.OnSSRFileChange = fn
 }
 
+func (m *GoModHandler) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
+	m.SetRootDir(ctx.RepoDir)
+	if m.HasOtherReplaces(ctx.ModulePath) {
+		return ActionSkip, ObjectionOtherReplaces
+	}
+	return ActionNone, ""
+}
+
 func (g *GoModHandler) Name() string {
 	return "GOMOD"
 }

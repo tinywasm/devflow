@@ -59,6 +59,15 @@ func (m *MarkDown) InputEmbed(path string, readerFile func(name string) ([]byte,
 	return m
 }
 
+// Frontmatter reads the configured input and parses its plan frontmatter.
+func (m *MarkDown) Frontmatter() (PlanMeta, error) {
+	data, err := m.readFile(m.inputPath)
+	if err != nil {
+		return PlanMeta{}, err
+	}
+	return ParseFrontmatter(string(data))
+}
+
 // writeIfDifferent writes data to filename only if content is different
 func (m *MarkDown) writeIfDifferent(filename, content string) error {
 	// Try to read existing file

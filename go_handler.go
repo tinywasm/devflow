@@ -17,14 +17,15 @@ type CrossTarget struct{ GOOS, GOARCH string }
 
 // Go handler for Go operations
 type Go struct {
-	rootDir        string
-	git            GitClient // Interface for better testing
-	log            func(...any)
-	consoleOutput  func(string) // output for ConsoleFilter (fmt.Println by default)
-	backup         BackupRunner
-	retryDelay     time.Duration
-	retryAttempts  int
-	crossCompileFn func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
+	rootDir               string
+	git                   GitClient // Interface for better testing
+	log                   func(...any)
+	consoleOutput         func(string) // output for ConsoleFilter (fmt.Println by default)
+	backup                BackupRunner
+	retryDelay            time.Duration
+	retryAttempts         int
+	crossCompileFn        func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
+	extraPublishObjectors []PublishObjector
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.
@@ -167,6 +168,14 @@ func (g *Go) SetBackup(b BackupRunner) {
 // SetConsoleOutput sets the function for console output (used by ConsoleFilter)
 func (g *Go) SetConsoleOutput(fn func(string)) {
 	g.consoleOutput = fn
+}
+
+// SetPublishObjectors replaces the extra publish objectors.
+func (g *Go) SetPublishObjectors(objs ...PublishObjector) { g.extraPublishObjectors = objs }
+
+// AddPublishObjector appends an extra publish objector.
+func (g *Go) AddPublishObjector(obj PublishObjector) {
+	g.extraPublishObjectors = append(g.extraPublishObjectors, obj)
 }
 
 // SetCrossCompileFn sets a custom cross-compile function for testing
@@ -418,15 +427,21 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version, rootCause string
 	// will surface in the test step below.
 	_, _ = RunCommandInDir(depDir, "go", "generate", "./...")
 
-	if HasActiveCodejobSession(depDir) {
-		g.consoleOutput(fmt.Sprintf("📦 %s → skip (codejob active) ⏭", depName))
-		return "updated (codejob active, push skipped)", nil
+	git, err := NewGit()
+	if err != nil {
+		return "", fmt.Errorf("git init failed: %w", err)
 	}
+	git.SetRootDir(depDir)
 
-	// 6. Check for other replaces
-	if gomod.HasOtherReplaces(modulePath) {
-		g.consoleOutput(fmt.Sprintf("📦 %s → skip (other replaces) ⏭", depName))
-		return "updated (other replaces exist, manual push required)", nil
+	// Ensambla los opositores desde los managers ya construidos (gomod, git rooteados
+	// en depDir) + el manager codejob (valor cero) + los extras configurables.
+	objectors := append([]PublishObjector{gomod, git, CodeJob{}}, g.extraPublishObjectors...)
+	ctx := PublishContext{RepoDir: depDir, ModulePath: modulePath}
+	action, reason := ResolvePublishAction(objectors, ctx)
+
+	if action == ActionSkip {
+		g.consoleOutput(fmt.Sprintf("📦 %s → skip (%s) ⏭", depName, reason))
+		return fmt.Sprintf("updated (%s, push skipped)", reason), nil
 	}
 
 	// 7. Run tests in the dependent's directory
@@ -440,38 +455,25 @@ func (g *Go) UpdateDependentModule(depDir, modulePath, version, rootCause string
 	}
 
 	// 8. Push the dependent module (skipTests=true since we already tested)
-	git, err := NewGit()
-	if err != nil {
-		return "", fmt.Errorf("git init failed: %w", err)
-	}
-	git.SetRootDir(depDir)
-
 	depHandler, err := NewGo(git)
 	if err != nil {
 		return "", fmt.Errorf("go handler init failed: %w", err)
 	}
 	depHandler.SetRootDir(depDir)
 
-	// Phase 1 security: dirty-guard
-	dirty, err := WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
-	if err != nil {
-		return "", fmt.Errorf("dirty check failed: %w", err)
-	}
-
 	commitMsg := BuildDepsCommitMessage([]DepBump{{ModulePath: modulePath, NewVersion: version}}, rootCause)
 
-	if dirty {
-		// A2: commit ONLY go.mod/go.sum, push without tag, skip cascade
+	if action == ActionDepsOnly {
 		committed, err := git.CommitPaths(commitMsg, "go.mod", "go.sum")
 		if err != nil {
-			return "", fmt.Errorf("dirty commit failed: %w", err)
+			return "", fmt.Errorf("deps-only commit failed: %w", err)
 		}
 		if committed {
 			if _, err := git.PushWithoutTags(); err != nil {
-				return "", fmt.Errorf("dirty push failed: %w", err)
+				return "", fmt.Errorf("deps-only push failed: %w", err)
 			}
 		}
-		g.consoleOutput(fmt.Sprintf("📦 %s → %s (dirty tree) ⚠", depName, CascadeStatusDepsOnly))
+		g.consoleOutput(fmt.Sprintf("📦 %s → %s (%s) ⚠", depName, CascadeStatusDepsOnly, reason))
 		return fmt.Sprintf("updated (%s, no tag)", CascadeStatusDepsOnly), nil
 	}
 

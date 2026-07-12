@@ -60,6 +60,14 @@ func (g *Git) SetShouldWrite(f func() bool) {
 	g.shouldWrite = f
 }
 
+func (g *Git) ObjectsToPublish(_ PublishContext) (PublishAction, string) {
+	dirty, err := WorkTreeDirtyBeyond(g, publishAllowedDirtyFiles...)
+	if err != nil || !dirty {
+		return ActionNone, "" // error or clean: no objection
+	}
+	return ActionDepsOnly, ObjectionDirtyTree
+}
+
 // SetLog sets the logger function
 func (g *Git) SetLog(fn func(...any)) {
 	if fn != nil {
