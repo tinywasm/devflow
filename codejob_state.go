@@ -128,13 +128,12 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("🔀 On PR branch %s — review docs/CHECK_PLAN.md against this tree.\n", branch)
+	fmt.Printf("🔀 On PR branch %s — review %s against this tree.\n", branch, DefaultCheckPlanPath)
 
 	// 2. rename PLAN.md
 	planPath := DefaultIssuePromptPath
 	if _, err := os.Stat(planPath); err == nil {
-		checkPlanPath := "docs/CHECK_PLAN.md"
-		if err := os.Rename(planPath, checkPlanPath); err != nil {
+		if err := os.Rename(planPath, DefaultCheckPlanPath); err != nil {
 			return fmt.Errorf("could not rename %s: %w", planPath, err)
 		}
 	}
@@ -160,6 +159,8 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 
 	return nil
 }
+
+const DefaultCheckPlanPath = "docs/CHECK_PLAN.md"
 
 // MergePR merges the Jules PR persisted in .env as CODEJOB_PR,
 // deletes docs/CHECK_PLAN.md, and cleans up state.
@@ -189,9 +190,9 @@ func MergePR() error {
 	}
 
 	// 2. delete docs/CHECK_PLAN.md
-	if _, err := os.Stat("docs/CHECK_PLAN.md"); err == nil {
-		if err := os.Remove("docs/CHECK_PLAN.md"); err != nil {
-			return fmt.Errorf("could not delete CHECK_PLAN.md: %w", err)
+	if _, err := os.Stat(DefaultCheckPlanPath); err == nil {
+		if err := os.Remove(DefaultCheckPlanPath); err != nil {
+			return fmt.Errorf("could not delete %s: %w", DefaultCheckPlanPath, err)
 		}
 	}
 
@@ -281,9 +282,11 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 3. remove CHECK_PLAN.md (gitignored, local cleanup only)
-	if _, err := os.Stat("docs/CHECK_PLAN.md"); err == nil {
-		if err := os.Remove("docs/CHECK_PLAN.md"); err != nil {
-			return PushResult{}, fmt.Errorf("could not delete CHECK_PLAN.md: %w", err)
+	var planMeta PlanMeta
+	if _, err := os.Stat(DefaultCheckPlanPath); err == nil {
+		planMeta, _ = ReadPlanMeta(DefaultCheckPlanPath)
+		if err := os.Remove(DefaultCheckPlanPath); err != nil {
+			return PushResult{}, fmt.Errorf("could not delete %s: %w", DefaultCheckPlanPath, err)
 		}
 	}
 
@@ -306,5 +309,9 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// No PLAN.md -> call full gopush
-	return publisher.Publish(message, overrideTag, false, false, false, false, false, false)
+	effMsg, effTag, err := ResolvePublishMessage(message, overrideTag, planMeta)
+	if err != nil {
+		return PushResult{}, err
+	}
+	return publisher.Publish(effMsg, effTag, false, false, false, false, false, false)
 }

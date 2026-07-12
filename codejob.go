@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tinywasm/context"
@@ -54,6 +55,17 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 	}
 }
 
+
+// ObjectsToPublish implements PublishObjector. It is stateless.
+func (CodeJob) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
+	if HasActiveCodejobSession(ctx.RepoDir) {
+		return ActionSkip, ObjectionCodejobSession
+	}
+	if _, err := os.Stat(filepath.Join(ctx.RepoDir, DefaultIssuePromptPath)); err == nil {
+		return ActionDepsOnly, ObjectionPlanPending
+	}
+	return ActionNone, ""
+}
 
 // SetPublisher injects a Publisher for close-loop operations.
 func (c *CodeJob) SetPublisher(p Publisher) { c.publisher = p }
@@ -124,7 +136,7 @@ func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
 		}
-		res, err := MergeAndPublish(c.publisher, "chore: merge agent PR", "")
+		res, err := MergeAndPublish(c.publisher, "", "")
 		if err != nil {
 			return "", err
 		}
@@ -232,6 +244,11 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 	if err := EnsureGHSession(); err != nil {
 		return "", err
 	}
+
+	if _, err := ReadPlanMeta(issuePromptPath); err != nil {
+		return "", fmt.Errorf("invalid plan frontmatter in %s: %w", issuePromptPath, err)
+	}
+
 	info, err := os.Stat(issuePromptPath)
 	if err != nil {
 		return "", fmt.Errorf("prompt file not found: %w", err)

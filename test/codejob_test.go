@@ -3,6 +3,7 @@ package devflow_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestCodeJob_Run_NoArgs_Dispatch(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 	os.MkdirAll("docs", 0755)
-	os.WriteFile("docs/PLAN.md", []byte("some plan"), 0644)
+	os.WriteFile("docs/PLAN.md", []byte("---\nmessage: test\n---\nsome plan"), 0644)
 
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
@@ -71,7 +72,7 @@ func TestCodeJob_MessageWithoutPR(t *testing.T) {
 }
 
 func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
-	path := writeTempFile(t, "some plan")
+	path := writeTempFile(t, "---\nmessage: test\n---\nsome plan")
 	published := false
 	mockPub := &MockPublisher{
 		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
@@ -100,7 +101,7 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 
 func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	// Verify that Publish is called silently (no logging of summary)
-	path := writeTempFile(t, "some plan")
+	path := writeTempFile(t, "---\nmessage: test\n---\nsome plan")
 	publishCalled := false
 	mockPub := &MockPublisher{
 		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
@@ -123,5 +124,39 @@ func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	}
 	if len(logged) > 0 {
 		t.Errorf("expected no logging of publish summary, but got: %v", logged)
+	}
+}
+
+func TestCodeJob_ObjectsToPublish(t *testing.T) {
+	tmp := t.TempDir()
+	ctx := devflow.PublishContext{RepoDir: tmp}
+	cj := devflow.CodeJob{}
+
+	// nothing -> ActionNone
+	action, reason := cj.ObjectsToPublish(ctx)
+	if action != devflow.ActionNone {
+		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
+	}
+
+	// .env with CODEJOB -> ActionSkip
+	os.WriteFile(filepath.Join(tmp, ".env"), []byte("CODEJOB=jules:x\n"), 0644)
+	action, reason = cj.ObjectsToPublish(ctx)
+	if action != devflow.ActionSkip {
+		t.Errorf("expected ActionSkip, got %v (%s)", action, reason)
+	}
+	if reason != devflow.ObjectionCodejobSession {
+		t.Errorf("expected %q, got %q", devflow.ObjectionCodejobSession, reason)
+	}
+
+	// remove .env, add PLAN.md -> ActionDepsOnly
+	os.Remove(filepath.Join(tmp, ".env"))
+	os.MkdirAll(filepath.Join(tmp, "docs"), 0755)
+	os.WriteFile(filepath.Join(tmp, devflow.DefaultIssuePromptPath), []byte("plan"), 0644)
+	action, reason = cj.ObjectsToPublish(ctx)
+	if action != devflow.ActionDepsOnly {
+		t.Errorf("expected ActionDepsOnly, got %v (%s)", action, reason)
+	}
+	if reason != devflow.ObjectionPlanPending {
+		t.Errorf("expected %q, got %q", devflow.ObjectionPlanPending, reason)
 	}
 }

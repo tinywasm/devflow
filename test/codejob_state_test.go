@@ -156,7 +156,7 @@ func TestHandleDone_HappyPath(t *testing.T) {
 
 	envPath := ".env"
 	planPath := "docs/PLAN.md"
-	checkPlanPath := "docs/CHECK_PLAN.md"
+	checkPlanPath := devflow.DefaultCheckPlanPath
 
 	_ = os.MkdirAll("docs", 0755)
 	_ = os.WriteFile(planPath, []byte("my plan"), 0644)
