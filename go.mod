@@ -24,7 +24,7 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/tinywasm/context v0.0.18
-	github.com/tinywasm/fmt v0.25.2 // indirect
+	github.com/tinywasm/fmt v0.25.3 // indirect
 	github.com/tinywasm/wizard v0.0.22
 	golang.org/x/sys v0.41.0 // indirect
 )
