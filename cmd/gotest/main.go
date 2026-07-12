@@ -19,6 +19,8 @@ func main() {
 		fmt.Println("  -t N        Per-package timeout in seconds (default: 30)")
 		fmt.Println("  -no-cache   Force re-execution of tests, skipping cache")
 		fmt.Println("  -all        Run all tests including integration tests (sets timeout to 60s)")
+		fmt.Println("  -tinygo     Compile the WASM suite with TinyGo instead of the Go toolchain")
+		fmt.Println("              (slow: TinyGo goes through LLVM. Requires tinygo installed.)")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  gotest              # Full suite, 30s timeout")
@@ -39,6 +41,7 @@ func main() {
 	timeoutSec := 0
 	noCache := false
 	runAll := false
+	useTinygo := false
 	var customArgs []string
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
@@ -51,6 +54,9 @@ func main() {
 			noCache = true
 		} else if args[i] == "-all" {
 			runAll = true
+		} else if args[i] == "-tinygo" {
+			useTinygo = true
+			noCache = true // a cached Go-toolchain result would mask the TinyGo run
 		} else {
 			customArgs = append(customArgs, args[i])
 		}
@@ -75,6 +81,8 @@ func main() {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
+
+	goHandler.UseTinygo(useTinygo)
 
 	summary, err := goHandler.Test(customArgs, false, timeoutSec, noCache, runAll)
 	if err != nil {

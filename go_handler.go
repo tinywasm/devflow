@@ -26,6 +26,7 @@ type Go struct {
 	retryAttempts         int
 	crossCompileFn        func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
 	extraPublishObjectors []PublishObjector
+	useTinygo             bool
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.

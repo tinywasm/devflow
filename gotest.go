@@ -304,12 +304,12 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 			addMsg(false, "WASM tests skipped (setup failed)")
 		} else {
-			execArg := "wasmbrowsertest"
+			execArg := g.wasmExecArg()
 			// Add -count=1 to force cache bypass for WASM tests, consistent with native run
 			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1", "./..."}
 
 			// Add cushion for WASM tests too
-			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), g.wasmTimeout(timeoutSec))
 			defer wasmCancel()
 			wasmCmd := GoTestCmdFn(wasmCtx, g.rootDir, "go", testArgs...)
 			wasmCmd.Env = os.Environ()
