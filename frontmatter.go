@@ -12,10 +12,26 @@ type PlanMeta struct {
 	Tag     string // optional: explicit version tag (e.g. "v0.1.0")
 }
 
+// frontmatterHelp is appended to every frontmatter error so the fix is obvious from the
+// terminal alone — nobody should need to open the docs to unblock a dispatch.
+const frontmatterHelp = `
+
+docs/PLAN.md must OPEN with a frontmatter block — the very first line is '---':
+
+    ---
+    message: "feat: what this plan implements"
+    tag: v0.2.0
+    ---
+
+    # Plan — ...
+
+  message  REQUIRED. The commit message used when the loop is closed.
+  tag      optional. Explicit version (e.g. v0.2.0); omitted = auto-bump.`
+
 var (
-	ErrFrontmatterMissing   = errors.New("plan frontmatter: file must start with a '---' line")
-	ErrFrontmatterUnclosed  = errors.New("plan frontmatter: opening '---' has no matching closing '---'")
-	ErrFrontmatterNoMessage = errors.New("plan frontmatter: missing required 'message:' field")
+	ErrFrontmatterMissing   = errors.New("plan frontmatter: file must start with a '---' line" + frontmatterHelp)
+	ErrFrontmatterUnclosed  = errors.New("plan frontmatter: opening '---' has no matching closing '---'" + frontmatterHelp)
+	ErrFrontmatterNoMessage = errors.New("plan frontmatter: missing required 'message:' field" + frontmatterHelp)
 )
 
 const FrontmatterFence = "---"

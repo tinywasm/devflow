@@ -23,6 +23,16 @@ The agent reading this skill (Claude, Gemini, or any other installed LLM) acts *
 - **Edit `.md` files directly** (SKILL.md, README.md, ARCHITECTURE.md, etc.) — documentation changes need no plan.
 - **Create `docs/PLAN.md`** whenever the task involves modifying or creating Go code. The user reviews it before dispatching. Content rules: skill **plan-authoring**.
 - `docs/PLAN.md` is ALWAYS at the **module root level** (next to `go.mod`), never inside sub-packages.
+- `docs/PLAN.md` MUST **open** with a frontmatter block — first line of the file is `---`, before any heading — or `codejob` refuses to dispatch it:
+
+  ```markdown
+  ---
+  message: "feat: what this plan implements"
+  tag: v0.2.0
+  ---
+  ```
+
+  `message` is required (the commit message used when closing the loop); `tag` is optional. Details: skill **plan-authoring**.
 
 ### Never clobber an existing plan — `PLAN.md` becomes an execution queue
 
@@ -129,8 +139,20 @@ When the user asks the planning agent to review a `CHECK_PLAN.md`:
 
 The planning agent **never**:
 - Renames, moves, or deletes `PLAN.md` or `CHECK_PLAN.md` — managed by `codejob` (sole exception: the rename to `LAST_PLAN_EXECUTED.md` when the user opts for local execution — see "Local Execution Flow"). The codejob rename only happens after a successful branch checkout; if it fails, it is safe to re-run `codejob`.
-- Runs `gopush` directly — `codejob` calls it internally.
+- Runs `gopush` **to close a dispatched plan's loop** — inside that loop `codejob` calls `gopush` internally. (Outside a plan loop, `gopush` is the normal publish path — see below.)
 - Applies multi-file code fixes directly — always via a new `PLAN.md`.
+
+## Publishing: `gopush` vs `codejob` — do not confuse them
+
+They are not alternatives. **`gopush` publishes. `codejob` runs the plan loop** (dispatch → review → close), and *calls `gopush` for you* at the end.
+
+| You did… | Publish with | Why |
+|---|---|---|
+| Edited docs / a 1-file code fix, **no plan** | **`gopush 'message'`** | There is no plan and no PR. Nothing for `codejob` to close. |
+| Wrote `docs/PLAN.md` and dispatched it | **`codejob 'message'`** | Closes the loop: merges the PR, calls `gopush`, deletes `CHECK_PLAN.md`. |
+| Ran a plan **locally** (`LAST_PLAN_EXECUTED.md`) | **`gopush 'message'`** | No PR was ever opened; the executed spec is committed alongside the code. |
+
+⚠️ **Never run bare `codejob` to "check something".** With no arguments it **dispatches** `docs/PLAN.md` to the execution agent — it is not a lint, a dry-run, or a way to inspect an error. To validate a plan's frontmatter, read the file.
 
 The planning agent **runs `codejob` when the user says "despacha"** (dispatch). This sends `docs/PLAN.md` to the execution agent (Jules):
 

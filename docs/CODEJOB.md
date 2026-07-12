@@ -65,6 +65,46 @@ func (d *MyDriver) Send(prompt, title string) (string, error)   { /* ... */ }
 job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}), &MyDriver{})
 ```
 
+## `codejob` vs `gopush` — not alternatives
+
+**`gopush` publishes. `codejob` runs the plan loop** (dispatch → review → close) and calls
+`gopush` for you at the end.
+
+| You did… | Publish with |
+|---|---|
+| Edited docs, or a small fix — **no plan** | **`gopush 'message'`** — there is no PR for codejob to close |
+| Wrote `docs/PLAN.md` and dispatched it | **`codejob 'message'`** — merges the PR, calls `gopush`, deletes `CHECK_PLAN.md` |
+
+⚠️ Bare `codejob` (no arguments) **dispatches** `docs/PLAN.md` to the execution agent. It is
+not a dry-run, a lint, or a way to inspect an error.
+
+## `docs/PLAN.md` frontmatter (REQUIRED — dispatch fails without it)
+
+Every `docs/PLAN.md` must **open** with a frontmatter block. The very first line of the file
+is `---`, before any heading or blockquote:
+
+```markdown
+---
+message: "feat: what this plan implements"
+tag: v0.2.0
+---
+
+# Plan — ...
+```
+
+| Key | Required | Meaning |
+|-----|----------|---------|
+| `message` | **yes** | Commit message used when the loop is closed (`codejob 'msg'` overrides it). |
+| `tag` | no | Explicit version (`v0.2.0`). Omitted → `gopush` auto-bumps. |
+
+Unknown keys are ignored. Values may be quoted or bare.
+
+Without it, dispatch aborts with:
+
+```
+Error: invalid plan frontmatter in docs/PLAN.md: plan frontmatter: file must start with a '---' line
+```
+
 ## Usage
 
 ### CLI

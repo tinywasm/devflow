@@ -9,6 +9,27 @@ description: How to write the content of a docs/PLAN.md so a less-capable execut
 > local execution) is a separate domain: see skill **agents-workflow**. This
 > skill covers what the document itself must contain.
 
+## Frontmatter — REQUIRED, or dispatch fails
+
+Every `docs/PLAN.md` MUST **open** with a frontmatter block. The very first line of the file
+is `---`, **before** any heading or blockquote:
+
+```markdown
+---
+message: "feat: what this plan implements"
+tag: v0.2.0
+---
+
+> This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
+
+# Plan — ...
+```
+
+- `message` — **required**. Commit message used when the loop is closed.
+- `tag` — optional. Explicit version (`v0.2.0`); omit to let `gopush` auto-bump.
+
+Without it, `codejob` aborts with `plan frontmatter: file must start with a '---' line`.
+
 ## `PLAN.md` Rules
 
 - Acts as the entry point for an **external agent with zero context** about this project.
