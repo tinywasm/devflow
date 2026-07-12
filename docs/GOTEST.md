@@ -62,6 +62,31 @@ gotest -bench .     # Run benchmarks
 8. Updates README badges
 9. Displays total execution time
 
+### `-tinygo` — compile the WASM suite with TinyGo
+
+```bash
+gotest -tinygo
+```
+
+By default the WASM suite is built with the **Go** toolchain
+(`GOOS=js GOARCH=wasm`), whose backend supports the full standard library. That
+means a green `wasm ✅` says **nothing** about TinyGo compatibility: a package
+TinyGo would reject still passes.
+
+`-tinygo` closes that gap. It runs the suite through
+`wasmbrowsertest -tinygo`, which rebuilds the package with TinyGo (the binary
+`go test -exec` hands over came from the Go compiler, so it cannot prove
+anything) and serves TinyGo's `wasm_exec.js` — the two toolchains emit different
+host imports and their shims are not interchangeable.
+
+Use it on any library that ships to the edge (Cloudflare Workers, `goflare`) or
+to the browser via TinyGo, whenever an import is added or removed.
+
+It is opt-in because it is slow: TinyGo compiles through LLVM, so a run takes
+minutes instead of seconds. It also bypasses the test cache. If TinyGo is not
+installed, the run fails with install instructions
+(`go run github.com/tinywasm/tinygo/cmd/tinygoinstall@latest`).
+
 ### With arguments (fast path):
 
 1. Runs `go test [your flags] ./...` (stdlib tests)
