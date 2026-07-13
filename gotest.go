@@ -306,7 +306,8 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		} else {
 			execArg := g.wasmExecArg()
 			// Add -count=1 to force cache bypass for WASM tests, consistent with native run
-			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1", "./..."}
+			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1"}
+			testArgs = append(testArgs, g.wasmTestPackages(runAll)...)
 
 			// Add cushion for WASM tests too
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), g.wasmTimeout(timeoutSec))
@@ -912,6 +913,66 @@ func (g *Go) installWasmBrowserTest() error {
 		return fmt.Errorf("go install failed: %w", err)
 	}
 	return nil
+}
+
+// wasmTestPackages lists the packages whose tests can actually be built for js/wasm.
+//
+// It exists because `go test ./...` under GOOS=js is wrong for any repo with two build
+// targets (host tooling + an edge binary). A package whose sources are all `//go:build
+// !wasm` still gets compiled by `./...`, and fails with "build constraints exclude all
+// Go files" — a red suite that reports nothing about the code. The same goes for any
+// package importing one. Selecting the packages up front means the runner only builds
+// what the wasm target actually contains.
+//
+// Falls back to "./..." if go list gives nothing, so the caller still sees a real error
+// instead of an empty, silently-passing run.
+func (g *Go) wasmTestPackages(runAll bool) []string {
+	args := []string{"list", "-f", "{{.ImportPath}} {{len .GoFiles}} {{len .TestGoFiles}} {{len .XTestGoFiles}}"}
+	if runAll {
+		args = append(args, "-tags=integration")
+	}
+	args = append(args, "./...")
+
+	cmd := exec.Command("go", args...)
+	cmd.Dir = g.rootDir
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	out, _ := cmd.Output() // stderr carries the excluded packages: expected, not fatal
+
+	pkgs := ParseWasmTestPackages(string(out))
+	if len(pkgs) == 0 {
+		return []string{"./..."}
+	}
+	return pkgs
+}
+
+// ParseWasmTestPackages keeps the packages that have tests AND can be built for wasm.
+func ParseWasmTestPackages(goListOut string) []string {
+	var pkgs []string
+	for _, line := range strings.Split(goListOut, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 4 {
+			continue
+		}
+		path := fields[0]
+		goFiles, err1 := strconv.Atoi(fields[1])
+		testFiles, err2 := strconv.Atoi(fields[2])
+		xTestFiles, err3 := strconv.Atoi(fields[3])
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+
+		if testFiles == 0 && xTestFiles == 0 {
+			continue // nothing to run here
+		}
+		// An internal test needs the package's own sources. With none of them left
+		// under wasm, the package cannot compile: that is a host-only package, not
+		// a failure.
+		if testFiles > 0 && goFiles == 0 {
+			continue
+		}
+		pkgs = append(pkgs, path)
+	}
+	return pkgs
 }
 
 // ShouldEnableWasm decides if WASM tests should be run based on go list output differences
