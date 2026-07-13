@@ -7,7 +7,7 @@ require github.com/zalando/go-keyring v0.2.6
 require (
 	github.com/tinywasm/gorun v0.0.24
 	github.com/tinywasm/mcp v0.1.20
-	github.com/tinywasm/model v0.0.9
+	github.com/tinywasm/model v0.0.10
 	golang.org/x/term v0.40.0
 )
 
