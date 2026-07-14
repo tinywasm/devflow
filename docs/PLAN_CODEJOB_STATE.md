@@ -1,5 +1,11 @@
 ← Índice: [PLAN.md](PLAN.md) · Requiere: [PLAN_CASCADE_GUARD.md](PLAN_CASCADE_GUARD.md)
 
+---
+PLAN: "feat: unified codejob state in .env"
+---
+
+← Índice: [PLAN.md](PLAN.md) · Requiere: [PLAN_CASCADE_GUARD.md](PLAN_CASCADE_GUARD.md)
+
 # Cambio 3 — Una sola variable de `.env` por manejador
 
 > Sub-plan del índice maestro [PLAN.md](PLAN.md). Se despacha vía el flujo CodeJob.

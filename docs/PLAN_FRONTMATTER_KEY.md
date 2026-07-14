@@ -1,5 +1,11 @@
 ← Índice: [PLAN.md](PLAN.md)
 
+---
+PLAN: "chore: rename frontmatter key message -> PLAN"
+---
+
+← Índice: [PLAN.md](PLAN.md)
+
 # Cambio 2 — La clave de frontmatter pasa de `message:` a `PLAN:`
 
 > Sub-plan del índice maestro [PLAN.md](PLAN.md). Se despacha vía el flujo CodeJob.
@@ -51,7 +57,7 @@ les cambie la clave. Es deliberado: el error los delata de uno en uno, con instr
 
 - `TestParseFrontmatter_PlanKey` — un bloque con `PLAN: "feat: x"` y `tag: v0.1.0` parsea a
   `PlanMeta{Message: "feat: x", Tag: "v0.1.0"}`.
-- `TestParseFrontmatter_LegacyMessageKeyRejected` — un bloque que trae **solo** `message:`
+- `TestParseFrontmatter_LegacyMessageKeyRejected` — un bloque que trae **solo** `PLAN:`
   devuelve `ErrFrontmatterNoPlan`, y el texto del error contiene la palabra `message` (para
   que el usuario sepa qué renombrar).
 - Los tests existentes de frontmatter que usan `message:` en sus fixtures pasan a usar
@@ -78,8 +84,7 @@ En `frontmatter.go`:
    ```
 4. Actualiza el bloque `frontmatterHelp` para que el ejemplo use `PLAN:` y su tabla diga
    `PLAN  REQUIRED. The commit message used when the loop is closed.`
-5. `ErrNoCloseLoopMessage`: su texto dice `add 'message:' to the plan frontmatter` → pasa a
-   `add 'PLAN:' to the plan frontmatter`.
+5. `ErrNoCloseLoopMessage`: su texto dice `add 'PLAN:' to the plan frontmatter`.
 
 **El campo del struct `PlanMeta.Message` NO se renombra.** Es el nombre correcto para lo que
 guarda (un mensaje de commit) y lo consume `ResolvePublishMessage`. Lo que se renombra es la
@@ -94,9 +99,9 @@ explícitamente del renombrado.
 | Archivo | Qué cambiar |
 |---|---|
 | [`docs/CODEJOB.md`](CODEJOB.md) | El bloque de ejemplo, la tabla de claves (`message` → `PLAN`) y el error de ejemplo. |
-| [`docs/diagrams/CODEJOB_FLOW.md`](diagrams/CODEJOB_FLOW.md) | El nodo `IV{Valid frontmatter?<br/>message: required}` → `PLAN: required`; la sección "Plan frontmatter" y su ejemplo. |
+| [`docs/diagrams/CODEJOB_FLOW.md`](diagrams/CODEJOB_FLOW.md) | El nodo `IV{Valid frontmatter?<br/>PLAN: required}`; la sección "Plan frontmatter" y su ejemplo. |
 | [`skills/plan-authoring/SKILL.md`](../skills/plan-authoring/SKILL.md) | La sección "Frontmatter — REQUIRED" y su tabla. |
-| [`skills/agents-workflow/SKILL.md`](../skills/agents-workflow/SKILL.md) | Toda mención a `message:` en el frontmatter. |
+| [`skills/agents-workflow/SKILL.md`](../skills/agents-workflow/SKILL.md) | Toda mención a `PLAN:` en el frontmatter. |
 | [`docs/PLAN.md`](PLAN.md) y este archivo | El frontmatter del propio índice usa `PLAN:`. |
 | [`cmd/codejob/main.go`](cmd/codejob/main.go) y este archivo | El mensaje debe de usar `PLAN:`. |
 

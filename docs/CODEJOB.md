@@ -89,7 +89,7 @@ is `---`, before any heading or blockquote:
 
 ```markdown
 ---
-message: "feat: what this plan implements"
+PLAN: "feat: what this plan implements"
 tag: v0.2.0
 ---
 
@@ -98,7 +98,7 @@ tag: v0.2.0
 
 | Key | Required | Meaning |
 |-----|----------|---------|
-| `message` | **yes** | Commit message used when the loop is closed (`codejob 'msg'` overrides it). |
+| `PLAN` | **yes** | Commit message used when the loop is closed (`codejob 'msg'` overrides it). |
 | `tag` | no | Explicit version (`v0.2.0`). Omitted → `gopush` auto-bumps. |
 
 Unknown keys are ignored. Values may be quoted or bare.
@@ -149,19 +149,22 @@ job := devflow.NewCodeJob(devflow.NewJulesDriver(cfg))
 
 ## State Check & Cleanup
 
-To avoid redundant dispatches and track task progress, `CodeJob` persists an active session to the `.env` file:
+To avoid redundant dispatches and track task progress, `CodeJob` persists an active session to the `.env` file using a unified `CODEJOB` key:
 
 ```
-CODEJOB=jules:SESSION_ID
-CODEJOB_PR=https://github.com/owner/repo/pull/1
+CODEJOB=jules:running:SESSION_ID
+CODEJOB=jules:review:https://github.com/owner/repo/pull/1
 ```
+
+Legacy format `CODEJOB=jules:SESSION_ID` and `CODEJOB_PR=...` are automatically
+migrated to the new unified format upon the next state save.
 
 The `codejob` command becomes dual-mode:
-- **If session active**: Queries Jules API. If a Pull Request is ready, it performs cleanup:
+- **If session active (running phase)**: Queries Jules API. If a Pull Request is ready, it performs cleanup:
     1. `CheckoutPRBranch`: fetches, stashes local drift, and hard-positions the tree on the Jules branch. This is **transactional**: if checkout or stashing fails, cleanup aborts and state is preserved for retry.
     2. Renames `docs/PLAN.md` to `docs/CHECK_PLAN.md`.
-    3. Removes `CODEJOB` from `.env`.
-    4. Sets `CODEJOB_PR` in `.env`.
+    3. Updates state in `.env` to `review` phase with the PR URL.
+- **If pending review (review phase)**: `codejob` with no arguments will attempt to merge the PR and close the loop.
 - **If no session**: Dispatches the task from `docs/PLAN.md`.
 
 ## Drivers

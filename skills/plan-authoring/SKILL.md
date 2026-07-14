@@ -16,7 +16,7 @@ is `---`, **before** any heading or blockquote:
 
 ```markdown
 ---
-message: "feat: what this plan implements"
+PLAN: "feat: what this plan implements"
 tag: v0.2.0
 ---
 
@@ -25,7 +25,7 @@ tag: v0.2.0
 # Plan — ...
 ```
 
-- `message` — **required**. Commit message used when the loop is closed.
+- `PLAN` — **required**. Commit message used when the loop is closed.
 - `tag` — optional. Explicit version (`v0.2.0`); omit to let `gopush` auto-bump.
 
 Without it, `codejob` aborts with `plan frontmatter: file must start with a '---' line`.

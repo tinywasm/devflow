@@ -36,7 +36,7 @@ func TestCodeJob_Run_NoArgs_Dispatch(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 	os.MkdirAll("docs", 0755)
-	os.WriteFile("docs/PLAN.md", []byte("---\nmessage: test\n---\nsome plan"), 0644)
+	os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\n---\nsome plan"), 0644)
 
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
@@ -72,7 +72,7 @@ func TestCodeJob_MessageWithoutPR(t *testing.T) {
 }
 
 func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
-	path := writeTempFile(t, "---\nmessage: test\n---\nsome plan")
+	path := writeTempFile(t, "---\nPLAN: test\n---\nsome plan")
 	published := false
 	mockPub := &MockPublisher{
 		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
@@ -101,7 +101,7 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 
 func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	// Verify that Publish is called silently (no logging of summary)
-	path := writeTempFile(t, "---\nmessage: test\n---\nsome plan")
+	path := writeTempFile(t, "---\nPLAN: test\n---\nsome plan")
 	publishCalled := false
 	mockPub := &MockPublisher{
 		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {

@@ -1,5 +1,5 @@
 ---
-message: "fix: la cascada de gopush no toca repos con codejob activo y deja de propagar tags rancios"
+PLAN: "fix: la cascada de gopush no toca repos con codejob activo y deja de propagar tags rancios"
 ---
 
 > Este plan se despacha vía el flujo CodeJob. Ver skill: agents-workflow.

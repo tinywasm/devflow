@@ -120,9 +120,8 @@ func CheckoutPRBranch(prURL string) (string, error) {
 // HandleDone executes cleanup when Jules completes:
 // 1. Checkout PR branch (transactional, aborts on failure)
 // 2. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
-// 3. env.Delete(EnvKeyCodejob)
-// 4. env.Set(EnvKeyCodejobPR, prURL)
-// 5. Update .gitignore
+// 3. Save state as review
+// 4. Update .gitignore
 func HandleDone(env *DotEnv, git *Git, prURL string) error {
 	// 1. Checkout PR branch (transactional)
 	branch, err := CheckoutPRBranch(prURL)
@@ -139,19 +138,13 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 		}
 	}
 
-	// 3. delete from env
-	if err := env.Delete(EnvKeyCodejob); err != nil {
-		return fmt.Errorf("could not update .env: %w", err)
+	// 3. Save state as review phase
+	state := CodejobState{Driver: "jules", Phase: PhaseReview, Ref: prURL}
+	if err := SaveCodejobState(env, state); err != nil {
+		return err
 	}
 
-	// 4. persist PR URL for 'codejob done'
-	if prURL != "" {
-		if err := env.Set(EnvKeyCodejobPR, prURL); err != nil {
-			return fmt.Errorf("could not save %s: %w", EnvKeyCodejobPR, err)
-		}
-	}
-
-	// 5. .gitignore update
+	// 4. .gitignore update
 	if git != nil {
 		if err := git.GitIgnoreAdd("CHECK_*.md"); err != nil {
 			return fmt.Errorf("could not update .gitignore: %w", err)
@@ -163,18 +156,18 @@ func HandleDone(env *DotEnv, git *Git, prURL string) error {
 
 const DefaultCheckPlanPath = "docs/CHECK_PLAN.md"
 
-// MergePR merges the Jules PR persisted in .env as CODEJOB_PR,
+// MergePR merges the Jules PR,
 // deletes docs/CHECK_PLAN.md, and cleans up state.
 func MergePR() error {
 	env := NewDotEnv(".env")
-	prURL, ok := env.Get(EnvKeyCodejobPR)
-	if !ok || prURL == "" {
+	state, err := LoadCodejobState(env)
+	if err != nil || state.Phase != PhaseReview {
 		return fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
 	}
+	prURL := state.Ref
 
 	// 1. merge PR and delete Jules branch
 	var out string
-	var err error
 	for i := 0; i < 5; i++ {
 		out, err = command.Run("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
 		if err == nil {
@@ -198,11 +191,7 @@ func MergePR() error {
 	}
 
 	// 3. clean up .env
-	if err := env.Delete(EnvKeyCodejobPR); err != nil {
-		return fmt.Errorf("could not clean up .env: %w", err)
-	}
-
-	return nil
+	return ClearCodejobState(env)
 }
 
 // resolveDefaultBranch returns the repo's actual default branch (e.g. "main"
@@ -224,10 +213,11 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 		return PushResult{}, err
 	}
 	env := NewDotEnv(".env")
-	prURL, ok := env.Get(EnvKeyCodejobPR)
-	if !ok || prURL == "" {
+	state, err := LoadCodejobState(env)
+	if err != nil || state.Phase != PhaseReview {
 		return PushResult{}, fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
 	}
+	prURL := state.Ref
 
 	// 0. Ensure we are on the Jules branch before committing anything
 	if _, err := CheckoutPRBranch(prURL); err != nil {
@@ -292,8 +282,8 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 4. clean up state
-	if err := env.Delete(EnvKeyCodejobPR); err != nil {
-		return PushResult{}, fmt.Errorf("could not clean up .env: %w", err)
+	if err := ClearCodejobState(env); err != nil {
+		return PushResult{}, err
 	}
 
 	// 5. Check for new PLAN.md to re-dispatch

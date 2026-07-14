@@ -77,7 +77,7 @@ func TestReadPlanMeta_CheckPlan(t *testing.T) {
 	tmp := t.TempDir()
 	os.MkdirAll(filepath.Join(tmp, "docs"), 0755)
 	path := filepath.Join(tmp, devflow.DefaultCheckPlanPath)
-	content := "---\nmessage: check plan\n---\n"
+	content := "---\nPLAN: check plan\n---\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}

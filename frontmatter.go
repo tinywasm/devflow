@@ -13,6 +13,12 @@ type PlanMeta struct {
 	Tag     string // optional: explicit version tag (e.g. "v0.1.0")
 }
 
+const (
+	FrontmatterKeyPlan          = "PLAN"    // required: commit message used when closing the loop
+	FrontmatterKeyTag           = "tag"     // optional: explicit version tag
+	frontmatterKeyLegacyMessage = "message" // renamed to PLAN; only used to hint the fix
+)
+
 // frontmatterHelp is appended to every frontmatter error so the fix is obvious from the
 // terminal alone — nobody should need to open the docs to unblock a dispatch.
 const frontmatterHelp = `
@@ -20,19 +26,19 @@ const frontmatterHelp = `
 docs/PLAN.md must OPEN with a frontmatter block — the very first line is '---':
 
     ---
-    message: "feat: what this plan implements"
+    PLAN: "feat: what this plan implements"
     tag: v0.2.0
     ---
 
     # Plan — ...
 
-  message  REQUIRED. The commit message used when the loop is closed.
-  tag      optional. Explicit version (e.g. v0.2.0); omitted = auto-bump.`
+  PLAN  REQUIRED. The commit message used when the loop is closed.
+  tag   optional. Explicit version (e.g. v0.2.0); omitted = auto-bump.`
 
 var (
-	ErrFrontmatterMissing   = errors.New("plan frontmatter: file must start with a '---' line" + frontmatterHelp)
-	ErrFrontmatterUnclosed  = errors.New("plan frontmatter: opening '---' has no matching closing '---'" + frontmatterHelp)
-	ErrFrontmatterNoMessage = errors.New("plan frontmatter: missing required 'message:' field" + frontmatterHelp)
+	ErrFrontmatterMissing = errors.New("plan frontmatter: file must start with a '---' line" + frontmatterHelp)
+	ErrFrontmatterUnclosed = errors.New("plan frontmatter: opening '---' has no matching closing '---'" + frontmatterHelp)
+	ErrFrontmatterNoPlan  = errors.New("plan frontmatter: missing required 'PLAN:' field (the old 'message:' key was renamed — rename it in your plan)" + frontmatterHelp)
 )
 
 // wrapStructuralErr translates markdown's structural frontmatter errors into
@@ -49,17 +55,17 @@ func wrapStructuralErr(err error) error {
 }
 
 // metaFromMap maps generic frontmatter key/values to PlanMeta, enforcing the
-// devflow-specific rule that 'message' is required.
+// devflow-specific rule that 'PLAN' is required.
 func metaFromMap(kv map[string]string) (PlanMeta, error) {
-	message := kv["message"]
+	message := kv[FrontmatterKeyPlan]
 	if message == "" {
-		return PlanMeta{}, ErrFrontmatterNoMessage
+		return PlanMeta{}, ErrFrontmatterNoPlan
 	}
-	return PlanMeta{Message: message, Tag: kv["tag"]}, nil
+	return PlanMeta{Message: message, Tag: kv[FrontmatterKeyTag]}, nil
 }
 
 // ParseFrontmatter parses the leading frontmatter block of content and maps it
-// to PlanMeta, requiring 'message'. Structural parsing is delegated to
+// to PlanMeta, requiring 'PLAN'. Structural parsing is delegated to
 // tinywasm/markdown; devflow only owns the "which keys are required" rule.
 func ParseFrontmatter(content string) (PlanMeta, error) {
 	kv, err := markdown.ParseFrontmatter(content)
@@ -78,7 +84,7 @@ func ReadPlanMeta(path string) (PlanMeta, error) {
 	return metaFromMap(kv)
 }
 
-var ErrNoCloseLoopMessage = errors.New("no close-loop commit message: pass one on the CLI or add 'message:' to the plan frontmatter")
+var ErrNoCloseLoopMessage = errors.New("no close-loop commit message: pass one on the CLI or add 'PLAN:' to the plan frontmatter")
 
 // ResolvePublishMessage picks the effective close-loop commit message and tag:
 // an explicit CLI value wins; otherwise the plan frontmatter is used.

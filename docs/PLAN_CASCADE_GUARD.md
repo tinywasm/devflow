@@ -1,3 +1,7 @@
+---
+PLAN: "fix: gopush cascade orders and typed outcome"
+---
+
 ← Índice: [PLAN.md](PLAN.md)
 
 # Cambio 1 — `gopush` no debe tocar un repo que está en manos del agente
@@ -128,7 +132,7 @@ Cambia las dos firmas que hoy devuelven `(string, error)`:
 ```go
 type CascadeProcessFn func(node CascadeNode, bumps []DepBump, rootCause string) (CascadeOutcome, error)
 
-func (g *Go) UpdateDependentModule(depDir, modulePath, version, rootCause string) (CascadeOutcome, error)
+func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause string) (CascadeOutcome, error)
 ```
 
 **Prohibido** volver a usar `strings.Contains` sobre el resultado para deducir el estado.
