@@ -2,7 +2,9 @@ package devflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -122,7 +124,7 @@ const (
 // NewGo creates a new Go handler and verifies Go installation
 func NewGo(gitHandler GitClient) (*Go, error) {
 	// Verify go installation
-	if _, err := RunCommandSilent("go", "version"); err != nil {
+	if _, err := command.Run("go", "version"); err != nil {
 		return nil, fmt.Errorf("go is not installed or not in PATH: %w", err)
 	}
 
@@ -194,6 +196,10 @@ func (g *Go) GetGit() GitClient {
 	return g.git
 }
 
+// ErrPushBlockedActiveCodejob is returned by Push when the repo has an active codejob
+// session: publishing would move the base branch under the agent.
+const ErrPushBlockedActiveCodejob = "gopush blocked: active codejob session (CODEJOB in .env) — the repo is under agent control; run 'codejob' to check status and close the loop before publishing"
+
 // Push executes the complete workflow for Go projects
 // Parameters:
 //
@@ -211,6 +217,10 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		return PushResult{}, err
 	}
 	message = FormatCommitMessage(message)
+
+	if HasActiveCodejobSession(g.rootDir) {
+		return PushResult{}, errors.New(ErrPushBlockedActiveCodejob)
+	}
 
 	if searchPath == "" {
 		searchPath = ".."
@@ -371,128 +381,135 @@ func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, s
 
 // UpdateDependentModule updates a dependent module and optionally pushes it
 // This is called for each module that depends on the one we just published
-// UpdateDependentModule updates a specific dependent module
-// It modifies go.mod to require the new version and runs go mod tidy
-func (g *Go) UpdateDependentModule(depDir, modulePath, version, rootCause string) (string, error) {
+// UpdateDependentModule updates a specific dependent module with multiple bumps
+// It modifies go.mod to require the new versions and runs go mod tidy
+func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause string) (CascadeOutcome, error) {
 	depName := filepath.Base(depDir)
 
-	// 1-2. Load and modify go.mod
+	// 1. Check if go.mod exists
 	modFile := filepath.Join(depDir, "go.mod")
+	if _, err := os.Stat(modFile); err != nil {
+		return CascadeOutcome{}, fmt.Errorf("failed to load go.mod: %w", err)
+	}
+
+	// 2. Build objectors and RESOLVE ACTION BEFORE mutation
 	gomod := NewGoModHandler()
 	gomod.SetRootDir(depDir)
-	// No error check needed for creation, but methods will fail if file missing
-
-	// Check/Load explicitly if we want to fail fast?
-	// But current flow relied on NewGoModHandler returning error.
-	// Since we moved loading to methods, we can't fail fast here unless we call something.
-	// But RemoveReplace returns bool.
-	// Save() returns error if write fails.
-	// Maybe we should just proceed.
-	// The original code returned error if file not found.
-	// Let's verify file existence manually?
-	if _, err := os.Stat(modFile); err != nil {
-		return "", fmt.Errorf("failed to load go.mod: %w", err)
-	}
-
-	gomod.RemoveReplace(modulePath)
-
-	// 3. Save changes (GoModFile saves to its absolute path)
-	if err := gomod.Save(); err != nil {
-		return "", fmt.Errorf("failed to save go.mod: %w", err)
-	}
-
-	// 4. Smart Update Logic
-	currentVer, err := g.GetCurrentVersion(depDir, modulePath)
-	if err == nil {
-		if CompareVersions(currentVer, version) >= 0 {
-			return fmt.Sprintf("already up-to-date (%s)", currentVer), nil
-		}
-	}
-
-	// 4.1 Run go get WITHOUT -u using explicit directory context
-	target := fmt.Sprintf("%s@%s", modulePath, version)
-
-	// Note: We use RunCommandWithRetryInDir here
-	if _, err := RunCommandWithRetryInDir(depDir, "go", []string{"get", target}, g.retryAttempts, g.retryDelay); err != nil {
-		return "", fmt.Errorf("go get failed after retries: %w", err)
-	}
-
-	// 5. Run go mod tidy in the specific directory
-	if _, err := RunCommandInDir(depDir, "go", "mod", "tidy"); err != nil {
-		return "", fmt.Errorf("go mod tidy failed: %w", err)
-	}
-
-	// 5.1 Run go generate so any code generators (e.g. CI workflow generators)
-	// are re-run after the dependency update. Failures are non-fatal: a project
-	// with no generators produces no output and exits 0; a broken generator
-	// will surface in the test step below.
-	_, _ = RunCommandInDir(depDir, "go", "generate", "./...")
 
 	git, err := NewGit()
 	if err != nil {
-		return "", fmt.Errorf("git init failed: %w", err)
+		return CascadeOutcome{}, fmt.Errorf("git init failed: %w", err)
 	}
 	git.SetRootDir(depDir)
 
-	// Ensambla los opositores desde los managers ya construidos (gomod, git rooteados
-	// en depDir) + el manager codejob (valor cero) + los extras configurables.
+	var modulePaths []string
+	for _, b := range bumps {
+		modulePaths = append(modulePaths, b.ModulePath)
+	}
+
 	objectors := append([]PublishObjector{gomod, git, CodeJob{}}, g.extraPublishObjectors...)
-	ctx := PublishContext{RepoDir: depDir, ModulePath: modulePath}
+	ctx := PublishContext{RepoDir: depDir, ModulePaths: modulePaths}
 	action, reason := ResolvePublishAction(objectors, ctx)
 
 	if action == ActionSkip {
 		g.consoleOutput(fmt.Sprintf("📦 %s → skip (%s) ⏭", depName, reason))
-		return fmt.Sprintf("updated (%s, push skipped)", reason), nil
+		return CascadeOutcome{Status: CascadeStatusSkipped, Reason: reason}, nil
 	}
 
-	// 7. Run tests in the dependent's directory
-	if output, err := RunCommandInDir(depDir, "gotest", "-t", "60", "-no-cache"); err != nil {
+	// 3. Smart Revert Logic
+	success := false
+	defer func() {
+		if !success {
+			command.RunInDir(depDir, "git", "checkout", "--", "go.mod", "go.sum")
+		}
+	}()
+
+	// 4. Check if already up-to-date AND no replace to remove
+	anyChange := false
+	for _, bump := range bumps {
+		canRemove := gomod.RemoveReplace(bump.ModulePath)
+		currentVer, err := g.GetCurrentVersion(depDir, bump.ModulePath)
+		if err == nil {
+			if CompareVersions(currentVer, bump.NewVersion) < 0 || canRemove {
+				anyChange = true
+			}
+		} else {
+			anyChange = true // can't determine version, assume change needed
+		}
+	}
+
+	if !anyChange {
+		success = true // no mutation happened
+		return CascadeOutcome{Status: CascadeStatusSkipped, Reason: "already up-to-date"}, nil
+	}
+
+	// 5. Mutate
+	if gomod.Modified {
+		if err := gomod.Save(); err != nil {
+			return CascadeOutcome{}, fmt.Errorf("failed to save go.mod: %w", err)
+		}
+	}
+
+	for _, bump := range bumps {
+		target := fmt.Sprintf("%s@%s", bump.ModulePath, bump.NewVersion)
+		if _, err := command.RunWithRetry(depDir, "go", []string{"get", target}, g.retryAttempts, g.retryDelay); err != nil {
+			return CascadeOutcome{}, fmt.Errorf("go get failed after retries: %w", err)
+		}
+	}
+
+	if _, err := command.RunInDir(depDir, "go", "mod", "tidy"); err != nil {
+		return CascadeOutcome{}, fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	_, _ = command.RunInDir(depDir, "go", "generate", "./...")
+
+	// 6. gotest (gate)
+	if output, err := command.RunInDir(depDir, "gotest", "-t", "60", "-no-cache"); err != nil {
 		cause := extractFirstFailure(output)
 		g.consoleOutput(fmt.Sprintf("📦 %s → %s ❌", depName, cause))
-
-		// REVERT: If tests fail, revert changes to go.mod/go.sum
-		RunCommandInDir(depDir, "git", "checkout", "--", "go.mod", "go.sum")
-		return "", fmt.Errorf("tests failed: %w", err)
+		return CascadeOutcome{}, fmt.Errorf("tests failed: %w", err)
 	}
 
-	// 8. Push the dependent module (skipTests=true since we already tested)
+	// 7. Push using pre-resolved action
 	depHandler, err := NewGo(git)
 	if err != nil {
-		return "", fmt.Errorf("go handler init failed: %w", err)
+		return CascadeOutcome{}, fmt.Errorf("go handler init failed: %w", err)
 	}
 	depHandler.SetRootDir(depDir)
 
-	commitMsg := BuildDepsCommitMessage([]DepBump{{ModulePath: modulePath, NewVersion: version}}, rootCause)
+	commitMsg := BuildDepsCommitMessage(bumps, rootCause)
 
 	if action == ActionDepsOnly {
 		committed, err := git.CommitPaths(commitMsg, "go.mod", "go.sum")
 		if err != nil {
-			return "", fmt.Errorf("deps-only commit failed: %w", err)
+			return CascadeOutcome{}, fmt.Errorf("deps-only commit failed: %w", err)
 		}
 		if committed {
 			if _, err := git.PushWithoutTags(); err != nil {
-				return "", fmt.Errorf("deps-only push failed: %w", err)
+				return CascadeOutcome{}, fmt.Errorf("deps-only push failed: %w", err)
 			}
 		}
 		g.consoleOutput(fmt.Sprintf("📦 %s → %s (%s) ⚠", depName, CascadeStatusDepsOnly, reason))
-		return fmt.Sprintf("updated (%s, no tag)", CascadeStatusDepsOnly), nil
+		success = true
+		return CascadeOutcome{Status: CascadeStatusDepsOnly, Reason: reason}, nil
 	}
 
-	// Clean tree: full flow
-	_, err = depHandler.Push(commitMsg, "", true, true, true, true, true, false, "")
+	// Clean tree: full flow (skipTag=false)
+	pushRes, err := depHandler.Push(commitMsg, "", true, true, true, true, false, false, "")
 	if err != nil {
 		g.consoleOutput(fmt.Sprintf("📦 %s → ❌ push failed", depName))
-		return "", fmt.Errorf("push failed: %w", err)
+		return CascadeOutcome{}, fmt.Errorf("push failed: %w", err)
 	}
 
 	g.consoleOutput(fmt.Sprintf("📦 %s → updated ✅", depName))
-	return fmt.Sprintf("updated to %s", version), nil
+	success = true
+	return CascadeOutcome{Status: CascadeStatusPublished, Version: pushRes.Tag}, nil
 }
 
 // GetCurrentVersion returns the current version of a dependency in a module
 func (g *Go) GetCurrentVersion(moduleDir, dependencyPath string) (string, error) {
 	// Use go list -m -json dependencyPath directly in moduleDir
-	output, err := RunCommandInDir(moduleDir, "go", "list", "-m", "-json", dependencyPath)
+	output, err := command.RunInDir(moduleDir, "go", "list", "-m", "-json", dependencyPath)
 	if err != nil {
 		return "", err
 	}
@@ -586,7 +603,7 @@ func (g *Go) Install(version string) error {
 		}
 		args = append(args, pkg)
 
-		if _, err := RunCommandInDir(installDir, "go", args...); err != nil {
+		if _, err := command.RunInDir(installDir, "go", args...); err != nil {
 			return fmt.Errorf("failed to install %s: %w", cmd, err)
 		}
 	}

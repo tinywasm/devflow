@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,7 +232,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 	if isRemote {
 		// Add remote origin
 		repoURL := fmt.Sprintf("https://github.com/%s/%s.git", ghUser, opts.Name)
-		if _, err := RunCommand("git", "remote", "add", "origin", repoURL); err != nil {
+		if _, err := command.Run("git", "remote", "add", "origin", repoURL); err != nil {
 			gn.log("Failed to add remote:", err)
 			resultSummary = fmt.Sprintf("⚠️ Created: %s [local only] v0.0.1 - failed to add remote", opts.Name)
 		} else if _, err := gn.git.PushWithTags("v0.0.1"); err != nil {
@@ -305,7 +306,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 	}
 
 	// Check existing remotes
-	remotes, _ := RunCommandSilent("git", "remote")
+	remotes, _ := command.Run("git", "remote")
 	if strings.Contains(remotes, "origin") {
 		return fmt.Sprintf("Remote 'origin' already configured for %s", repoName), nil
 	}
@@ -348,7 +349,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 
 	// Add remote
 	repoURL := fmt.Sprintf("https://github.com/%s/%s.git", ghUser, repoName)
-	if _, err := RunCommand("git", "remote", "add", "origin", repoURL); err != nil {
+	if _, err := command.Run("git", "remote", "add", "origin", repoURL); err != nil {
 		return "", fmt.Errorf("failed to add remote: %w", err)
 	}
 
@@ -359,11 +360,11 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 		// If fails, maybe we need to push plain first?
 		// Or maybe v0.0.1 doesn't exist?
 		// Try pushing HEAD
-		if _, err := RunCommand("git", "push", "-u", "origin", "main"); err != nil {
+		if _, err := command.Run("git", "push", "-u", "origin", "main"); err != nil {
 			return "", fmt.Errorf("failed to push: %w", err)
 		}
 		// Try pushing tags if any
-		RunCommand("git", "push", "--tags")
+		command.Run("git", "push", "--tags")
 	}
 
 	return fmt.Sprintf("✅ Remote added: %s/%s", ghUser, repoName), nil

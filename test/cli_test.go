@@ -127,6 +127,39 @@ func TestParseCLIArgs(t *testing.T) {
 	}
 }
 
+func TestParseCLIArgs_NoCascadeFlag(t *testing.T) {
+	// Simulated main logic for flag filtering
+	filter := func(args []string) (bool, []string) {
+		var noCascade bool
+		filtered := []string{args[0]}
+		for _, arg := range args[1:] {
+			if arg == "--no-cascade" {
+				noCascade = true
+			} else {
+				filtered = append(filtered, arg)
+			}
+		}
+		return noCascade, filtered
+	}
+
+	args := []string{"gopush", "feat: test", "--no-cascade"}
+	noCascade, filtered := filter(args)
+	if !noCascade {
+		t.Fatal("expected noCascade to be true")
+	}
+	msg, _, _, _ := devflow.ParseCLIArgs(filtered)
+	if msg != "feat: test" {
+		t.Errorf("expected message 'feat: test', got %q", msg)
+	}
+
+	// Absent case
+	args = []string{"gopush", "feat: test"}
+	noCascade, _ = filter(args)
+	if noCascade {
+		t.Fatal("expected noCascade to be false")
+	}
+}
+
 func TestParseReleaseArgs(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -13,11 +13,13 @@ gopush 'commit message' [tag]
 - **commit message**: Required. The message for the git commit.
 - **tag**: Optional. The tag to create. If not provided, it will be auto-generated.
 - **--skip-race** or **-R**: Optional. Skip race detection tests (only applicable to Go projects).
+- **--no-cascade**: Optional. Publish this module only; do not update dependent modules.
 
 ## Behavior
 
 ### For Go Projects (contains `go.mod`)
 
+0. **CODEJOB protection**: `gopush` rejects publishing if there is an active `CODEJOB` session in the repo's `.env`, as publishing would move the base branch under the agent.
 1. Verifies `go.mod`
 2. Runs `gotest` (vet, tests, race, coverage, badges)
 3. **Internal submodules sync**: Any submodule inside the repo that depends on the parent module is automatically updated:
@@ -31,9 +33,12 @@ gopush 'commit message' [tag]
 6. Automatically installs binaries with version tag (if `cmd/` exists)
 7. Finds dependent modules in search path
 8. For each dependent (in parallel):
+   - **Guard check**: If the dependent has an active `CODEJOB` session or other local `replace`s, it is **skipped** (the repo is NOT touched at all: no `go.mod` write, no `go get`, no tests).
+   - If up-to-date and no `replace` to remove, it is **skipped** (repo untouched).
    - Removes replace directive for published module
    - Runs `go get module@tag` and `go mod tidy`
-   - If no other replaces exist: auto-publish dependent
+   - **Revert on failure**: If tests fail after update, `go.mod`/`go.sum` are reverted.
+   - If no other replaces exist: auto-publish dependent.
    - Dependent results print in real-time to the console.
 9. Executes backup (asynchronous)
 

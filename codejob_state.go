@@ -3,6 +3,7 @@ package devflow
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"os"
@@ -66,12 +67,12 @@ func CheckoutPRBranch(prURL string) (string, error) {
 	}
 
 	// 1. git fetch --all
-	if _, err := RunCommandSilent("git", "fetch", "--all"); err != nil {
+	if _, err := command.Run("git", "fetch", "--all"); err != nil {
 		return "", fmt.Errorf("git fetch --all failed: %w", err)
 	}
 
 	// 2. Resolve branch via gh pr view
-	branchOut, err := RunCommandSilent("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
+	branchOut, err := command.Run("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
 	if err != nil {
 		return "", fmt.Errorf("%s %s", HintManualPRCheckout, prURL)
 	}
@@ -81,34 +82,34 @@ func CheckoutPRBranch(prURL string) (string, error) {
 	}
 
 	// 3. Check for dirty working tree
-	statusOut, _ := RunCommandSilent("git", "status", "--porcelain")
+	statusOut, _ := command.Run("git", "status", "--porcelain")
 	isDirty := strings.TrimSpace(statusOut) != ""
 
 	// 4. Stash if dirty
 	if isDirty {
-		if _, err := RunCommandSilent("git", "stash", "push", "-u", "-m", CodejobStashMessage); err != nil {
+		if _, err := command.Run("git", "stash", "push", "-u", "-m", CodejobStashMessage); err != nil {
 			return "", fmt.Errorf("git stash failed: %w", err)
 		}
 	}
 
 	// 5. Checkout
-	if _, err := RunCommandSilent("git", "checkout", branch); err != nil {
+	if _, err := command.Run("git", "checkout", branch); err != nil {
 		// If checkout fails, try to restore stash before returning
 		if isDirty {
-			_, _ = RunCommandSilent("git", "stash", "pop")
+			_, _ = command.Run("git", "stash", "pop")
 		}
 		return "", fmt.Errorf("%s\n    git checkout %s", HintManualCheckout, branch)
 	}
 
 	// 6. Verify checkout
-	currentBranch, err := RunCommandSilent("git", "branch", "--show-current")
+	currentBranch, err := command.Run("git", "branch", "--show-current")
 	if err != nil || strings.TrimSpace(currentBranch) != branch {
 		return "", fmt.Errorf("checkout verification failed: expected %s, got %s", branch, strings.TrimSpace(currentBranch))
 	}
 
 	// 7. Pop stash if we stashed
 	if isDirty {
-		if out, err := RunCommandSilent("git", "stash", "pop"); err != nil {
+		if out, err := command.Run("git", "stash", "pop"); err != nil {
 			return branch, fmt.Errorf("conflict while re-applying local drift.\nStash kept: %s\nConflicts:\n%s", CodejobStashMessage, out)
 		}
 	}
@@ -175,7 +176,7 @@ func MergePR() error {
 	var out string
 	var err error
 	for i := 0; i < 5; i++ {
-		out, err = RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		out, err = command.Run("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
 		if err == nil {
 			break
 		}
@@ -208,7 +209,7 @@ func MergePR() error {
 // or "master") by reading the cached origin/HEAD ref, falling back to "main"
 // if that ref isn't set locally or the command fails.
 func resolveDefaultBranch() string {
-	out, err := RunCommandSilent("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	out, err := command.Run("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 	branch := strings.TrimSpace(out)
 	if err == nil && branch != "" {
 		return strings.TrimPrefix(branch, "origin/")
@@ -234,15 +235,15 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 1. Pre-merge: if working tree is dirty, commit corrections to Jules branch and push
-	statusOut, _ := RunCommandSilent("git", "status", "--porcelain")
+	statusOut, _ := command.Run("git", "status", "--porcelain")
 	if strings.TrimSpace(statusOut) != "" {
-		if out, err := RunCommandSilent("git", "add", "."); err != nil {
+		if out, err := command.Run("git", "add", "."); err != nil {
 			return PushResult{}, fmt.Errorf("pre-merge git add failed: %w\n%s", err, out)
 		}
-		if out, err := RunCommandSilent("git", "commit", "-m", "review: corrections before merge"); err != nil {
+		if out, err := command.Run("git", "commit", "-m", "review: corrections before merge"); err != nil {
 			return PushResult{}, fmt.Errorf("pre-merge commit failed: %w\n%s", err, out)
 		}
-		if out, err := RunCommandSilent("git", "push"); err != nil {
+		if out, err := command.Run("git", "push"); err != nil {
 			return PushResult{}, fmt.Errorf("pre-merge push failed: %w\n%s", err, out)
 		}
 	}
@@ -252,7 +253,7 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	// pre-2020 projects commonly still use "master") — resolve it instead of
 	// assuming.
 	defaultBranch := resolveDefaultBranch()
-	if out, err := RunCommandSilent("git", "checkout", defaultBranch); err != nil {
+	if out, err := command.Run("git", "checkout", defaultBranch); err != nil {
 		return PushResult{}, fmt.Errorf("git checkout %s failed: %w\n%s", defaultBranch, err, out)
 	}
 
@@ -260,7 +261,7 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	var mergeOut string
 	var mergeErr error
 	for i := 0; i < 5; i++ {
-		mergeOut, mergeErr = RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		mergeOut, mergeErr = command.Run("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
 		if mergeErr == nil {
 			break
 		}
@@ -277,7 +278,7 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 2. pull the merged commit locally
-	if _, err := RunCommandSilent("git", "pull"); err != nil {
+	if _, err := command.Run("git", "pull"); err != nil {
 		return PushResult{}, fmt.Errorf("git pull failed: %w", err)
 	}
 

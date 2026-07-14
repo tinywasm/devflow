@@ -3,6 +3,7 @@ package devflow
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 )
 
 // SecretRunner abstracts command execution for testability.
@@ -17,13 +18,13 @@ type SecretRunner interface {
 type defaultRunner struct{}
 
 func (dr defaultRunner) Run(name string, args ...string) (string, error) {
-	return RunCommand(name, args...)
+	return command.Run(name, args...)
 }
 func (dr defaultRunner) RunSilent(name string, args ...string) (string, error) {
-	return RunCommandSilent(name, args...)
+	return command.Run(name, args...)
 }
 func (dr defaultRunner) RunWithStdin(input, name string, args ...string) (string, error) {
-	return RunCommandWithStdin(input, name, args...)
+	return command.RunWithStdin(input, name, args...)
 }
 
 func (gh *GitHub) getSecretRunner() SecretRunner {

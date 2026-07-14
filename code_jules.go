@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"strings"
@@ -316,7 +317,7 @@ func (d *JulesDriver) resolveBranch() (string, error) {
 //   - HTTPS: https://github.com/owner/repo.git
 //   - SSH:   git@github.com:owner/repo.git
 func getLocalGitOrigin() (owner, repo string, err error) {
-	out, err := RunCommandSilent("git", "remote", "-v")
+	out, err := command.Run("git", "remote", "-v")
 	if err != nil {
 		return "", "", fmt.Errorf("git remote failed: %w", err)
 	}
@@ -396,7 +397,7 @@ func getCandidateOrigins() ([]string, error) {
 
 // autoDetectOwnerRepo uses gh CLI to return the GitHub owner and repo name.
 func autoDetectOwnerRepo() (owner, repo string, err error) {
-	out, err := RunCommandSilent("gh", "repo", "view", "--json", "owner,name")
+	out, err := command.Run("gh", "repo", "view", "--json", "owner,name")
 	if err != nil {
 		return "", "", fmt.Errorf("could not detect GitHub repo (is gh CLI installed?): %w", err)
 	}
@@ -415,7 +416,7 @@ func autoDetectOwnerRepo() (owner, repo string, err error) {
 
 // autoDetectBranch uses git to get the current branch name.
 func autoDetectBranch() (string, error) {
-	branch, err := RunCommandSilent("git", "branch", "--show-current")
+	branch, err := command.Run("git", "branch", "--show-current")
 	if err != nil {
 		return "", fmt.Errorf("could not detect git branch: %w", err)
 	}

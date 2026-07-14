@@ -168,12 +168,12 @@ func TestRunCascade_ChainPropagatesBumpsAndCause(t *testing.T) {
 	var mu sync.Mutex
 	calls := map[string][]devflow.DepBump{}
 	causes := map[string]string{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (string, error) {
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		calls[node.ModulePath] = bumps
 		causes[node.ModulePath] = rootCause
-		return "v9.9.9", nil // every node publishes
+		return devflow.CascadeOutcome{Status: devflow.CascadeStatusPublished, Version: "v9.9.9"}, nil // every node publishes
 	})
 
 	report := g.RunCascade("github.com/test/main", "v1.0.0", "feat: cause raíz", tmp)
@@ -223,12 +223,12 @@ func TestRunCascade_DiamondProcessesNodeOnceWithAllBumps(t *testing.T) {
 	var mu sync.Mutex
 	callCount := map[string]int{}
 	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (string, error) {
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		callCount[node.ModulePath]++
 		calls[node.ModulePath] = bumps
-		return "v9.9.9", nil
+		return devflow.CascadeOutcome{Status: devflow.CascadeStatusPublished, Version: "v9.9.9"}, nil
 	})
 
 	g.RunCascade("github.com/test/main", "v1.0.0", "", tmp)
@@ -266,14 +266,14 @@ func TestRunCascade_FailureCutsOnlyItsBranch(t *testing.T) {
 
 	var mu sync.Mutex
 	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (string, error) {
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		calls[node.ModulePath] = bumps
 		mu.Unlock()
 		if node.ModulePath == "github.com/test/b" {
-			return "", fmt.Errorf("tests failed")
+			return devflow.CascadeOutcome{}, fmt.Errorf("tests failed")
 		}
-		return "v9.9.9", nil
+		return devflow.CascadeOutcome{Status: devflow.CascadeStatusPublished, Version: "v9.9.9"}, nil
 	})
 
 	report := g.RunCascade("github.com/test/main", "v1.0.0", "", tmp)
@@ -325,14 +325,14 @@ func TestRunCascade_DepsOnlyNodeDoesNotPropagate(t *testing.T) {
 
 	var mu sync.Mutex
 	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (string, error) {
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		calls[node.ModulePath] = bumps
 		mu.Unlock()
 		if node.ModulePath == "github.com/test/b" {
-			return "", nil // deps-only: committed bump, no tag
+			return devflow.CascadeOutcome{Status: devflow.CascadeStatusDepsOnly}, nil // deps-only: committed bump, no tag
 		}
-		return "v9.9.9", nil
+		return devflow.CascadeOutcome{Status: devflow.CascadeStatusPublished, Version: "v9.9.9"}, nil
 	})
 
 	report := g.RunCascade("github.com/test/main", "v1.0.0", "", tmp)
@@ -353,5 +353,54 @@ func TestRunCascade_DepsOnlyNodeDoesNotPropagate(t *testing.T) {
 	}
 	if status["github.com/test/c"] != devflow.CascadeStatusSkipped {
 		t.Errorf("c expected %q, got %q", devflow.CascadeStatusSkipped, status["github.com/test/c"])
+	}
+}
+
+func TestRunCascade_SkippedNodeDoesNotPropagate(t *testing.T) {
+	tmp := t.TempDir()
+	mainDir := testWriteModule(t, tmp, "main")
+	testWriteModule(t, tmp, "b", "main")
+	testWriteModule(t, tmp, "c", "b")
+
+	g := newCascadeHandler(t, mainDir)
+
+	var mu sync.Mutex
+	calls := map[string][]devflow.DepBump{}
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
+		mu.Lock()
+		calls[node.ModulePath] = bumps
+		mu.Unlock()
+		if node.ModulePath == "github.com/test/b" {
+			return devflow.CascadeOutcome{Status: devflow.CascadeStatusSkipped, Reason: "codejob session active"}, nil
+		}
+		return devflow.CascadeOutcome{Status: devflow.CascadeStatusPublished, Version: "v9.9.9"}, nil
+	})
+
+	report := g.RunCascade("github.com/test/main", "v1.0.0", "", tmp)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if _, called := calls["github.com/test/c"]; called {
+		t.Error("c must be skipped — b was skipped and published no new version")
+	}
+
+	status := map[string]string{}
+	details := map[string]string{}
+	for _, e := range report.Entries {
+		status[e.ModulePath] = e.Status
+		details[e.ModulePath] = e.Detail
+	}
+	if status["github.com/test/b"] != devflow.CascadeStatusSkipped {
+		t.Errorf("b expected %q, got %q", devflow.CascadeStatusSkipped, status["github.com/test/b"])
+	}
+	if details["github.com/test/b"] != "codejob session active" {
+		t.Errorf("b detail expected %q, got %q", "codejob session active", details["github.com/test/b"])
+	}
+	if status["github.com/test/c"] != devflow.CascadeStatusSkipped {
+		t.Errorf("c expected %q, got %q", devflow.CascadeStatusSkipped, status["github.com/test/c"])
+	}
+	if details["github.com/test/c"] != "no upstream bumps" {
+		t.Errorf("c detail expected %q, got %q", "no upstream bumps", details["github.com/test/c"])
 	}
 }

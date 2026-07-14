@@ -3,6 +3,7 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,12 +67,12 @@ func TestAsyncUpdateFlow(t *testing.T) {
 
 	// 4. Initialize Handler on Main
 
-	// Mock devflow.ExecCommand to prevent actual go get network calls that fail with "repository not found"
+	// Mock command.Exec to prevent actual go get network calls that fail with "repository not found"
 	// We restore it at the end of the test
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
 
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		// Mock go get, go mod tidy, and go list for our fake modules
 		if name == "go" {
 			// Join args to inspect
@@ -179,11 +180,11 @@ func TestAsyncUpdateFlow(t *testing.T) {
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
-	// Use devflow.ExecCommand for consistency with mocking if needed,
+	// Use command.Exec for consistency with mocking if needed,
 	// though runGit is for setup where we might prefer real git.
 	// Using generic exec.Command for setup is safer if our mock is too aggressive.
 	// But our mock passes through unknown commands.
-	cmd := devflow.ExecCommand("git", args...)
+	cmd := command.Exec("git", args...)
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
 		t.Logf("git %v in %s failed: %v", args, dir, err)

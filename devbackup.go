@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 )
 
@@ -62,18 +63,18 @@ func (d *DevBackup) GetCommand() (string, error) {
 // Run executes the backup command asynchronously
 // Returns a message for the summary or empty string if not configured
 func (d *DevBackup) Run() (string, error) {
-	command, err := d.GetCommand()
+	backupCmd, err := d.GetCommand()
 	if err != nil {
 		// Not configured, silent skip
 		return "", nil
 	}
 
-	if command == "" {
+	if backupCmd == "" {
 		return "", nil
 	}
 
 	// Execute asynchronously at OS level
-	if err := RunShellCommandAsync(command); err != nil {
+	if err := command.RunShellAsync(backupCmd); err != nil {
 		return "", fmt.Errorf("failed to start backup: %w", err)
 	}
 

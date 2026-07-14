@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"context"
+	"github.com/tinywasm/command"
 	"os/exec"
 	"testing"
 
@@ -33,9 +34,9 @@ func TestGoTestProvider(t *testing.T) {
 
 	// Mock ExecCommand to make go vet instant — avoids non-deterministic slowness
 	// under load that can push the test past the 30s binary timeout.
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" && len(args) > 0 && args[0] == "vet" {
 			return exec.Command("true")
 		}

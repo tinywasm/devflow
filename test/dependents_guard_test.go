@@ -11,6 +11,7 @@ package devflow_test
 // pass WITHOUT modifying the expectations.
 
 import (
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -203,9 +204,9 @@ func TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum(t *testing.T) {
 
 	var mu sync.Mutex
 	var gitCalls [][]string
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		joined := strings.Join(args, " ")
 		switch name {
 		case "git":
@@ -239,12 +240,12 @@ func TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum(t *testing.T) {
 	g.SetConsoleOutput(func(string) {})
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	result, err := g.UpdateDependentModule(depDir, "github.com/test/mylib", "v0.0.1", "feat: nueva API de rutas")
+	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: nueva API de rutas")
 	if err != nil {
 		t.Fatalf("dirty-tree path must succeed as deps-only, got error: %v", err)
 	}
-	if !strings.Contains(result, "deps only") {
-		t.Errorf("result must report 'deps only', got: %q", result)
+	if outcome.Status != devflow.CascadeStatusDepsOnly {
+		t.Errorf("result must report 'deps only', got: %+v", outcome)
 	}
 
 	mu.Lock()
@@ -304,5 +305,142 @@ func TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum(t *testing.T) {
 	// The WIP file must still exist untouched
 	if _, err := os.Stat(filepath.Join(depDir, "wip.go")); err != nil {
 		t.Error("wip.go must remain in the working tree")
+	}
+}
+
+func TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched(t *testing.T) {
+	tmp := t.TempDir()
+	depDir := filepath.Join(tmp, "myapp")
+	os.MkdirAll(depDir, 0755)
+	gomodContent := "module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nreplace github.com/test/mylib => ../mylib\n"
+	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
+	os.WriteFile(filepath.Join(depDir, ".env"), []byte("CODEJOB=jules:test-session\n"), 0644)
+
+	g, _ := devflow.NewGo(&MockGitClient{})
+	g.SetConsoleOutput(func(string) {})
+
+	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if outcome.Status != devflow.CascadeStatusSkipped {
+		t.Errorf("expected status %s, got %s", devflow.CascadeStatusSkipped, outcome.Status)
+	}
+	if outcome.Reason != devflow.ObjectionCodejobSession {
+		t.Errorf("expected reason %s, got %s", devflow.ObjectionCodejobSession, outcome.Reason)
+	}
+
+	// Verify go.mod remains untouched
+	newGomod, _ := os.ReadFile(filepath.Join(depDir, "go.mod"))
+	if string(newGomod) != gomodContent {
+		t.Error("go.mod was mutated despite active session")
+	}
+}
+
+func TestUpdateDependentModule_OtherReplacesLeavesRepoUntouched(t *testing.T) {
+	tmp := t.TempDir()
+	depDir := filepath.Join(tmp, "myapp")
+	os.MkdirAll(depDir, 0755)
+	gomodContent := "module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nrequire github.com/test/other v0.0.0\nreplace github.com/test/other => ../other\n"
+	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
+
+	g, _ := devflow.NewGo(&MockGitClient{})
+	g.SetConsoleOutput(func(string) {})
+
+	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if outcome.Status != devflow.CascadeStatusSkipped {
+		t.Errorf("expected status %s, got %s", devflow.CascadeStatusSkipped, outcome.Status)
+	}
+	if outcome.Reason != devflow.ObjectionOtherReplaces {
+		t.Errorf("expected reason %s, got %s", devflow.ObjectionOtherReplaces, outcome.Reason)
+	}
+
+	// Verify go.mod remains untouched
+	newGomod, _ := os.ReadFile(filepath.Join(depDir, "go.mod"))
+	if string(newGomod) != gomodContent {
+		t.Error("go.mod was mutated despite other replaces")
+	}
+}
+
+func TestUpdateDependentModule_UpToDateLeavesRepoUntouched(t *testing.T) {
+	tmp := t.TempDir()
+	depDir := filepath.Join(tmp, "myapp")
+	os.MkdirAll(depDir, 0755)
+	gomodContent := "module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.1\n"
+	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
+
+	mockGit := &MockGitClient{}
+	g, _ := devflow.NewGo(mockGit)
+	g.SetConsoleOutput(func(string) {})
+
+	// We need to mock GetCurrentVersion via RunCommandInDir "go list -m -json"
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && args[0] == "list" && args[1] == "-m" && args[2] == "-json" {
+			return exec.Command("echo", `{"Version": "v0.0.1"}`)
+		}
+		if name == "git" && args[0] == "status" {
+			return exec.Command("echo", "")
+		}
+		return exec.Command("true")
+	}
+
+	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if outcome.Status != devflow.CascadeStatusSkipped {
+		t.Errorf("expected status %s, got %s", devflow.CascadeStatusSkipped, outcome.Status)
+	}
+	if outcome.Reason != "already up-to-date" {
+		t.Errorf("expected reason 'already up-to-date', got %s", outcome.Reason)
+	}
+
+	// Verify go.mod remains untouched (by reading the file, not the mock)
+	newGomod, _ := os.ReadFile(filepath.Join(depDir, "go.mod"))
+	if string(newGomod) != gomodContent {
+		t.Errorf("go.mod was mutated despite being up-to-date. Original:\n%q\nNew:\n%q", gomodContent, string(newGomod))
+	}
+}
+
+func TestUpdateDependentModule_MultiDependencyUnblocked(t *testing.T) {
+	tmp := t.TempDir()
+	depDir := filepath.Join(tmp, "myapp")
+	os.MkdirAll(depDir, 0755)
+	gomodContent := "module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nrequire github.com/test/other v0.0.0\nreplace github.com/test/mylib => ../mylib\nreplace github.com/test/other => ../other\n"
+	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
+
+	mockGit := &MockGitClient{}
+	g, _ := devflow.NewGo(mockGit)
+	g.SetConsoleOutput(func(string) {})
+	g.SetRetryConfig(time.Millisecond, 1)
+
+	// Mock commands to avoid real go get/gotest
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("true")
+	}
+
+	bumps := []devflow.DepBump{
+		{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"},
+		{ModulePath: "github.com/test/other", NewVersion: "v0.0.1"},
+	}
+
+	// Should NOT be blocked because both replaces are in the bump list
+	outcome, err := g.UpdateDependentModule(depDir, bumps, "feat: test")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if outcome.Status == devflow.CascadeStatusSkipped && outcome.Reason == devflow.ObjectionOtherReplaces {
+		t.Fatal("should not be blocked by replaces that are part of the wave")
 	}
 }

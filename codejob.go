@@ -183,7 +183,10 @@ func (c *CodeJob) checkStatus(env *DotEnv, val string) (string, error) {
 	}
 
 	if done {
-		git, _ := NewGit()
+		git, err := NewGit()
+		if err != nil {
+			return msg, fmt.Errorf("git init failed: %w", err)
+		}
 		if err := HandleDone(env, git, prURL); err != nil {
 			return msg, fmt.Errorf("cleanup error: %w", err)
 		}

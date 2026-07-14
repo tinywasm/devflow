@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"encoding/json"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"os/exec"
@@ -199,10 +200,10 @@ func TestJulesDriverSendRetriesWhenSourceNotIndexed(t *testing.T) {
 	}
 	mock := &mockHTTPClientSeq{
 		responses: []seqResponse{
-			{404, "not found"},                    // [0] POST /sessions → 404
-			{200, julesSourcesBody()},             // [1] GET /sources → empty (not indexed yet)
-			{200, julesSourcesBody(sourceID)},     // [2] GET /sources → source appears
-			{200, `{"id":"S999"}`},                // [3] POST /sessions → success
+			{404, "not found"},                // [0] POST /sessions → 404
+			{200, julesSourcesBody()},         // [1] GET /sources → empty (not indexed yet)
+			{200, julesSourcesBody(sourceID)}, // [2] GET /sources → source appears
+			{200, `{"id":"S999"}`},            // [3] POST /sessions → success
 		},
 	}
 	d := devflow.NewJulesDriver(cfg)
@@ -253,7 +254,7 @@ func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
 	// All GET /sources calls return an empty list — source never appears.
 	mock := &mockHTTPClientSeq{
 		responses: []seqResponse{
-			{404, "not found"},    // [0] POST /sessions → 404
+			{404, "not found"},        // [0] POST /sessions → 404
 			{200, julesSourcesBody()}, // [1..N] GET /sources → always empty
 		},
 	}
@@ -271,10 +272,10 @@ func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
 
 func TestJulesDriverResolvesCandidates(t *testing.T) {
 	// Mock ExecCommand to simulate gh repo view and git remote -v
-	origExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = origExec }()
+	origExec := command.Exec
+	defer func() { command.Exec = origExec }()
 
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		if name == "gh" && strings.Contains(full, "repo view") {
 			// Simulate GH returning new repo name
@@ -296,8 +297,8 @@ origin	https://github.com/oldorg/oldrepo.git (push)`)
 	// then fallback (oldorg/oldrepo) to 200.
 	mock := &mockHTTPClientSeq{
 		responses: []seqResponse{
-			{404, "not found"},      // [0] neworg/newrepo -> 404
-			{200, `{"id":"S999"}`},  // [1] oldorg/oldrepo -> 200
+			{404, "not found"},     // [0] neworg/newrepo -> 404
+			{200, `{"id":"S999"}`}, // [1] oldorg/oldrepo -> 200
 		},
 	}
 

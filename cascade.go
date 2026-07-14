@@ -24,13 +24,21 @@ type CascadeEntry struct {
 	Detail     string
 }
 
+// CascadeOutcome is the typed result of processing one node. It replaces the
+// previous convention of encoding the status inside a free-form string.
+type CascadeOutcome struct {
+	Status  string // CascadeStatusPublished | CascadeStatusDepsOnly | CascadeStatusSkipped
+	Version string // set only when Status == CascadeStatusPublished
+	Reason  string // human-readable, e.g. "codejob session active"
+}
+
 // CascadeReport contains the full report of the cascade execution
 type CascadeReport struct {
 	Entries []CascadeEntry
 }
 
 // CascadeProcessFn is the signature for the function that processes a single node
-type CascadeProcessFn func(node CascadeNode, bumps []DepBump, rootCause string) (publishedVersion string, err error)
+type CascadeProcessFn func(node CascadeNode, bumps []DepBump, rootCause string) (CascadeOutcome, error)
 
 // cascadeProcessFn stores the current processor
 var cascadeProcessFn CascadeProcessFn
@@ -227,49 +235,31 @@ func (g *Go) RunCascade(rootModule, rootVersion, rootCause, searchPath string) C
 			continue
 		}
 
-		newVer, err := processor(node, bumps, rootCause)
+		outcome, err := processor(node, bumps, rootCause)
 		if err != nil {
 			report.Entries = append(report.Entries, CascadeEntry{ModulePath: node.ModulePath, Status: CascadeStatusFailed, Detail: err.Error()})
 			continue
 		}
 
-		status := CascadeStatusPublished
-		// If newVer is empty AND err is nil, it's a deps-only scenario (clean tree, committed but no tag)
-		if newVer == "" {
-			status = CascadeStatusDepsOnly
-		} else if strings.Contains(newVer, CascadeStatusDepsOnly) {
-			status = CascadeStatusDepsOnly
+		detail := outcome.Reason
+		if outcome.Status == CascadeStatusPublished {
+			detail = outcome.Version
+			publishedVersions[node.ModulePath] = outcome.Version
 		}
 
-		// If the processor returned a version, it means it published a new tag (unless it's deps-only)
-		if status == CascadeStatusPublished {
-			publishedVersions[node.ModulePath] = newVer
-			report.Entries = append(report.Entries, CascadeEntry{ModulePath: node.ModulePath, Status: status, Detail: newVer})
-		} else {
-			report.Entries = append(report.Entries, CascadeEntry{ModulePath: node.ModulePath, Status: status, Detail: "dirty tree"})
-		}
+		report.Entries = append(report.Entries, CascadeEntry{
+			ModulePath: node.ModulePath,
+			Status:     outcome.Status,
+			Detail:     detail,
+		})
 	}
 
 	g.printCascadeReport(report)
 	return report
 }
 
-func (g *Go) defaultCascadeProcessor(node CascadeNode, bumps []DepBump, rootCause string) (string, error) {
-	// 1. Update all bumps
-	for _, bump := range bumps {
-		res, err := g.UpdateDependentModule(node.Dir, bump.ModulePath, bump.NewVersion, rootCause)
-		if err != nil {
-			return "", err
-		}
-		// If one of the updates resulted in deps-only, we should return that info
-		if strings.Contains(res, CascadeStatusDepsOnly) {
-			return CascadeStatusDepsOnly, nil
-		}
-	}
-
-	git, _ := NewGit()
-	git.SetRootDir(node.Dir)
-	return git.GetLatestTag()
+func (g *Go) defaultCascadeProcessor(node CascadeNode, bumps []DepBump, rootCause string) (CascadeOutcome, error) {
+	return g.UpdateDependentModule(node.Dir, bumps, rootCause)
 }
 
 func (g *Go) printCascadeReport(report CascadeReport) {

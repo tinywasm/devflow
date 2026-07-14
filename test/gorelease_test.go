@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"errors"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -184,9 +185,9 @@ func TestCrossCompile_NamingConvention(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Mock ExecCommand so cross-compilation doesn't run real go build
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		// Identify output path from -o flag and create a fake binary
 		for i, arg := range args {
 			if arg == "-o" && i+1 < len(args) {

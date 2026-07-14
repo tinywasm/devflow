@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"net/url"
@@ -83,7 +84,7 @@ func (a *GitHubOAuth) EnsureGitHubAuth() error {
 	if err == nil && token != "" {
 		// Verify the token works by configuring gh
 		if a.configureGhWithToken(token) == nil {
-			if _, err := RunCommandSilent("gh", "auth", "status"); err == nil {
+			if _, err := command.Run("gh", "auth", "status"); err == nil {
 				return nil
 			}
 		}

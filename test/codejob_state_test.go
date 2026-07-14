@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"os"
@@ -72,9 +73,9 @@ func TestCheckoutPRBranch_DirtyTreeSuccess(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	recorded := []string{}
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		recorded = append(recorded, full)
 		switch {
@@ -116,9 +117,9 @@ func TestCheckoutPRBranch_PopConflict(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	recorded := []string{}
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		recorded = append(recorded, full)
 		switch {
@@ -162,9 +163,9 @@ func TestHandleDone_HappyPath(t *testing.T) {
 	_ = os.WriteFile(planPath, []byte("my plan"), 0644)
 	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1\nOTHER=val"), 0644)
 
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		switch {
 		case full == "gh pr view https://github.com/test/pull/1 --json headRefName --jq .headRefName":
@@ -211,9 +212,9 @@ func TestHandleDone_Retryability(t *testing.T) {
 	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1"), 0644)
 
 	failCheckout := true
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		if full == "git checkout feat-branch" && failCheckout {
 			return exec.Command("sh", "-c", "exit 1")
@@ -267,9 +268,9 @@ func TestMergeAndPublish_Guard(t *testing.T) {
 
 	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
 
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		// Force checkout failure
 		if full == "git checkout feat-branch" {
@@ -361,9 +362,9 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
 
 	mockFn, calls := mockExecFor(true)
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	idxOf := func(prefix string) int {
 		for i, c := range *calls {
@@ -431,9 +432,9 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
 
 	mockFn, calls := mockExecFor(false)
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	idxOf := func(prefix string) int {
 		for i, c := range *calls {
@@ -494,9 +495,9 @@ func TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch(t *testing.T) {
 			return exec.Command("true")
 		}
 	}
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	mockPub := &MockPublisher{}
 	devflow.MergeAndPublish(mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
@@ -525,9 +526,9 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
 
 	mockFn, _ := mockExecFor(false)
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	mockPub := &MockPublisher{
 		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
