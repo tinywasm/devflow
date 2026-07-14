@@ -166,7 +166,7 @@ func TestGoModHandler_ObjectsToPublish(t *testing.T) {
 	os.WriteFile(gomodPath, []byte(content), 0644)
 
 	m := devflow.NewGoModHandler()
-	ctx := devflow.PublishContext{RepoDir: tmp, ModulePath: "github.com/foo/bar"}
+	ctx := devflow.PublishContext{RepoDir: tmp, ModulePaths: []string{"github.com/foo/bar"}}
 
 	// with only the expected replace -> ActionNone
 	action, reason := m.ObjectsToPublish(ctx)

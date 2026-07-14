@@ -48,6 +48,10 @@ explicit CLI value overrides it. Because dispatch (`IV`) rejects a `PLAN.md`
 without valid frontmatter, the message always exists by the time the loop closes
 — the old generic `chore: merge agent PR` no longer occurs.
 
+> El árbol sucio que `CheckoutPRBranch` absorbe con stash/pop es ahora, por construcción,
+> únicamente WIP del desarrollador: la cascada de `gopush` no toca un repo con sesión
+> activa, y `gopush` se niega a publicar en él.
+
 ## Traceability (Test Map)
 
 | Diagram Edge / Branch | Test Name |

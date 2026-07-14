@@ -20,12 +20,21 @@ cascade coordinator** (topological order, one commit+tag per module per wave).
 | Deps commit format: `deps:` title, `cause:` line propagating the root message, bump list | [`TestBuildDepsCommitMessage`](../../test/commit_message_test.go) |
 | Root push: user title intact + `--shortstat` body | [`TestGoPush_AppendsShortStatBody`](../../test/go_handler_test.go) |
 | `UpdateDependentModule` carries `rootCause` (4th parameter) | [`TestUpdateDependentModule`](../../test/go_handler_test.go) |
+| Active session protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
+| Other replaces protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_OtherReplacesLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
+| Up-to-date protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_UpToDateLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
+| `RunCascade` blinda el tag rancio: un nodo saltado o deps-only no propaga nada | [`TestRunCascade_SkippedNodeDoesNotPropagate`](../../test/cascade_test.go) |
+| `Go.Push` bloqueado por sesión `CODEJOB` activa | [`TestGoPush_BlockedByActiveCodejobSession`](../../test/go_handler_test.go) |
+| Node result is a typed `CascadeOutcome`; status is never inferred from substrings | (Contractual type safety) |
 
 ## Main pipeline
 
 ```mermaid
 flowchart TD
-    A[gopush 'msg' tag] --> B{go.mod exists?}
+    A[gopush 'msg' tag] --> AC{Active CODEJOB session?}
+    AC -- Yes --> ACE[Exit 1: gopush blocked<br/>repo under agent control]
+    AC -- No --> B{go.mod exists?}
+    B -- No --> C[git add + commit + push<br/>tag if !skipTag]
     B -- No --> C[git add + commit + push<br/>tag if !skipTag]
     C --> M[Backup]
     M --> D[Done: print summary]
@@ -86,11 +95,13 @@ concern — each existing manager implements `ObjectsToPublish` for its own doma
 
 ```mermaid
 flowchart TD
-    N[Node: dependent module<br/>+ bumps from published upstreams] --> N2[Remove replace of published deps<br/>go get all bumps + go mod tidy + go generate]
-    N2 --> NR[resolvePublishAction:<br/>ask GoModHandler / Git / CodeJob objectors<br/>strongest wins Skip &gt; DepsOnly &gt; None]
+    N[Node: dependent module<br/>+ bumps from published upstreams] --> NR[resolvePublishAction:<br/>ask GoModHandler / Git / CodeJob objectors<br/>strongest wins Skip &gt; DepsOnly &gt; None]
     NR --> N1{action == Skip?<br/>session active / other replaces}
-    N1 -- Yes --> NS1[⏭ updated, push skipped<br/>report: skipped]
-    N1 -- No --> N4[Run gotest]
+    N1 -- Yes --> NS1[⏭ repo untouched<br/>nothing mutated, no tests, no propagation]
+    N1 -- No --> N3{already up-to-date?}
+    N3 -- Yes --> NS1
+    N3 -- No --> N2[Remove replace of published deps<br/>go get all bumps + go mod tidy + go generate]
+    N2 --> N4[Run gotest]
     N4 -- fail --> NF[❌ revert go.mod/go.sum<br/>report: failed — branch cut]
     N4 -- pass --> N5{action == DepsOnly?<br/>dirty tree / PLAN.md pending}
     N5 -- Yes --> N6[CommitPaths: ONLY go.mod+go.sum<br/>deps msg + cause, push WITHOUT tag<br/>report: deps-only ⚠ — no propagation]
@@ -108,8 +119,11 @@ Guard rails:
 - The dirty objector (`Git`) uses `WorkTreeDirtyBeyond` — `.env` and `.gitignore`
   are always ignored, same rule as `HasPendingChanges`
   ([`TestWorkTreeDirtyBeyond`](../../test/dependents_guard_test.go)).
-- `Skip` nodes (active `CODEJOB` session, other replaces): `go.mod` is updated
-  locally, push is skipped, nothing propagates downstream — tests do **not** run.
+- **`Skip` nodes (active `CODEJOB` session, other replaces): the repo is NOT
+  touched at all** — no `go.mod` write, no `go get`, no tests. Nothing propagates
+  downstream.
+- **A skipped or deps-only node never contributes a version** to the next
+  topological level (it used to leak its stale tag as if freshly published).
 - `DepsOnly` nodes run tests as a gate, then commit only `go.mod`/`go.sum` without
   a tag; nothing propagates (no new version). A repo with a pending `docs/PLAN.md`
   absorbs the bump but is not published, since incoming agent work will change it.

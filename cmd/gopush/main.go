@@ -22,15 +22,21 @@ Examples:
     gopush 'feat: new feature'
     gopush 'fix: bug' 'v1.2.3'
 
+Flags:
+    --no-cascade   Publish this module only; do not update dependent modules
+
 `)
 	}
 
 	// Pre-process flags to keep positional args consistent
 	var skipRace bool
+	var noCascade bool
 	filteredArgs := []string{os.Args[0]}
 	for _, arg := range os.Args[1:] {
 		if arg == "--skip-race" || arg == "-R" {
 			skipRace = true
+		} else if arg == "--no-cascade" {
+			noCascade = true
 		} else {
 			filteredArgs = append(filteredArgs, arg)
 		}
@@ -65,7 +71,7 @@ Examples:
 	}
 
 	// Run Push with parsed options
-	summary, err := goHandler.Push(message, tag, false, skipRace, false, false, false, false, "..")
+	summary, err := goHandler.Push(message, tag, false, skipRace, noCascade, false, false, false, "..")
 	if err != nil {
 		fmt.Println("Push failed:", err)
 		os.Exit(1)

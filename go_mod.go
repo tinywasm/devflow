@@ -213,8 +213,8 @@ func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 }
 
 // HasOtherReplaces returns true if there are replace directives
-// other than the specified module
-func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
+// other than the specified modules
+func (m *GoModHandler) HasOtherReplaces(exceptModules ...string) bool {
 	// check if loaded
 	if len(m.Lines) == 0 {
 		if err := m.load(); err != nil {
@@ -237,7 +237,14 @@ func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
 
 		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && trimmed != "" {
 			mod, _ := parseReplaceLine(trimmed, inReplaceBlock)
-			if exceptModule != "" && mod == exceptModule {
+			isExcept := false
+			for _, ex := range exceptModules {
+				if ex != "" && mod == ex {
+					isExcept = true
+					break
+				}
+			}
+			if isExcept {
 				continue
 			}
 			return true
@@ -342,7 +349,7 @@ func (g *GoModHandler) SetOnSSRFileChange(fn func(string)) {
 
 func (m *GoModHandler) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
 	m.SetRootDir(ctx.RepoDir)
-	if m.HasOtherReplaces(ctx.ModulePath) {
+	if m.HasOtherReplaces(ctx.ModulePaths...) {
 		return ActionSkip, ObjectionOtherReplaces
 	}
 	return ActionNone, ""
@@ -611,7 +618,7 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 			// Results streamed via consoleOutput inside UpdateDependentModule
-			g.UpdateDependentModule(dir, modulePath, version, "")
+			g.UpdateDependentModule(dir, []DepBump{{ModulePath: modulePath, NewVersion: version}}, "")
 		}(depDir)
 	}
 

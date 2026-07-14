@@ -75,6 +75,10 @@ job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}), &MyDriv
 | Edited docs, or a small fix — **no plan** | **`gopush 'message'`** — there is no PR for codejob to close |
 | Wrote `docs/PLAN.md` and dispatched it | **`codejob 'message'`** — merges the PR, calls `gopush`, deletes `CHECK_PLAN.md` |
 
+> **Nota sobre `gopush`**: `gopush` **falla** si hay una sesión `CODEJOB` activa en el
+> repo. La salida es cerrar el loop con `codejob` (que fusiona el PR y limpia la sesión)
+> antes de intentar publicar cambios manuales.
+
 ⚠️ Bare `codejob` (no arguments) **dispatches** `docs/PLAN.md` to the execution agent. It is
 not a dry-run, a lint, or a way to inspect an error.
 

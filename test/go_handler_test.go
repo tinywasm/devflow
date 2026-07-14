@@ -367,11 +367,11 @@ func TestUpdateDependentModule(t *testing.T) {
 	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1", "")
+	result, err := g.UpdateDependentModule(myappDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "")
 
 	// We expect a failure at "go get" because the module doesn't exist in registry
 	if err == nil {
-		t.Errorf("Expected error from go get (module not in registry), got result: %s", result)
+		t.Errorf("Expected error from go get (module not in registry), got result: %+v", result)
 	} else if !strings.Contains(err.Error(), "go get failed") {
 		t.Errorf("Expected error to contain 'go get failed', got: %v", err)
 	}
@@ -791,5 +791,41 @@ func TestHasActiveCodejobSession(t *testing.T) {
 	os.WriteFile(envPath, []byte("CODEJOB=\n"), 0644)
 	if devflow.HasActiveCodejobSession(dir) {
 		t.Fatal("expected false when CODEJOB is empty")
+	}
+}
+
+func TestGoPush_BlockedByActiveCodejobSession(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB=jules:test-session\n"), 0644)
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
+
+	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), devflow.ErrPushBlockedActiveCodejob) {
+		t.Errorf("expected error message to contain %q, got %q", devflow.ErrPushBlockedActiveCodejob, err.Error())
+	}
+	if mockGit.CommitCalls > 0 {
+		t.Error("no commit should have been created")
+	}
+}
+
+func TestGoPush_NotBlockedByCodejobPR(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB_PR=https://github.com/org/repo/pull/1\n"), 0644)
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
+
+	// push should NOT fail with blocking error (might fail for other mock reasons, but not blocking)
+	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "")
+	if err != nil && strings.Contains(err.Error(), devflow.ErrPushBlockedActiveCodejob) {
+		t.Errorf("push should not be blocked by CODEJOB_PR, got: %v", err)
 	}
 }

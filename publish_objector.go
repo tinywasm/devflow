@@ -16,8 +16,8 @@ const (
 )
 
 type PublishContext struct {
-	RepoDir    string // dependent repo being evaluated
-	ModulePath string // upstream module path
+	RepoDir     string   // dependent repo being evaluated
+	ModulePaths []string // upstream module paths being updated in this wave
 }
 
 type PublishObjector interface {
