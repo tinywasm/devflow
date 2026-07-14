@@ -28,11 +28,11 @@ The agent reading this skill (Claude, Gemini, or any other installed LLM) acts *
   ```markdown
   ---
   PLAN: "feat: what this plan implements"
-  tag: v0.2.0
+  TAG: v0.2.0
   ---
   ```
 
-  `PLAN` is required (the commit message used when closing the loop); `tag` is optional. Details: skill **plan-authoring**.
+  `PLAN` is required (the commit message used when closing the loop); `TAG` is optional. Details: skill **plan-authoring**.
 
 ### Never clobber an existing plan — `PLAN.md` becomes an execution queue
 

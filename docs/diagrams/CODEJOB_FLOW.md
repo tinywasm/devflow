@@ -42,7 +42,7 @@ flowchart TD
 ```
 
 The close-loop commit message is **not** hardcoded: it comes from the finished
-plan's `CHECK_PLAN.md` frontmatter (`PLAN:`, optional `tag:`), unless an
+plan's `CHECK_PLAN.md` frontmatter (`PLAN:`, optional `TAG:`), unless an
 explicit CLI value overrides it. Because dispatch (`IV`) rejects a `PLAN.md`
 without valid frontmatter, the message always exists by the time the loop closes
 — the old generic `chore: merge agent PR` no longer occurs.
@@ -66,12 +66,12 @@ without valid frontmatter, the message always exists by the time the loop closes
 ## Plan frontmatter
 
 Every `docs/PLAN.md` must start with a frontmatter block; `PLAN` is required
-and becomes the close-loop commit message, `tag` is optional:
+and becomes the close-loop commit message, `TAG` is optional:
 
 ```markdown
 ---
 PLAN: "feat: topological dependency cascade and dirty-tree guard"
-tag: v0.4.41
+TAG: v0.4.41
 ---
 ```
 

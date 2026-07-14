@@ -90,7 +90,7 @@ is `---`, before any heading or blockquote:
 ```markdown
 ---
 PLAN: "feat: what this plan implements"
-tag: v0.2.0
+TAG: v0.2.0
 ---
 
 # Plan — ...
@@ -99,7 +99,7 @@ tag: v0.2.0
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `PLAN` | **yes** | Commit message used when the loop is closed (`codejob 'msg'` overrides it). |
-| `tag` | no | Explicit version (`v0.2.0`). Omitted → `gopush` auto-bumps. |
+| `TAG` | no | Explicit version (`v0.2.0`). Omitted → `gopush` auto-bumps. |
 
 Unknown keys are ignored. Values may be quoted or bare.
 

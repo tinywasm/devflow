@@ -14,9 +14,8 @@ type PlanMeta struct {
 }
 
 const (
-	FrontmatterKeyPlan          = "PLAN"    // required: commit message used when closing the loop
-	FrontmatterKeyTag           = "tag"     // optional: explicit version tag
-	frontmatterKeyLegacyMessage = "message" // renamed to PLAN; only used to hint the fix
+	FrontmatterKeyPlan = "PLAN" // required: commit message used when closing the loop
+	FrontmatterKeyTag  = "TAG"  // optional: explicit version tag
 )
 
 // frontmatterHelp is appended to every frontmatter error so the fix is obvious from the
@@ -27,18 +26,18 @@ docs/PLAN.md must OPEN with a frontmatter block — the very first line is '---'
 
     ---
     PLAN: "feat: what this plan implements"
-    tag: v0.2.0
+    TAG: v0.2.0
     ---
 
     # Plan — ...
 
   PLAN  REQUIRED. The commit message used when the loop is closed.
-  tag   optional. Explicit version (e.g. v0.2.0); omitted = auto-bump.`
+  TAG   optional. Explicit version (e.g. v0.2.0); omitted = auto-bump.`
 
 var (
-	ErrFrontmatterMissing = errors.New("plan frontmatter: file must start with a '---' line" + frontmatterHelp)
+	ErrFrontmatterMissing  = errors.New("plan frontmatter: file must start with a '---' line" + frontmatterHelp)
 	ErrFrontmatterUnclosed = errors.New("plan frontmatter: opening '---' has no matching closing '---'" + frontmatterHelp)
-	ErrFrontmatterNoPlan  = errors.New("plan frontmatter: missing required 'PLAN:' field (the old 'message:' key was renamed — rename it in your plan)" + frontmatterHelp)
+	ErrFrontmatterNoPlan   = errors.New("plan frontmatter: missing required 'PLAN:' field (the old 'message:' key was renamed — rename it in your plan)" + frontmatterHelp)
 )
 
 // wrapStructuralErr translates markdown's structural frontmatter errors into

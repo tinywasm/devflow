@@ -160,3 +160,44 @@ func TestCodeJob_ObjectsToPublish(t *testing.T) {
 		t.Errorf("expected %q, got %q", devflow.ObjectionPlanPending, reason)
 	}
 }
+
+// TestCodejobObjector_SkipsOnRunningAndReview locks in the deliberate asymmetry
+// with Go.Push: the dependent-cascade objector must skip in BOTH phases, since
+// during review the local tree sits on the agent's PR branch and a deps commit
+// would land inside that PR. Go.Push, by contrast, only blocks on running.
+func TestCodejobObjector_SkipsOnRunningAndReview(t *testing.T) {
+	tmp := t.TempDir()
+	ctx := devflow.PublishContext{RepoDir: tmp}
+	cj := devflow.CodeJob{}
+
+	os.WriteFile(filepath.Join(tmp, ".env"), []byte("CODEJOB=jules:running:S1\n"), 0644)
+	action, reason := cj.ObjectsToPublish(ctx)
+	if action != devflow.ActionSkip {
+		t.Errorf("running phase: expected ActionSkip, got %v (%s)", action, reason)
+	}
+	if reason != devflow.ObjectionCodejobSession {
+		t.Errorf("running phase: expected %q, got %q", devflow.ObjectionCodejobSession, reason)
+	}
+
+	os.WriteFile(filepath.Join(tmp, ".env"), []byte("CODEJOB=jules:review:https://github.com/o/r/pull/1\n"), 0644)
+	action, reason = cj.ObjectsToPublish(ctx)
+	if action != devflow.ActionSkip {
+		t.Errorf("review phase: expected ActionSkip, got %v (%s)", action, reason)
+	}
+	if reason != devflow.ObjectionCodejobSession {
+		t.Errorf("review phase: expected %q, got %q", devflow.ObjectionCodejobSession, reason)
+	}
+}
+
+// TestCodejobObjector_NoObjectionWhenNoState confirms the objector stays silent
+// when there is no CODEJOB state and no pending plan.
+func TestCodejobObjector_NoObjectionWhenNoState(t *testing.T) {
+	tmp := t.TempDir()
+	ctx := devflow.PublishContext{RepoDir: tmp}
+	cj := devflow.CodeJob{}
+
+	action, reason := cj.ObjectsToPublish(ctx)
+	if action != devflow.ActionNone {
+		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
+	}
+}
