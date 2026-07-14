@@ -618,8 +618,10 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			// Results streamed via consoleOutput inside UpdateDependentModule
-			g.UpdateDependentModule(dir, []DepBump{{ModulePath: modulePath, NewVersion: version}}, "")
+			// Every outcome — success, skip and failure alike — is streamed via
+			// consoleOutput inside UpdateDependentModule, so one line per dependent
+			// always reaches the terminal and the count above stays honest.
+			_, _ = g.UpdateDependentModule(dir, []DepBump{{ModulePath: modulePath, NewVersion: version}}, "")
 		}(depDir)
 	}
 

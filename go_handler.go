@@ -383,13 +383,22 @@ func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, s
 // This is called for each module that depends on the one we just published
 // UpdateDependentModule updates a specific dependent module with multiple bumps
 // It modifies go.mod to require the new versions and runs go mod tidy
+// reportFail prints why a dependent could not be updated and returns the error.
+// Every failing exit path of UpdateDependentModule must go through here: a
+// dependent that reports nothing is indistinguishable from one that was never
+// attempted, which makes the "Updating N dependents" count a lie.
+func (g *Go) reportFail(depName string, err error) (CascadeOutcome, error) {
+	g.consoleOutput(fmt.Sprintf("📦 %s → ❌ %v", depName, err))
+	return CascadeOutcome{}, err
+}
+
 func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause string) (CascadeOutcome, error) {
 	depName := filepath.Base(depDir)
 
 	// 1. Check if go.mod exists
 	modFile := filepath.Join(depDir, "go.mod")
 	if _, err := os.Stat(modFile); err != nil {
-		return CascadeOutcome{}, fmt.Errorf("failed to load go.mod: %w", err)
+		return g.reportFail(depName, fmt.Errorf("failed to load go.mod: %w", err))
 	}
 
 	// 2. Build objectors and RESOLVE ACTION BEFORE mutation
@@ -398,7 +407,7 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 
 	git, err := NewGit()
 	if err != nil {
-		return CascadeOutcome{}, fmt.Errorf("git init failed: %w", err)
+		return g.reportFail(depName, fmt.Errorf("git init failed: %w", err))
 	}
 	git.SetRootDir(depDir)
 
@@ -440,25 +449,27 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 
 	if !anyChange {
 		success = true // no mutation happened
-		return CascadeOutcome{Status: CascadeStatusSkipped, Reason: "already up-to-date"}, nil
+		const reason = "already up-to-date"
+		g.consoleOutput(fmt.Sprintf("📦 %s → skip (%s) ⏭", depName, reason))
+		return CascadeOutcome{Status: CascadeStatusSkipped, Reason: reason}, nil
 	}
 
 	// 5. Mutate
 	if gomod.Modified {
 		if err := gomod.Save(); err != nil {
-			return CascadeOutcome{}, fmt.Errorf("failed to save go.mod: %w", err)
+			return g.reportFail(depName, fmt.Errorf("failed to save go.mod: %w", err))
 		}
 	}
 
 	for _, bump := range bumps {
 		target := fmt.Sprintf("%s@%s", bump.ModulePath, bump.NewVersion)
 		if _, err := command.RunWithRetry(depDir, "go", []string{"get", target}, g.retryAttempts, g.retryDelay); err != nil {
-			return CascadeOutcome{}, fmt.Errorf("go get failed after retries: %w", err)
+			return g.reportFail(depName, fmt.Errorf("go get failed after retries: %w", err))
 		}
 	}
 
-	if _, err := command.RunInDir(depDir, "go", "mod", "tidy"); err != nil {
-		return CascadeOutcome{}, fmt.Errorf("go mod tidy failed: %w", err)
+	if output, err := command.RunInDir(depDir, "go", "mod", "tidy"); err != nil {
+		return g.reportFail(depName, fmt.Errorf("go mod tidy failed: %s", extractFirstFailure(output)))
 	}
 
 	_, _ = command.RunInDir(depDir, "go", "generate", "./...")
@@ -473,7 +484,7 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 	// 7. Push using pre-resolved action
 	depHandler, err := NewGo(git)
 	if err != nil {
-		return CascadeOutcome{}, fmt.Errorf("go handler init failed: %w", err)
+		return g.reportFail(depName, fmt.Errorf("go handler init failed: %w", err))
 	}
 	depHandler.SetRootDir(depDir)
 
@@ -482,11 +493,11 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 	if action == ActionDepsOnly {
 		committed, err := git.CommitPaths(commitMsg, "go.mod", "go.sum")
 		if err != nil {
-			return CascadeOutcome{}, fmt.Errorf("deps-only commit failed: %w", err)
+			return g.reportFail(depName, fmt.Errorf("deps-only commit failed: %w", err))
 		}
 		if committed {
 			if _, err := git.PushWithoutTags(); err != nil {
-				return CascadeOutcome{}, fmt.Errorf("deps-only push failed: %w", err)
+				return g.reportFail(depName, fmt.Errorf("deps-only push failed: %w", err))
 			}
 		}
 		g.consoleOutput(fmt.Sprintf("📦 %s → %s (%s) ⚠", depName, CascadeStatusDepsOnly, reason))
