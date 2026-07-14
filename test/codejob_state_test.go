@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -193,11 +194,12 @@ func TestHandleDone_HappyPath(t *testing.T) {
 	}
 
 	// Verify env updated
-	if val, _ := env.Get("CODEJOB"); val != "" {
-		t.Error("CODEJOB should be deleted")
+	state, _ := devflow.LoadCodejobState(env)
+	if state.Phase != devflow.PhaseReview || state.Ref != prURL {
+		t.Errorf("expected phase=review, ref=%s; got %+v", prURL, state)
 	}
-	if val, _ := env.Get("CODEJOB_PR"); val != prURL {
-		t.Errorf("expected CODEJOB_PR=%s, got %q", prURL, val)
+	if val, _ := env.Get("CODEJOB_PR"); val != "" {
+		t.Error("CODEJOB_PR should be deleted (migrated to CODEJOB)")
 	}
 }
 
@@ -242,8 +244,9 @@ func TestHandleDone_Retryability(t *testing.T) {
 	if _, err := os.Stat(planPath); os.IsNotExist(err) {
 		t.Error("PLAN.md should NOT have been renamed on failure")
 	}
-	if val, _ := env.Get("CODEJOB"); val != "jules:S1" {
-		t.Errorf("CODEJOB should still be jules:S1, got %q", val)
+	state, _ := devflow.LoadCodejobState(env)
+	if state.Phase != devflow.PhaseRunning || state.Ref != "S1" {
+		t.Errorf("CODEJOB should still be running:S1, got %+v", state)
 	}
 
 	// 2. Call succeeds
@@ -257,8 +260,9 @@ func TestHandleDone_Retryability(t *testing.T) {
 	if _, err := os.Stat(planPath); err == nil {
 		t.Error("PLAN.md should have been renamed on success")
 	}
-	if val, _ := env.Get("CODEJOB"); val != "" {
-		t.Error("CODEJOB should be deleted on success")
+	state, _ = devflow.LoadCodejobState(env)
+	if state.Phase != devflow.PhaseReview {
+		t.Errorf("CODEJOB should be review on success, got %+v", state)
 	}
 }
 
@@ -266,7 +270,7 @@ func TestMergeAndPublish_Guard(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	os.WriteFile(".env", []byte("CODEJOB=jules:review:https://github.com/test/pull/1\n"), 0644)
 
 	orig := command.Exec
 	defer func() { command.Exec = orig }()
@@ -307,8 +311,7 @@ func TestMergePR_NoPRURL(t *testing.T) {
 }
 
 func TestMergeAndPublish_NoPRURL(t *testing.T) {
-	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB_PR present
-	// in the test environment means it returns immediately before any Git calls.
+	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB state present
 	_, err := devflow.MergeAndPublish(&MockPublisher{}, "test", "")
 	if err == nil {
 		t.Fatal("expected error when no PR URL in .env, got nil")
@@ -359,7 +362,7 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	os.WriteFile(".env", []byte("CODEJOB=jules:review:https://github.com/test/pull/1\n"), 0644)
 
 	mockFn, calls := mockExecFor(true)
 	orig := command.Exec
@@ -429,7 +432,7 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	os.WriteFile(".env", []byte("CODEJOB=jules:review:https://github.com/test/pull/1\n"), 0644)
 
 	mockFn, calls := mockExecFor(false)
 	orig := command.Exec
@@ -474,7 +477,7 @@ func TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	os.WriteFile(".env", []byte("CODEJOB=jules:review:https://github.com/test/pull/1\n"), 0644)
 
 	recorded := []string{}
 	mockFn := func(name string, args ...string) *exec.Cmd {
@@ -523,7 +526,7 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	os.WriteFile(".env", []byte("CODEJOB=jules:review:https://github.com/test/pull/1\n"), 0644)
 
 	mockFn, _ := mockExecFor(false)
 	orig := command.Exec
@@ -543,5 +546,108 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 
 	if result.Tag != "v1.2.3" {
 		t.Errorf("expected tag v1.2.3, got %q", result.Tag)
+	}
+}
+
+func TestParseCodejobState_NewFormat(t *testing.T) {
+	raw := "jules:review:https://github.com/o/r/pull/1"
+	state, err := devflow.ParseCodejobState(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Driver != "jules" {
+		t.Errorf("expected driver jules, got %q", state.Driver)
+	}
+	if state.Phase != devflow.PhaseReview {
+		t.Errorf("expected phase review, got %q", state.Phase)
+	}
+	if state.Ref != "https://github.com/o/r/pull/1" {
+		t.Errorf("expected ref URL, got %q", state.Ref)
+	}
+}
+
+func TestParseCodejobState_Empty(t *testing.T) {
+	state, err := devflow.ParseCodejobState("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Driver != "" {
+		t.Errorf("expected empty state, got %+v", state)
+	}
+}
+
+func TestParseCodejobState_Invalid(t *testing.T) {
+	_, err := devflow.ParseCodejobState("basura")
+	if err == nil {
+		t.Fatal("expected error for invalid state")
+	}
+	if !strings.Contains(err.Error(), "invalid CODEJOB value") {
+		t.Errorf("expected invalid value error, got %v", err)
+	}
+}
+
+func TestLoadCodejobState_LegacySessionOnly(t *testing.T) {
+	tmp := t.TempDir()
+	envPath := filepath.Join(tmp, ".env")
+	env := devflow.NewDotEnv(envPath)
+	env.Set("CODEJOB", "jules:S1")
+	state, err := devflow.LoadCodejobState(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Driver != "jules" || state.Phase != devflow.PhaseRunning || state.Ref != "S1" {
+		t.Errorf("unexpected state from legacy session: %+v", state)
+	}
+}
+
+func TestLoadCodejobState_LegacyPRWins(t *testing.T) {
+	tmp := t.TempDir()
+	envPath := filepath.Join(tmp, ".env")
+	env := devflow.NewDotEnv(envPath)
+	env.Set("CODEJOB", "jules:S1")
+	env.Set("CODEJOB_PR", "https://github.com/o/r/pull/1")
+	state, err := devflow.LoadCodejobState(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Phase != devflow.PhaseReview || state.Ref != "https://github.com/o/r/pull/1" {
+		t.Errorf("legacy PR should win and be review phase, got %+v", state)
+	}
+}
+
+func TestSaveCodejobState_WritesNewFormatAndDropsLegacy(t *testing.T) {
+	tmp := t.TempDir()
+	envPath := filepath.Join(tmp, ".env")
+	os.WriteFile(envPath, []byte("CODEJOB_PR=old\nCODEJOB=jules:old"), 0644)
+	env := devflow.NewDotEnv(envPath)
+
+	state := devflow.CodejobState{Driver: "jules", Phase: devflow.PhaseReview, Ref: "new"}
+	if err := devflow.SaveCodejobState(env, state); err != nil {
+		t.Fatalf("SaveCodejobState: %v", err)
+	}
+
+	content, _ := os.ReadFile(envPath)
+	s := string(content)
+	if !strings.Contains(s, "CODEJOB=jules:review:new") {
+		t.Errorf("expected new format in .env, got:\n%s", s)
+	}
+	if strings.Contains(s, "CODEJOB_PR") {
+		t.Errorf("CODEJOB_PR should have been deleted, got:\n%s", s)
+	}
+}
+
+func TestClearCodejobState_RemovesBothKeys(t *testing.T) {
+	tmp := t.TempDir()
+	envPath := filepath.Join(tmp, ".env")
+	os.WriteFile(envPath, []byte("CODEJOB_PR=old\nCODEJOB=jules:old"), 0644)
+	env := devflow.NewDotEnv(envPath)
+
+	if err := devflow.ClearCodejobState(env); err != nil {
+		t.Fatalf("ClearCodejobState: %v", err)
+	}
+
+	content, _ := os.ReadFile(envPath)
+	if len(content) > 0 && strings.TrimSpace(string(content)) != "" {
+		t.Errorf("expected empty .env, got:\n%q", string(content))
 	}
 }

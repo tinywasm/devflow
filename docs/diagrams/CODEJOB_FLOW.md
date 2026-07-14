@@ -6,28 +6,27 @@ Orchestrator for dispatching coding tasks to external AI agents and closing the 
 flowchart TD
     A[codejob args] --> GH[Ensure GH Session<br/>PAT recovery]
     GH --> B{Message provided?}
-    B -- No --> C{CODEJOB in .env?}
-    C -- Yes --> D[Query agent session state]
+    B -- No --> C{CODEJOB phase?}
+    C -- running --> D[Query agent session state]
     D --> E{PR ready?}
     E -- No --> F[Print status]
     E -- Yes --> G[CheckoutPRBranch:<br/>fetch, stash, checkout,<br/>verify, pop stash]
-    G -- Success --> G1[HandleDone:<br/>rename PLAN → CHECK_PLAN,<br/>clean .env]
-    G -- Failure --> G2[Print hints,<br/>CODEJOB preserved]
+    G -- Success --> G1[HandleDone:<br/>rename PLAN → CHECK_PLAN,<br/>state → review]
+    G -- Failure --> G2[Print hints,<br/>state preserved]
     G2 --> U
     G1 --> U
-    C -- No --> C2{CODEJOB_PR in .env?}
-    C2 -- Yes --> CP
-    C2 -- No --> H{API key exists?}
+    C -- review --> CP
+    C -- none --> H{API key exists?}
     H -- No --> H1[Run setup wizard]
     H1 --> I
     H -- Yes --> I{PLAN.md exists?}
     I -- No --> J[Error: no plan]
-    I -- Yes --> IV{Valid frontmatter?<br/>message: required}
+    I -- Yes --> IV{Valid frontmatter?<br/>PLAN: required}
     IV -- No --> JV[Error: invalid/missing<br/>plan frontmatter]
     IV -- Yes --> K[git commit + push<br/>skip tag, tests, deps, backup, verify]
     K --> L[Dispatch PLAN.md to agent]
-    L --> M[Save session to .env]
-    B -- Yes --> N{CODEJOB_PR in .env?}
+    L --> M[Save state: CODEJOB=driver:running:id]
+    B -- Yes --> N{CODEJOB phase == review?}
     N -- No --> O[Error: no pending PR]
     N -- Yes --> CP[CheckoutPRBranch]
     CP -- Failure --> O
@@ -43,7 +42,7 @@ flowchart TD
 ```
 
 The close-loop commit message is **not** hardcoded: it comes from the finished
-plan's `CHECK_PLAN.md` frontmatter (`message:`, optional `tag:`), unless an
+plan's `CHECK_PLAN.md` frontmatter (`PLAN:`, optional `TAG:`), unless an
 explicit CLI value overrides it. Because dispatch (`IV`) rejects a `PLAN.md`
 without valid frontmatter, the message always exists by the time the loop closes
 — the old generic `chore: merge agent PR` no longer occurs.
@@ -66,13 +65,13 @@ without valid frontmatter, the message always exists by the time the loop closes
 
 ## Plan frontmatter
 
-Every `docs/PLAN.md` must start with a frontmatter block; `message` is required
-and becomes the close-loop commit message, `tag` is optional:
+Every `docs/PLAN.md` must start with a frontmatter block; `PLAN` is required
+and becomes the close-loop commit message, `TAG` is optional:
 
 ```markdown
 ---
-message: "feat: topological dependency cascade and dirty-tree guard"
-tag: v0.4.41
+PLAN: "feat: topological dependency cascade and dirty-tree guard"
+TAG: v0.4.41
 ---
 ```
 

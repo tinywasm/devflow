@@ -767,43 +767,50 @@ func TestParseVerifyError_UnknownPattern(t *testing.T) {
 	}
 }
 
-func TestHasActiveCodejobSession(t *testing.T) {
+func TestCodejobPhaseOf(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	// No .env → not active
-	if devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected false when .env missing")
+	// No .env → none
+	if devflow.CodejobPhaseOf(dir) != "" {
+		t.Fatal("expected empty phase when .env missing")
 	}
 
-	// CODEJOB set → active
+	// CODEJOB set (legacy) → running
 	os.WriteFile(envPath, []byte("CODEJOB=jules:12345\n"), 0644)
-	if !devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected true when CODEJOB is set")
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseRunning {
+		t.Fatal("expected running phase when legacy CODEJOB is set")
 	}
 
-	// Only CODEJOB_PR → NOT active (Jules done writing)
+	// CODEJOB set (new format) → review
+	os.WriteFile(envPath, []byte("CODEJOB=jules:review:https://github.com/o/r/pull/1\n"), 0644)
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseReview {
+		t.Fatal("expected review phase when new format CODEJOB is set to review")
+	}
+
+	// Only CODEJOB_PR (legacy) → review
+	os.Remove(envPath)
 	os.WriteFile(envPath, []byte("CODEJOB_PR=https://github.com/org/repo/pull/1\n"), 0644)
-	if devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected false when only CODEJOB_PR is set")
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseReview {
+		t.Fatal("expected review phase when only legacy CODEJOB_PR is set")
 	}
 
-	// Empty CODEJOB → not active
+	// Empty CODEJOB → none
 	os.WriteFile(envPath, []byte("CODEJOB=\n"), 0644)
-	if devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected false when CODEJOB is empty")
+	if devflow.CodejobPhaseOf(dir) != "" {
+		t.Fatal("expected empty phase when CODEJOB is empty")
 	}
 }
 
-func TestGoPush_BlockedByActiveCodejobSession(t *testing.T) {
+func TestGoPush_BlockedOnRunningPhase(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB=jules:test-session\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB=jules:running:test-session\n"), 0644)
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
 	g := newGoHandlerWithMockBackup(t, mockGit)
 
-	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "")
+	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "..")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -815,17 +822,17 @@ func TestGoPush_BlockedByActiveCodejobSession(t *testing.T) {
 	}
 }
 
-func TestGoPush_NotBlockedByCodejobPR(t *testing.T) {
+func TestGoPush_NotBlockedOnReviewPhase(t *testing.T) {
 	dir, cleanup := testCreateGoModule("github.com/test/repo")
 	defer cleanup()
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB_PR=https://github.com/org/repo/pull/1\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB=jules:review:https://github.com/org/repo/pull/1\n"), 0644)
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}
 	g := newGoHandlerWithMockBackup(t, mockGit)
 
 	// push should NOT fail with blocking error (might fail for other mock reasons, but not blocking)
-	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "")
+	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "..")
 	if err != nil && strings.Contains(err.Error(), devflow.ErrPushBlockedActiveCodejob) {
 		t.Errorf("push should not be blocked by CODEJOB_PR, got: %v", err)
 	}

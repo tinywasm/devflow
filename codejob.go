@@ -16,9 +16,10 @@ const (
 	// DefaultIssuePromptPath is the conventional location for the task description file.
 	DefaultIssuePromptPath = "docs/PLAN.md"
 
-	// EnvKeyCodejob holds the active agent session ("driver:sessionID").
+	// EnvKeyCodejob holds the active agent session ("driver:phase:ref").
 	EnvKeyCodejob = "CODEJOB"
 	// EnvKeyCodejobPR holds the GitHub PR URL pending merge.
+	// Deprecated: legacy key, read-only for migration.
 	EnvKeyCodejobPR = "CODEJOB_PR"
 
 	// CodejobStashMessage is the label for the git stash created during branch switching.
@@ -29,6 +30,85 @@ const (
 	// HintManualPRCheckout is the message shown when PR branch resolution fails.
 	HintManualPRCheckout = "⚠️  Could not resolve branch from PR — switch manually:"
 )
+
+type CodejobPhase string
+
+const (
+	PhaseRunning CodejobPhase = "running" // agent working; Ref = session ID
+	PhaseReview  CodejobPhase = "review"  // PR open, pending merge; Ref = PR URL
+)
+
+// CodejobState is the single piece of state the codejob manager persists.
+type CodejobState struct {
+	Driver string
+	Phase  CodejobPhase
+	Ref    string // session ID (running) or PR URL (review)
+}
+
+// ErrInvalidCodejobState is returned when the CODEJOB value in .env is malformed.
+var ErrInvalidCodejobState = fmt.Errorf("invalid CODEJOB value in .env: expected <driver>:<phase>:<ref>")
+
+// ParseCodejobState parses a raw CODEJOB value.
+func ParseCodejobState(raw string) (CodejobState, error) {
+	if raw == "" {
+		return CodejobState{}, nil
+	}
+	parts := strings.SplitN(raw, ":", 3)
+	if len(parts) == 2 {
+		// Legacy format: driver:sessionID
+		return CodejobState{Driver: parts[0], Phase: PhaseRunning, Ref: parts[1]}, nil
+	}
+	if len(parts) != 3 {
+		return CodejobState{}, ErrInvalidCodejobState
+	}
+	phase := CodejobPhase(parts[1])
+	if phase != PhaseRunning && phase != PhaseReview {
+		return CodejobState{}, ErrInvalidCodejobState
+	}
+	return CodejobState{Driver: parts[0], Phase: phase, Ref: parts[2]}, nil
+}
+
+func (s CodejobState) String() string {
+	if s.Driver == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s:%s", s.Driver, s.Phase, s.Ref)
+}
+
+// LoadCodejobState reads the codejob state from .env, with legacy migration.
+func LoadCodejobState(env *DotEnv) (CodejobState, error) {
+	// 1. Try legacy PR key first (it wins if present)
+	if prURL, ok := env.Get(EnvKeyCodejobPR); ok && prURL != "" {
+		return CodejobState{Driver: "jules", Phase: PhaseReview, Ref: prURL}, nil
+	}
+
+	// 2. Try unified CODEJOB key
+	val, ok := env.Get(EnvKeyCodejob)
+	if !ok || val == "" {
+		return CodejobState{}, nil
+	}
+
+	return ParseCodejobState(val)
+}
+
+// SaveCodejobState writes the state to .env and removes legacy keys.
+func SaveCodejobState(env *DotEnv, s CodejobState) error {
+	if s.Driver == "" {
+		return ClearCodejobState(env)
+	}
+	if err := env.Set(EnvKeyCodejob, s.String()); err != nil {
+		return err
+	}
+	return env.Delete(EnvKeyCodejobPR)
+}
+
+// ClearCodejobState removes all codejob-related keys from .env.
+func ClearCodejobState(env *DotEnv) error {
+	if err := env.Delete(EnvKeyCodejob); err != nil {
+		return err
+	}
+	return env.Delete(EnvKeyCodejobPR)
+}
 
 // CodeJob orchestrates sending a coding task to a chain of AI agent drivers.
 // It validates the prompt file, then tries each driver in priority order,
@@ -58,7 +138,11 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 
 // ObjectsToPublish implements PublishObjector. It is stateless.
 func (CodeJob) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
-	if HasActiveCodejobSession(ctx.RepoDir) {
+	// Skip if a session is active (running or review).
+	// Running: agent is working, do not touch.
+	// Review: local tree is on PR branch, deps updates would commit into the PR.
+	phase := CodejobPhaseOf(ctx.RepoDir)
+	if phase == PhaseRunning || phase == PhaseReview {
 		return ActionSkip, ObjectionCodejobSession
 	}
 	if _, err := os.Stat(filepath.Join(ctx.RepoDir, DefaultIssuePromptPath)); err == nil {
@@ -77,14 +161,9 @@ func (c *CodeJob) SetReleaser(fn func(tag string) error) { c.releaseFn = fn }
 // active codejob context: a running session, a pending PR, or a PLAN.md to dispatch.
 // dotenvPath is the path to the .env file (typically ".env").
 func IsEnvironmentValid(dotenvPath string) bool {
-	if os.Getenv(EnvKeyCodejob) != "" || os.Getenv(EnvKeyCodejobPR) != "" {
-		return true
-	}
 	env := NewDotEnv(dotenvPath)
-	if val, ok := env.Get(EnvKeyCodejob); ok && val != "" {
-		return true
-	}
-	if val, ok := env.Get(EnvKeyCodejobPR); ok && val != "" {
+	state, _ := LoadCodejobState(env)
+	if state.Phase != "" {
 		return true
 	}
 	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
@@ -97,11 +176,15 @@ func IsEnvironmentValid(dotenvPath string) bool {
 // isRelease indicates whether to create a GitHub Release after MergeAndPublish.
 func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 	env := NewDotEnv(".env")
+	state, err := LoadCodejobState(env)
+	if err != nil {
+		return "", err
+	}
 
 	// 1. If message provided -> close the loop
 	if message != "" {
-		if _, ok := env.Get(EnvKeyCodejobPR); !ok {
-			return "", fmt.Errorf("no pending PR found in .env (%s missing)", EnvKeyCodejobPR)
+		if state.Phase != PhaseReview {
+			return "", fmt.Errorf("no pending PR found in .env (run 'codejob' to check status)")
 		}
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
@@ -126,13 +209,13 @@ func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 		return res.Summary, nil
 	}
 
-	// 2. No message -> check status or dispatch
-	if val, ok := env.Get(EnvKeyCodejob); ok {
-		return c.checkStatus(env, val)
+	// 2. No message -> check status or auto-merge
+	if state.Phase == PhaseRunning {
+		return c.checkStatus(env, state)
 	}
 
 	// 3. Auto-merge pending PR before dispatching new work
-	if prURL, ok := env.Get(EnvKeyCodejobPR); ok && prURL != "" {
+	if state.Phase == PhaseReview {
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
 		}
@@ -159,13 +242,9 @@ func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 	return c.Send(DefaultIssuePromptPath)
 }
 
-func (c *CodeJob) checkStatus(env *DotEnv, val string) (string, error) {
-	parts := strings.SplitN(val, ":", 2)
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid CODEJOB value in .env: %s", val)
-	}
-	driverName := parts[0]
-	sessionID := parts[1]
+func (c *CodeJob) checkStatus(env *DotEnv, state CodejobState) (string, error) {
+	driverName := state.Driver
+	sessionID := state.Ref
 
 	if driverName != "jules" {
 		return "", fmt.Errorf("unsupported driver in .env: %s", driverName)
@@ -284,7 +363,11 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 			if sp, ok := d.(SessionProvider); ok {
 				if id := sp.SessionID(); id != "" {
 					env := NewDotEnv(".env")
-					_ = env.Set(EnvKeyCodejob, strings.ToLower(d.Name())+":"+id)
+					_ = SaveCodejobState(env, CodejobState{
+						Driver: strings.ToLower(d.Name()),
+						Phase:  PhaseRunning,
+						Ref:    id,
+					})
 				}
 			}
 			return result, nil

@@ -48,14 +48,11 @@ func (g *Go) GoVersion() (string, error) {
 	return "", nil
 }
 
-// HasActiveCodejobSession reports whether dir has a Jules session in progress.
-// It reads CODEJOB from the dir's .env file.
-// Only an active session (CODEJOB set) blocks dependent auto-push;
-// CODEJOB_PR (PR open, Jules done) does not.
-func HasActiveCodejobSession(dir string) bool {
+// CodejobPhaseOf reports the current codejob phase for the given directory.
+func CodejobPhaseOf(dir string) CodejobPhase {
 	e := NewDotEnv(filepath.Join(dir, ".env"))
-	val, ok := e.Get(EnvKeyCodejob)
-	return ok && val != ""
+	state, _ := LoadCodejobState(e)
+	return state.Phase
 }
 
 // WorkTreeDirtyBeyond returns true if the git worktree has changes beyond the allowed files.
@@ -218,7 +215,10 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	}
 	message = FormatCommitMessage(message)
 
-	if HasActiveCodejobSession(g.rootDir) {
+	// Block push only during 'running' phase. During 'review' phase,
+	// MergeAndPublish calls Push to close the loop, so blocking 'review'
+	// would self-block codejob.
+	if CodejobPhaseOf(g.rootDir) == PhaseRunning {
 		return PushResult{}, errors.New(ErrPushBlockedActiveCodejob)
 	}
 

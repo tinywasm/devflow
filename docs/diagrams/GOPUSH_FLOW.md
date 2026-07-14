@@ -24,14 +24,14 @@ cascade coordinator** (topological order, one commit+tag per module per wave).
 | Other replaces protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_OtherReplacesLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
 | Up-to-date protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_UpToDateLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
 | `RunCascade` blinda el tag rancio: un nodo saltado o deps-only no propaga nada | [`TestRunCascade_SkippedNodeDoesNotPropagate`](../../test/cascade_test.go) |
-| `Go.Push` bloqueado por sesión `CODEJOB` activa | [`TestGoPush_BlockedByActiveCodejobSession`](../../test/go_handler_test.go) |
+| `Go.Push` bloqueado por sesión `CODEJOB` activa | [`TestGoPush_BlockedOnRunningPhase`](../../test/go_handler_test.go) |
 | Node result is a typed `CascadeOutcome`; status is never inferred from substrings | (Contractual type safety) |
 
 ## Main pipeline
 
 ```mermaid
 flowchart TD
-    A[gopush 'msg' tag] --> AC{Active CODEJOB session?}
+    A[gopush 'msg' tag] --> AC{CODEJOB phase == running?}
     AC -- Yes --> ACE[Exit 1: gopush blocked<br/>repo under agent control]
     AC -- No --> B{go.mod exists?}
     B -- No --> C[git add + commit + push<br/>tag if !skipTag]
@@ -89,7 +89,7 @@ concern — each existing manager implements `ObjectsToPublish` for its own doma
 | Objector (existing manager) | Objects when | Action |
 |---|---|---|
 | `GoModHandler` | `go.mod` has other local `replace`s | `Skip` |
-| `CodeJob` | active `CODEJOB` session in the repo's `.env` | `Skip` |
+| `CodeJob` | active session (phase running or review) | `Skip` |
 | `CodeJob` | a `docs/PLAN.md` is pending in the repo | `DepsOnly` |
 | `Git` | worktree dirty beyond `go.mod`/`go.sum` (`.env`/`.gitignore` ignored) | `DepsOnly` |
 

@@ -27,12 +27,12 @@ The agent reading this skill (Claude, Gemini, or any other installed LLM) acts *
 
   ```markdown
   ---
-  message: "feat: what this plan implements"
-  tag: v0.2.0
+  PLAN: "feat: what this plan implements"
+  TAG: v0.2.0
   ---
   ```
 
-  `message` is required (the commit message used when closing the loop); `tag` is optional. Details: skill **plan-authoring**.
+  `PLAN` is required (the commit message used when closing the loop); `TAG` is optional. Details: skill **plan-authoring**.
 
 ### Never clobber an existing plan — `PLAN.md` becomes an execution queue
 
@@ -109,7 +109,7 @@ flowchart TD
     A[Planning agent writes<br/>docs/PLAN.md] --> B[User runs codejob<br/>dispatches to Jules]
     B --> C[Jules opens PR<br/>on a branch]
     C --> D[User runs codejob<br/>no args]
-    D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB_PR in .env<br/>ON SUCCESSFUL CHECKOUT]
+    D --> E[codejob renames<br/>PLAN.md to CHECK_PLAN.md<br/>sets CODEJOB phase = review in .env<br/>ON SUCCESSFUL CHECKOUT]
     E --> F[User asks planning agent<br/>to review CHECK_PLAN.md]
     F --> G{Implementation<br/>correct?}
     G -->|yes| H[Planning agent or user runs<br/>codejob commit msg]

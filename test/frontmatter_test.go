@@ -3,12 +3,16 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestParseFrontmatter(t *testing.T) {
+	planKey := devflow.FrontmatterKeyPlan
+	tagKey := devflow.FrontmatterKeyTag
+
 	tests := []struct {
 		name    string
 		content string
@@ -16,48 +20,53 @@ func TestParseFrontmatter(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "valid message and tag",
-			content: "---\nmessage: \"feat: something\"\ntag: v1.0.0\n---\nBody",
+			name:    "valid PLAN and tag",
+			content: fmt.Sprintf("---\n%s: \"feat: something\"\n%s: v1.0.0\n---\nBody", planKey, tagKey),
 			want:    devflow.PlanMeta{Message: "feat: something", Tag: "v1.0.0"},
 		},
 		{
-			name:    "valid message only",
-			content: "---\nmessage: just message\n---\n",
+			name:    "valid PLAN only",
+			content: fmt.Sprintf("---\n%s: just message\n---\n", planKey),
 			want:    devflow.PlanMeta{Message: "just message"},
 		},
 		{
 			name:    "missing opening fence",
-			content: "message: no fence\n---\n",
+			content: fmt.Sprintf("%s: no fence\n---\n", planKey),
 			wantErr: devflow.ErrFrontmatterMissing,
 		},
 		{
 			name:    "unclosed fence",
-			content: "---\nmessage: no end\n",
+			content: fmt.Sprintf("---\n%s: no end\n", planKey),
 			wantErr: devflow.ErrFrontmatterUnclosed,
 		},
 		{
-			name:    "missing message",
-			content: "---\ntag: v1.0.0\n---\n",
-			wantErr: devflow.ErrFrontmatterNoMessage,
+			name:    "missing PLAN",
+			content: fmt.Sprintf("---\n%s: v1.0.0\n---\n", tagKey),
+			wantErr: devflow.ErrFrontmatterNoPlan,
+		},
+		{
+			name:    "legacy message key rejected",
+			content: "---\nmessage: old\n---\n",
+			wantErr: devflow.ErrFrontmatterNoPlan,
 		},
 		{
 			name:    "with single quotes",
-			content: "---\nmessage: 'quoted'\n---\n",
+			content: fmt.Sprintf("---\n%s: 'quoted'\n---\n", planKey),
 			want:    devflow.PlanMeta{Message: "quoted"},
 		},
 		{
 			name:    "unknown keys ignored",
-			content: "---\nmessage: ok\nunknown: value\n---\n",
+			content: fmt.Sprintf("---\n%s: ok\nunknown: value\n---\n", planKey),
 			want:    devflow.PlanMeta{Message: "ok"},
 		},
 		{
 			name:    "CRLF support",
-			content: "---\r\nmessage: crlf\r\n---\r\n",
+			content: fmt.Sprintf("---\r\n%s: crlf\r\n---\r\n", planKey),
 			want:    devflow.PlanMeta{Message: "crlf"},
 		},
 		{
 			name:    "blank lines internal",
-			content: "---\n\nmessage: spaced\n\n---\n",
+			content: fmt.Sprintf("---\n\n%s: spaced\n\n---\n", planKey),
 			want:    devflow.PlanMeta{Message: "spaced"},
 		},
 	}
@@ -84,7 +93,7 @@ func TestParseFrontmatter(t *testing.T) {
 func TestReadPlanMeta(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "PLAN.md")
-	content := "---\nmessage: from file\n---\n"
+	content := fmt.Sprintf("---\n%s: from file\n---\n", devflow.FrontmatterKeyPlan)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
