@@ -4,6 +4,7 @@ import "github.com/tinywasm/devflow"
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,9 +61,9 @@ func TestExample(t *testing.T) {}
 
 	// Mock ExecCommand to make go vet instant — avoids non-deterministic slowness
 	// under load that can push the test past the 30s binary timeout.
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
 			return exec.Command("true")
 		}
@@ -255,10 +256,10 @@ func TestGoPush_DependentOutput(t *testing.T) {
 	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module github.com/test/dep\n\nrequire github.com/test/main v0.0.0\n"), 0644)
 
 	// Mock ExecCommand to prevent real go/git/gotest invocations
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
 
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" {
 			cmdStr := strings.Join(args, " ")
 			if cmdStr == "version" {
@@ -391,9 +392,9 @@ func TestGoInstall_SubmoduleCmdUsesOwnDir(t *testing.T) {
 	type call struct{ args []string }
 	var calls []call
 
-	original := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = original }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	original := command.Exec
+	defer func() { command.Exec = original }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" && len(args) > 0 && args[0] == "install" {
 			calls = append(calls, call{args: append([]string{name}, args...)})
 			// return success no-op
@@ -649,10 +650,10 @@ func TestGoPush_SkipTag_CallsAddBeforeCommit(t *testing.T) {
 	defer testChdir(t, tmpDir)()
 
 	// Create a git repo
-	devflow.RunCommand("git", "init")
-	devflow.RunCommand("git", "config", "user.email", "test@test.com")
-	devflow.RunCommand("git", "config", "user.name", "Test User")
-	devflow.RunCommand("git", "commit", "--allow-empty", "-m", "initial")
+	command.Run("git", "init")
+	command.Run("git", "config", "user.email", "test@test.com")
+	command.Run("git", "config", "user.name", "Test User")
+	command.Run("git", "commit", "--allow-empty", "-m", "initial")
 
 	// Create a mock git client to track Add() and Commit() calls
 	mockGit := &MockGitClient{

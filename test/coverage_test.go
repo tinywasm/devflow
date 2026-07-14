@@ -4,6 +4,7 @@ import "github.com/tinywasm/devflow"
 
 import (
 	"context"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"testing"
@@ -18,9 +19,9 @@ func TestGoPushFlags(t *testing.T) {
 	// Mock ExecCommand (go vet/go tool cover) and GoTestCmdFn (go test) so this
 	// test exercises Push()'s flag dispatch without paying for 3 real compiles —
 	// one of them with -race, which was the dominant cost (~5-6s of this test's time).
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
 			return exec.Command("true")
 		}
@@ -169,7 +170,7 @@ func TestFail(t *testing.T) { t.Fatal("fail") }
 // Add one more test case for edge cases in executor
 func TestExecutorErrors(t *testing.T) {
 	// Run invalid command
-	_, err := devflow.RunCommand("invalid_command_xyz")
+	_, err := command.Run("invalid_command_xyz")
 	if err == nil {
 		t.Error("Expected error for invalid command")
 	}

@@ -3,7 +3,8 @@ package devflow
 import (
 	"errors"
 	"os"
-	"strings"
+
+	"github.com/tinywasm/markdown"
 )
 
 // PlanMeta holds the parsed frontmatter of a docs/PLAN.md file.
@@ -34,68 +35,47 @@ var (
 	ErrFrontmatterNoMessage = errors.New("plan frontmatter: missing required 'message:' field" + frontmatterHelp)
 )
 
-const FrontmatterFence = "---"
-
-// ParseFrontmatter parses the leading YAML-style frontmatter block of content.
-// Rules: must start at byte 0 with a "---" line, close at the next "---" line;
-// between them "key: value" pairs (split on first ':'); unknown keys ignored;
-// surrounding single/double quotes stripped from values. Requires 'message'.
-func ParseFrontmatter(content string) (PlanMeta, error) {
-	lines := strings.Split(content, "\n")
-	if len(lines) == 0 {
-		return PlanMeta{}, ErrFrontmatterMissing
+// wrapStructuralErr translates markdown's structural frontmatter errors into
+// devflow's own (which carry frontmatterHelp); anything else passes through.
+func wrapStructuralErr(err error) error {
+	switch {
+	case errors.Is(err, markdown.ErrFrontmatterMissing):
+		return ErrFrontmatterMissing
+	case errors.Is(err, markdown.ErrFrontmatterUnclosed):
+		return ErrFrontmatterUnclosed
+	default:
+		return err
 	}
+}
 
-	firstLine := strings.TrimSpace(strings.TrimSuffix(lines[0], "\r"))
-	if firstLine != FrontmatterFence {
-		return PlanMeta{}, ErrFrontmatterMissing
-	}
-
-	var meta PlanMeta
-	foundEnd := false
-	for i := 1; i < len(lines); i++ {
-		line := strings.TrimSuffix(lines[i], "\r")
-		trimmed := strings.TrimSpace(line)
-		if trimmed == FrontmatterFence {
-			foundEnd = true
-			break
-		}
-
-		if trimmed == "" {
-			continue
-		}
-
-		parts := strings.SplitN(trimmed, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		value = strings.Trim(value, "\"'")
-
-		switch key {
-		case "message":
-			meta.Message = value
-		case "tag":
-			meta.Tag = value
-		}
-	}
-
-	if !foundEnd {
-		return PlanMeta{}, ErrFrontmatterUnclosed
-	}
-
-	if meta.Message == "" {
+// metaFromMap maps generic frontmatter key/values to PlanMeta, enforcing the
+// devflow-specific rule that 'message' is required.
+func metaFromMap(kv map[string]string) (PlanMeta, error) {
+	message := kv["message"]
+	if message == "" {
 		return PlanMeta{}, ErrFrontmatterNoMessage
 	}
+	return PlanMeta{Message: message, Tag: kv["tag"]}, nil
+}
 
-	return meta, nil
+// ParseFrontmatter parses the leading frontmatter block of content and maps it
+// to PlanMeta, requiring 'message'. Structural parsing is delegated to
+// tinywasm/markdown; devflow only owns the "which keys are required" rule.
+func ParseFrontmatter(content string) (PlanMeta, error) {
+	kv, err := markdown.ParseFrontmatter(content)
+	if err != nil {
+		return PlanMeta{}, wrapStructuralErr(err)
+	}
+	return metaFromMap(kv)
 }
 
 // ReadPlanMeta reads and validates the frontmatter of a plan file at path.
 func ReadPlanMeta(path string) (PlanMeta, error) {
-	return NewMarkDown(".", "", nil).InputPath(path, os.ReadFile).Frontmatter()
+	kv, err := markdown.New(".", "", nil).InputPath(path, os.ReadFile).Frontmatter()
+	if err != nil {
+		return PlanMeta{}, wrapStructuralErr(err)
+	}
+	return metaFromMap(kv)
 }
 
 var ErrNoCloseLoopMessage = errors.New("no close-loop commit message: pass one on the CLI or add 'message:' to the plan frontmatter")

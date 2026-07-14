@@ -3,6 +3,7 @@ package devflow
 import (
 	"bufio"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,12 +18,12 @@ type GoModHandler struct {
 	Modified bool     // track if changes were made
 
 	// Handler fields
-	rootDir          string
-	watcher          FolderWatcher
-	currentPaths     map[string]string // modulePath -> localPath
-	log              func(messages ...any)
-	knownReplaces    map[string]string
-	OnSSRFileChange  func(moduleDir string) // called when ssr.go changes in a watched module
+	rootDir         string
+	watcher         FolderWatcher
+	currentPaths    map[string]string // modulePath -> localPath
+	log             func(messages ...any)
+	knownReplaces   map[string]string
+	OnSSRFileChange func(moduleDir string) // called when ssr.go changes in a watched module
 }
 
 // ReplaceEntry represents a local replace directive found in go.mod
@@ -93,7 +94,7 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 		}
 
 		// Check for the module in replace
-		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) {
+		if strings.HasPrefix(trimmed, "replace ") || inReplaceBlock {
 			// Extract module path from line
 			mod, _ := parseReplaceLine(trimmed, inReplaceBlock)
 			if mod == modulePath {
@@ -276,7 +277,7 @@ func (m *GoModHandler) EnsureReplace(modulePath, localPath string) bool {
 			continue
 		}
 
-		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) {
+		if strings.HasPrefix(trimmed, "replace ") || inReplaceBlock {
 			mod, target := parseReplaceLine(trimmed, inReplaceBlock)
 			if mod == modulePath && filepath.Clean(target) == filepath.Clean(localPath) {
 				found = true
@@ -517,7 +518,7 @@ func (g *Go) Verify() error {
 		return fmt.Errorf("go.mod not found")
 	}
 
-	output, err := RunCommandInDir(g.rootDir, "go", "mod", "verify")
+	output, err := command.RunInDir(g.rootDir, "go", "mod", "verify")
 	if err == nil {
 		return nil
 	}
@@ -574,7 +575,7 @@ func (g *Go) WaitForVersionAvailable(modulePath, version string) error {
 	}
 
 	for i := 0; i < maxRetries; i++ {
-		_, err := RunCommandSilent("go", "list", "-m", target)
+		_, err := command.Run("go", "list", "-m", target)
 		if err == nil {
 			return nil
 		}
@@ -703,12 +704,12 @@ func (g *Go) UpdateModule(moduleDir, dependency, version string) error {
 	}
 
 	target := fmt.Sprintf("%s@%s", dependency, version)
-	_, err = RunCommand("go", "get", "-u", target)
+	_, err = command.Run("go", "get", "-u", target)
 	if err != nil {
 		return fmt.Errorf("go get failed: %w", err)
 	}
 
-	_, err = RunCommand("go", "mod", "tidy")
+	_, err = command.Run("go", "mod", "tidy")
 	if err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
@@ -728,7 +729,7 @@ func (g *Go) ModInit(modulePath, targetDir string) error {
 		return err
 	}
 
-	_, err = RunCommand("go", "mod", "init", modulePath)
+	_, err = command.Run("go", "mod", "init", modulePath)
 	return err
 }
 

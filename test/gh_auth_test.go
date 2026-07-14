@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"testing"
@@ -79,9 +80,9 @@ func handleGH(args []string) {
 
 func TestEnsureGHSession_Healthy(t *testing.T) {
 	// Mock ExecCommand to succeed on gh api user
-	oldExec := devflow.ExecCommand
-	devflow.ExecCommand = mockExecCommand
-	defer func() { devflow.ExecCommand = oldExec }()
+	oldExec := command.Exec
+	command.Exec = mockExecCommand
+	defer func() { command.Exec = oldExec }()
 
 	os.Setenv("MOCK_GH_EXPIRED", "0")
 	defer os.Unsetenv("MOCK_GH_EXPIRED")

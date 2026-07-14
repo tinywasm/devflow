@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,7 +33,7 @@ type Badges struct {
 	labelPadding int
 	valuePadding int
 	badgeSpacing int
-	labelBg string
+	labelBg      string
 	// text used in the svg comment/header
 	svgInfo string
 	log     func(...any)
@@ -339,7 +340,7 @@ func (h *Badges) GoHandler() *Go {
 }
 
 func GetGoVersion() string {
-	out, err := RunCommand("go", "version")
+	out, err := command.Run("go", "version")
 	if err != nil {
 		return "unknown"
 	}

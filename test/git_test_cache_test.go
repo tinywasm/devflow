@@ -3,6 +3,7 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,11 +15,11 @@ func TestTestCache_SaveAndValidate(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	// Init git
-	devflow.RunCommand("git", "init")
-	devflow.RunCommand("git", "config", "user.name", "Test")
-	devflow.RunCommand("git", "config", "user.email", "test@test.com")
-	devflow.RunCommand("git", "add", ".")
-	devflow.RunCommand("git", "commit", "-m", "init")
+	command.Run("git", "init")
+	command.Run("git", "config", "user.name", "Test")
+	command.Run("git", "config", "user.email", "test@test.com")
+	command.Run("git", "add", ".")
+	command.Run("git", "commit", "-m", "init")
 
 	cache := devflow.NewTestCache(".")
 	testMsg := "vet ✅, tests ✅"
@@ -56,11 +57,11 @@ func TestTestCache_InvalidateCache(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	// Init git
-	devflow.RunCommand("git", "init")
-	devflow.RunCommand("git", "config", "user.name", "Test")
-	devflow.RunCommand("git", "config", "user.email", "test@test.com")
-	devflow.RunCommand("git", "add", ".")
-	devflow.RunCommand("git", "commit", "-m", "init")
+	command.Run("git", "init")
+	command.Run("git", "config", "user.name", "Test")
+	command.Run("git", "config", "user.email", "test@test.com")
+	command.Run("git", "add", ".")
+	command.Run("git", "commit", "-m", "init")
 
 	cache := devflow.NewTestCache(".")
 
@@ -107,7 +108,7 @@ func TestTestCache_CacheKey(t *testing.T) {
 }
 
 func TestTestCache_GitState(t *testing.T) {
-	if _, err := devflow.RunCommandSilent("git", "rev-parse", "HEAD"); err != nil {
+	if _, err := command.Run("git", "rev-parse", "HEAD"); err != nil {
 		t.Skip("Not in a git repository")
 	}
 
@@ -153,11 +154,11 @@ func TestTestCache_UntrackedFileInvalidatesCache(t *testing.T) {
 	defer cleanup()
 	defer testChdir(t, dir)()
 
-	devflow.RunCommand("git", "init")
-	devflow.RunCommand("git", "config", "user.name", "Test")
-	devflow.RunCommand("git", "config", "user.email", "test@test.com")
-	devflow.RunCommand("git", "add", ".")
-	devflow.RunCommand("git", "commit", "-m", "init")
+	command.Run("git", "init")
+	command.Run("git", "config", "user.name", "Test")
+	command.Run("git", "config", "user.email", "test@test.com")
+	command.Run("git", "add", ".")
+	command.Run("git", "commit", "-m", "init")
 
 	cache := devflow.NewTestCache(".")
 	cache.InvalidateCache()

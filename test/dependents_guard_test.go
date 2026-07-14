@@ -11,6 +11,7 @@ package devflow_test
 // pass WITHOUT modifying the expectations.
 
 import (
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -203,9 +204,9 @@ func TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum(t *testing.T) {
 
 	var mu sync.Mutex
 	var gitCalls [][]string
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		joined := strings.Join(args, " ")
 		switch name {
 		case "git":
@@ -378,9 +379,9 @@ func TestUpdateDependentModule_UpToDateLeavesRepoUntouched(t *testing.T) {
 	g.SetConsoleOutput(func(string) {})
 
 	// We need to mock GetCurrentVersion via RunCommandInDir "go list -m -json"
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" && args[0] == "list" && args[1] == "-m" && args[2] == "-json" {
 			return exec.Command("echo", `{"Version": "v0.0.1"}`)
 		}
@@ -422,9 +423,9 @@ func TestUpdateDependentModule_MultiDependencyUnblocked(t *testing.T) {
 	g.SetRetryConfig(time.Millisecond, 1)
 
 	// Mock commands to avoid real go get/gotest
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		return exec.Command("true")
 	}
 

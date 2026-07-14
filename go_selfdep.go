@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 )
@@ -57,7 +58,7 @@ func (g *Go) syncInternalSubmodules(parentModulePath, nextTag string) error {
 		// Note: We use go get parent@tag. Since we have a replace, this just updates go.mod
 		// without needing the tag to be published yet.
 		target := fmt.Sprintf("%s@%s", parentModulePath, nextTag)
-		if _, err := RunCommandInDir(subDir, "go", "get", target); err != nil {
+		if _, err := command.RunInDir(subDir, "go", "get", target); err != nil {
 			// If it fails (e.g. tag doesn't exist yet and proxy is used),
 			// we might need to use a different approach or just ignore if it's not strictly needed
 			// for the build (because of the replace).
@@ -68,7 +69,7 @@ func (g *Go) syncInternalSubmodules(parentModulePath, nextTag string) error {
 		}
 
 		// 3. Tidy
-		if _, err := RunCommandInDir(subDir, "go", "mod", "tidy"); err != nil {
+		if _, err := command.RunInDir(subDir, "go", "mod", "tidy"); err != nil {
 			return fmt.Errorf("go mod tidy failed in %s: %w", subDir, err)
 		}
 	}

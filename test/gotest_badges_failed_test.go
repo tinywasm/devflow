@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"context"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,9 +19,9 @@ func TestGotest_BadgesOnlyOnSuccess(t *testing.T) {
 
 	// Mock ExecCommand to make go vet/go tool cover instant — this test only
 	// cares about the pass/fail gating of badge updates, not real vet/coverage output.
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
 			return exec.Command("true")
 		}

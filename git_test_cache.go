@@ -3,6 +3,7 @@ package devflow
 import (
 	"crypto/md5"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,20 +49,20 @@ func (tc *TestCache) GetCachePath() (string, error) {
 // This uniquely identifies the exact state of the code
 func (tc *TestCache) GetGitState() (string, error) {
 	// Get current commit hash
-	commitHash, err := RunCommandInDir(tc.RootDir, "git", "rev-parse", "HEAD")
+	commitHash, err := command.RunInDir(tc.RootDir, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit hash: %w", err)
 	}
 	commitHash = strings.TrimSpace(commitHash)
 
 	// Get hash of uncommitted changes (if any)
-	diff, err := RunCommandInDir(tc.RootDir, "git", "diff", "HEAD")
+	diff, err := command.RunInDir(tc.RootDir, "git", "diff", "HEAD")
 	if err != nil {
 		diff = ""
 	}
 
 	// Untracked .go files — not covered by git diff HEAD
-	untrackedRaw, err := RunCommandInDir(tc.RootDir, "git", "ls-files", "--others", "--exclude-standard")
+	untrackedRaw, err := command.RunInDir(tc.RootDir, "git", "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		untrackedRaw = ""
 	}

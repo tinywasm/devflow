@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,7 +96,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			vetArgs = append(vetArgs, "-tags=integration")
 		}
 		vetArgs = append(vetArgs, "./...")
-		vetOutput, vetErr = RunCommandInDir(g.rootDir, "go", vetArgs...)
+		vetOutput, vetErr = command.RunInDir(g.rootDir, "go", vetArgs...)
 	}()
 
 	// Check for WASM test files (async)
@@ -888,7 +889,7 @@ func calculateAverageCoverage(output string) string {
 
 // exactCoverageFromProfile reads a coverage profile and returns the total percentage.
 func exactCoverageFromProfile(profilePath string) string {
-	out, err := ExecCommand("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
+	out, err := command.Exec("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
 	if err != nil {
 		return ""
 	}
@@ -904,11 +905,11 @@ func exactCoverageFromProfile(profilePath string) string {
 }
 
 func (g *Go) installWasmBrowserTest() error {
-	if _, err := RunCommandInDir(g.rootDir, "which", "wasmbrowsertest"); err == nil {
+	if _, err := command.RunInDir(g.rootDir, "which", "wasmbrowsertest"); err == nil {
 		return nil
 	}
 
-	_, err := RunCommandInDir(g.rootDir, "go", "install", "github.com/tinywasm/wasmbrowsertest@latest")
+	_, err := command.RunInDir(g.rootDir, "go", "install", "github.com/tinywasm/wasmbrowsertest@latest")
 	if err != nil {
 		return fmt.Errorf("go install failed: %w", err)
 	}

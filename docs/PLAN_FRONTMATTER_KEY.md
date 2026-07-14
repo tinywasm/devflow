@@ -98,6 +98,7 @@ explícitamente del renombrado.
 | [`skills/plan-authoring/SKILL.md`](../skills/plan-authoring/SKILL.md) | La sección "Frontmatter — REQUIRED" y su tabla. |
 | [`skills/agents-workflow/SKILL.md`](../skills/agents-workflow/SKILL.md) | Toda mención a `message:` en el frontmatter. |
 | [`docs/PLAN.md`](PLAN.md) y este archivo | El frontmatter del propio índice usa `PLAN:`. |
+| [`cmd/codejob/main.go`](cmd/codejob/main.go) y este archivo | El mensaje debe de usar `PLAN:`. |
 
 ## 6. Seguimiento local (NO lo hace el agente)
 

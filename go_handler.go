@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -123,7 +124,7 @@ const (
 // NewGo creates a new Go handler and verifies Go installation
 func NewGo(gitHandler GitClient) (*Go, error) {
 	// Verify go installation
-	if _, err := RunCommandSilent("go", "version"); err != nil {
+	if _, err := command.Run("go", "version"); err != nil {
 		return nil, fmt.Errorf("go is not installed or not in PATH: %w", err)
 	}
 
@@ -419,7 +420,7 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 	success := false
 	defer func() {
 		if !success {
-			RunCommandInDir(depDir, "git", "checkout", "--", "go.mod", "go.sum")
+			command.RunInDir(depDir, "git", "checkout", "--", "go.mod", "go.sum")
 		}
 	}()
 
@@ -451,19 +452,19 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 
 	for _, bump := range bumps {
 		target := fmt.Sprintf("%s@%s", bump.ModulePath, bump.NewVersion)
-		if _, err := RunCommandWithRetryInDir(depDir, "go", []string{"get", target}, g.retryAttempts, g.retryDelay); err != nil {
+		if _, err := command.RunWithRetry(depDir, "go", []string{"get", target}, g.retryAttempts, g.retryDelay); err != nil {
 			return CascadeOutcome{}, fmt.Errorf("go get failed after retries: %w", err)
 		}
 	}
 
-	if _, err := RunCommandInDir(depDir, "go", "mod", "tidy"); err != nil {
+	if _, err := command.RunInDir(depDir, "go", "mod", "tidy"); err != nil {
 		return CascadeOutcome{}, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	_, _ = RunCommandInDir(depDir, "go", "generate", "./...")
+	_, _ = command.RunInDir(depDir, "go", "generate", "./...")
 
 	// 6. gotest (gate)
-	if output, err := RunCommandInDir(depDir, "gotest", "-t", "60", "-no-cache"); err != nil {
+	if output, err := command.RunInDir(depDir, "gotest", "-t", "60", "-no-cache"); err != nil {
 		cause := extractFirstFailure(output)
 		g.consoleOutput(fmt.Sprintf("📦 %s → %s ❌", depName, cause))
 		return CascadeOutcome{}, fmt.Errorf("tests failed: %w", err)
@@ -508,7 +509,7 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 // GetCurrentVersion returns the current version of a dependency in a module
 func (g *Go) GetCurrentVersion(moduleDir, dependencyPath string) (string, error) {
 	// Use go list -m -json dependencyPath directly in moduleDir
-	output, err := RunCommandInDir(moduleDir, "go", "list", "-m", "-json", dependencyPath)
+	output, err := command.RunInDir(moduleDir, "go", "list", "-m", "-json", dependencyPath)
 	if err != nil {
 		return "", err
 	}
@@ -602,7 +603,7 @@ func (g *Go) Install(version string) error {
 		}
 		args = append(args, pkg)
 
-		if _, err := RunCommandInDir(installDir, "go", args...); err != nil {
+		if _, err := command.RunInDir(installDir, "go", args...); err != nil {
 			return fmt.Errorf("failed to install %s: %w", cmd, err)
 		}
 	}
