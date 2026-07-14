@@ -30,8 +30,8 @@ github.com/tinywasm/markdown v0.0.2 h1:dSt9UQPeZgaaPE30gjGYhh/UBxMKGJN+yJyUUz/Bg
 github.com/tinywasm/markdown v0.0.2/go.mod h1:0SAcxF8xzuudJ3DrYl3mDISgwQmYzXeR7al0cLjZP1M=
 github.com/tinywasm/mcp v0.1.22 h1:0LUy/+RN14/PAAyBxMBEmkVaIF/3w/JUP5knk71SWh4=
 github.com/tinywasm/mcp v0.1.22/go.mod h1:GYN5SfUgKztQfF0SMpU9RBdzKVhQ8q7uhS54FLhw3OM=
-github.com/tinywasm/model v0.0.13 h1:SN66uuGmi+DVdbcefhKYi2b/86o2fGaU8bYxDYS7b6E=
-github.com/tinywasm/model v0.0.13/go.mod h1:wkYZLW6CWVrlx5TiLEBL71KgDxhjUcFtY3KXZKpkCXA=
+github.com/tinywasm/model v0.0.14 h1:Uctb34Xj0+rPWRqyI8/dHub0vyey8All1Ft+XBMXJKs=
+github.com/tinywasm/model v0.0.14/go.mod h1:wkYZLW6CWVrlx5TiLEBL71KgDxhjUcFtY3KXZKpkCXA=
 github.com/tinywasm/router v0.1.11 h1:oXNXzg9tTdtCFbJTmzGXv3oIksDvlsUkNb55US8XVHg=
 github.com/tinywasm/router v0.1.11/go.mod h1:HM/9YKk0c8JKdPPCNLVGVpB48k6vXfhl2Q9C+tVujSo=
 github.com/tinywasm/time v0.5.0 h1:M17DNgKrMYfkCK42V6miL9AcwfN/FHghbKOSTXJrkMo=
