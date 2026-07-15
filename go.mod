@@ -9,7 +9,7 @@ require (
 	github.com/tinywasm/gorun v0.0.24
 	github.com/tinywasm/markdown v0.0.2
 	github.com/tinywasm/mcp v0.1.22
-	github.com/tinywasm/model v0.0.14
+	github.com/tinywasm/model v0.0.15
 	golang.org/x/term v0.40.0
 )
 
