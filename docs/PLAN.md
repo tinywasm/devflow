@@ -15,7 +15,8 @@ Hoy `codejob` cierra el loop **solo en local**. El flujo típico cuando un agent
 3. **Tengo que ir a la PC** y ejecutar `codejob` → descarga el repo, hace fetch y
    posiciona el árbol en la rama del PR (fase `review`).
 4. Ejecuto **otra vez** `codejob 'mensaje'` → fusiona el PR y publica la nueva
-   versión (`gopush`: tests, tag, cross-compile, cascade, backup).
+   versión (`gopush`: tests, **tag**, push, cascade, backup — **solo crea el tag
+   automáticamente, no lanza `gorelease`**).
 
 El paso 3–4 **obliga a estar físicamente frente al computador** con las
 credenciales locales (keyring de Jules, PAT de GitHub, `.env` con la sesión
@@ -48,10 +49,11 @@ El workflow se activa **solo** cuando se cierra un PR **y** ese cierre es un
 la clave del diseño (§3).
 
 Al dispararse, corre en CI el equivalente al *close-loop* de `codejob 'mensaje'`
-(publish vía `gopush`): tests → tag → cross-compile/release → limpieza. El
-mensaje y el tag salen del **frontmatter de `docs/PLAN.md`** (`PLAN:` / `TAG:`),
-exactamente la misma fuente de verdad que ya usa el flujo local vía
-`CHECK_PLAN.md`.
+(publish vía `gopush`): **tests → tag → push → limpieza**. Igual que en local,
+**solo se crea el tag automáticamente; no se ejecuta `gorelease`** (los binarios
+cross-platform son otra herramienta, fuera de alcance — ver §7.4). El mensaje y
+el tag salen del **frontmatter de `docs/PLAN.md`** (`PLAN:` / `TAG:`), exactamente
+la misma fuente de verdad que ya usa el flujo local vía `CHECK_PLAN.md`.
 
 ## 3. Decisión de diseño clave — cómo distinguir "finalizando un codejob"
 
@@ -121,7 +123,7 @@ flowchart TD
     GA -->|PR merged == true?| GA2
     GA2{docs/PLAN.md presente<br/>con frontmatter?}
     GA2 -->|No: cerrado en local| NOOP[no-op, exit 0]
-    GA2 -->|Si: finalizando codejob| P[CI: setup Go<br/>tests + gopush<br/>tag + release]
+    GA2 -->|Si: finalizando codejob| P[CI: go install codejob pinneado<br/>gopush: tests + tag + push<br/>sin gorelease]
     P --> CLEAN[Borra docs/PLAN.md + commit limpieza]
     CLEAN --> I[Nueva version + tag publicados]
 
@@ -156,8 +158,29 @@ flowchart TD
 
 ### 5.3 Contenido del workflow (`.github/workflows/codejob.yml`)
 
-Diseño técnico (basado en `docs/codejob/RUNNER_BEST_PRACTICES.md` — se usa
-`ubuntu-latest` porque hay compilación Go cross-platform, caso C de ese doc):
+**Elección de runner — `ubuntu-latest`, no Alpine.** No es un descuido: en
+runners hospedados no existe `runs-on: alpine` (solo Ubuntu/Windows/macOS). Usar
+Alpine obliga a `container: alpine` **encima** de un runner Ubuntu → se paga el
+arranque de la VM Ubuntu + `docker pull` + `apk add`, resultando **más lento** y
+**sin ahorro de costo** (la facturación es por minuto-runner, y el runner sigue
+siendo Ubuntu). Además `checkout`/`setup-go`/`gh`/`git` son glibc y vienen
+preinstalados en Ubuntu; en Alpine exigen `gcompat`. La carga de cómputo real de
+este job es `go install` de la herramienta + `gotest` (vet + tests + **race
+detector**, que quiere cgo/gcc y varios núcleos) — no hay `gorelease` ni
+cross-compile aquí. Eso encaja con `ubuntu-latest` (2 vCPU, gcc y `gh` de fábrica)
+mejor que con Alpine, donde el race detector es problemático bajo musl. El valor
+de Alpine es como **imagen de despliegue** (runtime), algo ortogonal a este runner.
+
+**Bootstrap de la herramienta — `go install` pinneado (no binario descargado).**
+Aclaración importante tras la revisión: como el close-loop es `gopush` (tag-only,
+**no** `gorelease`), los releases de devflow **no** llevan assets binarios
+garantizados — no hay `codejob-linux-amd64` que descargar de forma fiable. Por
+eso el bootstrap correcto es `go install github.com/tinywasm/devflow/cmd/codejob@vX.Y.Z`,
+**fijado a la versión** que estampa `--init-action` (no `@latest`) para
+reproducibilidad. El toolchain Go ya está en el runner porque `gotest` lo
+necesita, así que `go install` no añade dependencias extra. (Descargar un binario
+precompilado solo tendría sentido si el proyecto publicara releases con
+`gorelease`; no es el caso del flujo de `codejob`.)
 
 ```yaml
 name: codejob
@@ -188,14 +211,15 @@ jobs:
           fi
       - uses: actions/setup-go@v5
         if: steps.gate.outputs.run == 'true'
-        with: { go-version: 'stable' }
+        with: { go-version: 'stable' }   # necesario: gopush corre gotest (vet+test+race)
       - name: Publicar (close-loop en CI)
         if: steps.gate.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          go install github.com/tinywasm/devflow/cmd/codejob@latest
-          codejob --ci-publish     # nuevo modo: lee frontmatter, publica, limpia PLAN.md
+          # Versión fijada que estampa 'codejob --init-action' (no @latest)
+          go install github.com/tinywasm/devflow/cmd/codejob@v0.5.0
+          codejob --ci-publish     # lee frontmatter, gopush (tag-only), limpia PLAN.md
 ```
 
 > El detalle exacto de los steps (cache de módulos, versión pinneada de la
@@ -212,13 +236,14 @@ maquinaria existente sin depender del estado local (`.env`/keyring/PAT):
   fases; el PR **ya está fusionado** por GitHub.
 - Lee `docs/PLAN.md` con `ReadPlanMeta` → `message` y `tag` (`PLAN:`/`TAG:`).
 - Borra `docs/PLAN.md` (equivale al borrado de `CHECK_PLAN.md` del flujo local).
-- Llama al `Publisher.Publish(message, tag, ...)` completo (deps + tag + release),
-  usando `GITHUB_TOKEN` para push/tag/release.
+- Llama a `Publisher.Publish(message, tag, ...)` = `gopush`: tests + **tag** +
+  push (más limpieza), usando `GITHUB_TOKEN` para el push y el tag. **No** crea
+  GitHub Release ni binarios (`gorelease` queda fuera; ver §7.4).
 - **No** despacha planes encadenados en CI (requiere API key de Jules); si tras el
   merge hay un `PLAN.md` nuevo distinto, se deja como *follow-up* opcional (§7).
 
 Esto mantiene una única fuente de verdad para el mensaje/tag (frontmatter) y
-reaprovecha `gopush`/`gorelease` sin duplicar lógica.
+reaprovecha `gopush` sin duplicar lógica.
 
 ## 6. Pruebas (test map)
 
@@ -238,11 +263,11 @@ reaprovecha `gopush`/`gorelease` sin duplicar lógica.
    cero-fricción. Alternativa más explícita: una **label `codejob`** en el PR
    (más autodocumentada, pero requiere que algo la ponga sin la PC — habría que
    añadir el etiquetado al abrir/detectar el PR). ¿Prefieres archivo o label?
-2. **Repos privados con distribución pública.** `gorelease` ya soporta publicar a
-   un repo público derivado cuando el origin es privado; en CI eso exige un **PAT
-   con acceso al repo público** como secret (`SetSecret` ya existe). Si el repo es
-   público, basta `GITHUB_TOKEN`. ¿Incluyo el registro del secret en
-   `--init-action`?
+2. **Token de push/tag.** Como el flujo es tag-only (sin `gorelease`), para push y
+   tag basta el `GITHUB_TOKEN` del runner en repos normales. Solo si en el futuro
+   añadiéramos `gorelease` en CI (publicar binarios a un repo público derivado
+   cuando el origin es privado) haría falta un **PAT** como secret (`SetSecret` ya
+   existe). Por ahora **no** hace falta secret extra. ¿De acuerdo en dejarlo así?
 3. **Planes encadenados en CI.** El re-dispatch automático necesita la API key de
    Jules como secret. Lo dejo **fuera** del alcance inicial (queda solo-local),
    salvo que lo quieras dentro.
@@ -259,5 +284,3 @@ disparo es preciso — merge real **y** `docs/PLAN.md` aún presente — lo que 
 limpiamente el cierre-desde-web (publica la Action) del cierre-en-PC (publica el
 flujo local), sin doble publicación. Resultado: cerrar el PR desde el móvil
 publica la versión, sin tocar la PC.
-</content>
-</invoke>
