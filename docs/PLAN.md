@@ -89,39 +89,88 @@ stateDiagram-v2
 - **review → cerrado:** al fusionar el PR se publica (`gopush`, tag-only) y se
   **borra `docs/PLAN.md`** (el commit de cierre usa el mensaje de `PLAN:`).
 
-### 3.3 Nomenclatura del token (requisito explícito)
+### 3.3 Nomenclatura del token (break change limpio)
 
-El nombre del secret del agente en GitHub **deriva del nombre del keyring local**,
-para que sea el mismo identificador en ambos entornos:
+**El nombre es idéntico en keyring, variable de entorno y secret de GitHub.** Sin
+mapeos, sin `ToUpper`, sin alias deprecados. Se renombran las claves del keyring
+para que coincidan exactamente con el secret:
 
-```
-secret_de_actions = strings.ToUpper(clave_del_keyring)
-```
-
-| Uso | Keyring local (servicio `devflow`) | Secret de GitHub Actions |
+| Uso | Nombre único (keyring = env = secret) | Antes (se elimina) |
 |---|---|---|
-| Agente (Jules) | `jules_api_key` | `JULES_API_KEY` |
-| PAT de GitHub  | `github_pat`   | `GITHUB_PAT` |
+| Agente (Jules) | `JULES_API_KEY` | `jules_api_key` |
+| Token de GitHub | `GH_TOKEN` | `github_pat`, `github_token` |
 
-- `codejob --init-action` **lee** `jules_api_key` del keyring y lo registra como
-  secret `JULES_API_KEY` con el `GitHub.SetSecret` que ya existe.
-- `codejob --ci` **lee** la clave del agente desde la variable de entorno
-  `JULES_API_KEY` (y cae al keyring cuando corre en local). Una única fuente de
-  nombre en keyring y nube.
+Dos restricciones de GitHub que fijan estos nombres:
 
-### 3.4 Qué se retira
+1. **Los secrets de Actions no pueden empezar por `GITHUB_`** (prefijo reservado).
+   Por eso el token de GitHub usa `GH_TOKEN` — además es el nombre estándar que el
+   `gh` CLI ya lee de la variable de entorno.
+2. **Un commit hecho con el `GITHUB_TOKEN` por defecto no dispara otros
+   workflows** (anti-bucle de GitHub). Como el loop encadena "commit del `STATUS`
+   → dispara la siguiente Action", el PAT `GH_TOKEN` es **necesario** para que el
+   despacho automático en cadena funcione en la nube.
 
-- **`.env` para estado de codejob:** devflow deja de leer/escribir la clave
-  `CODEJOB`. (No borramos el `.env` del usuario; solo dejamos de tocarlo.)
+- `codejob --ci` lee `JULES_API_KEY` y `GH_TOKEN` de variables de entorno (que la
+  Action inyecta desde los secrets); en local, del keyring bajo el mismo nombre.
+- `codejob --init-action` lee esos valores del keyring y los registra como secrets
+  con el `GitHub.SetSecret` que ya existe. **Un solo identificador en todas partes.**
+
+Es un **break change**: no hay código de compatibilidad ni migración automática de
+las claves viejas (evitamos "código basura por deprecados"). El cambio es manual y
+documentado (§3.6).
+
+### 3.4 Registrar los secrets una sola vez por organización
+
+GitHub soporta **secrets a nivel de organización**: se definen una vez y quedan
+disponibles para todos (o los repos seleccionados) de la org.
+
+| Ámbito | ¿Secret único para todos los repos? | Cómo |
+|---|---|---|
+| Org (`tinywasm`, y tu otra org) | **Sí** | `gh secret set JULES_API_KEY --org tinywasm --visibility all` (ídem `GH_TOKEN`) |
+| Cuenta personal (`cdvelop`) | **No** — GitHub no tiene secrets de cuenta que cubran todos tus repos personales | Por-repo: `gh secret set … --repo cdvelop/<repo>` (scriptable en bucle) |
+
+`codejob --init-action` aceptará `--org <nombre> [--visibility all|selected]` para
+registrar a nivel de organización (así, para todo lo que vive en `tinywasm`, lo
+seteas **una vez**). Para los repos personales de `cdvelop` se registra por repo.
+
+### 3.5 Qué se retira (sin código de compatibilidad)
+
+Break change limpio: se **elimina** el código viejo, no se mantiene deprecado.
+
+- **Claves de keyring antiguas:** `jules_api_key`, `github_pat`, `github_token` →
+  reemplazadas por `JULES_API_KEY` y `GH_TOKEN`. Sin alias ni lectura de las viejas.
+- **`.env` para estado de codejob:** se elimina la clave `CODEJOB` y todo su
+  parseo (incluido el formato legacy y `CODEJOB_PR`). devflow deja de leer/escribir
+  `.env`. (No borramos el `.env` del usuario; solo dejamos de tocarlo.)
 - **`docs/CHECK_PLAN.md`:** ya no hace falta el renombrado — `STATUS: review`
   marca la fase de revisión. Se elimina también el truco `.gitignore CHECK_*.md`.
 
-### 3.5 Migración
+Sin migración automática. Coste único al actualizar: si hay una sesión en vuelo
+guardada en `.env`, se re-despacha (raro y de una sola vez); las claves se vuelven
+a añadir (§3.6). Esto evita arrastrar código de migración indefinidamente.
 
-Repos con `CODEJOB=...` en `.env` (incluido el formato legacy): en la siguiente
-corrida, `codejob` migra ese estado al frontmatter (`STATUS`/`SESSION`/`PR`) y
-borra la clave del `.env`. Reutiliza la lógica de migración que ya existe en
-`LoadCodejobState`.
+### 3.6 Renombrar las claves del keyring a mano (documentado)
+
+Como no hay migración automática, el cambio de nombre se hace una vez. **Camino
+simple (recomendado):** ejecuta `codejob`; al no encontrar la clave bajo el nombre
+nuevo, te la pide y la guardas. Listo.
+
+**Limpieza opcional** de las entradas viejas (servicio de keyring `devflow`):
+
+```bash
+# Linux (libsecret)
+secret-tool clear service devflow username jules_api_key
+secret-tool clear service devflow username github_pat
+secret-tool clear service devflow username github_token
+
+# macOS (Keychain)
+security delete-generic-password -s devflow -a jules_api_key
+security delete-generic-password -s devflow -a github_pat
+
+# Windows: Administrador de credenciales → buscar "devflow"
+```
+
+Esto se documentará en `docs/CODEJOB.md` para corregirlo manualmente sin adivinar.
 
 ## 4. Disparo de las Actions (revisado sobre el estado unificado)
 
@@ -129,9 +178,16 @@ Con el estado en el frontmatter, el *gate* de cada Action es leer `STATUS`:
 
 | Evento GitHub | Guard | Acción |
 |---|---|---|
-| `push` a la rama base que toca `docs/PLAN.md` | `STATUS == dispatch` | **Despachar** al agente (`codejob --ci`). Requiere `JULES_API_KEY`. |
+| `push` a la rama base que toca `docs/PLAN.md` | `STATUS == dispatch` | **Despachar** al agente (`codejob --ci`). Requiere `JULES_API_KEY` + `GH_TOKEN`. |
 | `pull_request` abierto por el agente | `STATUS == running` y el PR corresponde a `SESSION` | Escribir `STATUS: review` + `PR`. |
 | `pull_request` `closed` + `merged == true` | `STATUS == review` y `PLAN.md` presente | **Publicar** (`gopush`, tag-only), borrar `PLAN.md`. |
+
+**Por qué el PAT `GH_TOKEN` y no el `GITHUB_TOKEN` por defecto:** cada transición
+escribe el nuevo `STATUS` y **commitea**. Ese commit debe disparar la siguiente
+Action (p. ej. `dispatch → running` deja el árbol listo para el PR). GitHub, por
+diseño anti-bucle, **no dispara workflows por commits hechos con el
+`GITHUB_TOKEN`**. El PAT `GH_TOKEN` sí los dispara → es lo que sostiene el
+encadenado en la nube.
 
 **Exclusión mutua sin locks:** el gate de publicación exige `STATUS == review` con
 `PLAN.md` presente. Si el cierre se hizo en la PC (`codejob 'msg'` ya publicó y
@@ -188,22 +244,27 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
 - `frontmatter.go` — extender `PlanMeta` con `Agent`, `Status`, `Session`, `PR`;
   añadir constantes de clave y un **escritor** que actualice solo el bloque de
   frontmatter preservando el cuerpo (hoy `tinywasm/markdown` solo lo lee).
-- `codejob.go` / `codejob_state.go` — sustituir la lectura/escritura de `.env`
-  (`LoadCodejobState`/`SaveCodejobState`) por operaciones sobre el frontmatter;
-  añadir la migración desde `.env` (§3.5) y eliminar el renombrado a
-  `CHECK_PLAN.md` (`HandleDone`, `MergeAndPublish`, `.gitignore`).
-- `codejob_auth.go` — permitir que el agente lea la clave desde la variable de
-  entorno `JULES_API_KEY` (nombre = `ToUpper` del keyring), cayendo al keyring.
+- `codejob.go` / `codejob_state.go` — **eliminar** la lectura/escritura de `.env`
+  (`LoadCodejobState`/`SaveCodejobState`, parseo legacy, `CODEJOB_PR`) y operar
+  sobre el frontmatter; eliminar el renombrado a `CHECK_PLAN.md` (`HandleDone`,
+  `MergeAndPublish`, `.gitignore`). Sin código de migración (§3.5).
+- `codejob_auth.go` / `codejob_gh_auth.go` — **renombrar** las claves de keyring a
+  `JULES_API_KEY` y `GH_TOKEN` (borrar `jules_api_key`, `github_pat`,
+  `github_token`, sin alias). Leer primero de la variable de entorno del **mismo
+  nombre** (para CI), cayendo al keyring en local.
 
 ### 6.2 Modos de CLI y Action
 
 - `codejob --ci` — orquestador no interactivo para el runner: lee `STATUS` del
   frontmatter y ejecuta la fase (dispatch / sync-PR / publish), escribiendo el
-  nuevo estado de vuelta y commiteando. Publica con `gopush` **tag-only** (sin
-  `gorelease`).
-- `codejob --init-action` — crea `.github/workflows/codejob.yml` (idempotente,
-  `--force` sobreescribe) y registra el secret `JULES_API_KEY` desde el keyring.
-- `cli.go` — parsear `--ci`, `--init-action`, `--force`.
+  nuevo estado de vuelta y commiteando (con `GH_TOKEN` para que dispare la
+  siguiente Action). Publica con `gopush` **tag-only** (sin `gorelease`).
+- `codejob --init-action [--org <nombre> [--visibility all|selected]]` — crea
+  `.github/workflows/codejob.yml` (idempotente, `--force` sobreescribe) y registra
+  `JULES_API_KEY` + `GH_TOKEN` desde el keyring, a nivel de **repo** o de **org**
+  (§3.4). `github_secrets.go` gana soporte `--org`/`--visibility` sobre el
+  `SetSecret` existente.
+- `cli.go` — parsear `--ci`, `--init-action`, `--force`, `--org`, `--visibility`.
 - `cmd/codejob/main.go` — atender los nuevos flags y actualizar `showHelp()`.
 
 ### 6.3 Workflow (decisiones ya acordadas)
@@ -225,8 +286,8 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
 |---|---|
 | Leer estado (`STATUS`/`SESSION`/`PR`) del frontmatter | `TestPlanState_Read` |
 | Escribir estado preservando el cuerpo del `PLAN.md` | `TestPlanState_WritePreservesBody` |
-| Migración `.env CODEJOB` → frontmatter (incl. legacy) | `TestPlanState_MigrateFromEnv` |
-| Nomenclatura: secret = `ToUpper(clave_keyring)` | `TestSecretName_FromKeyringKey` |
+| Auth lee de env var (CI) y cae al keyring (local), mismo nombre | `TestAuth_EnvThenKeyring` |
+| `--init-action` registra secret a nivel de repo y de `--org` | `TestInitAction_SecretScope` |
 | `--ci` en `dispatch` despacha y escribe `running` | `TestCI_DispatchTransition` |
 | `--ci` en `review` publica (tag-only) y borra `PLAN.md` | `TestCI_PublishTransition` |
 | `--ci` publica es no-op si `PLAN.md` ausente | `TestCI_NoopWhenNoPlan` |
@@ -244,11 +305,15 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
    cuándo el agente terminó. Propongo dispararla por el evento `pull_request opened`
    del agente (cero polling). Alternativa: un `schedule` (cron) que sondee. ¿Cuál
    prefieres?
-4. **Despacho encadenado en la nube.** Con `JULES_API_KEY` como secret, el despacho
-   automático ya es posible en CI (era el único bloqueo). ¿Lo habilito de una vez o
-   lo dejo tras una bandera para estrenarlo con cuidado?
+4. **Despacho encadenado en la nube.** Con `JULES_API_KEY` + `GH_TOKEN` como
+   secrets, el despacho automático ya es posible en CI (era el único bloqueo). ¿Lo
+   habilito de una vez o lo dejo tras una bandera para estrenarlo con cuidado?
 5. **Cascade/backup en CI.** Asumen entorno local; propongo `--no-cascade` y sin
    backup en el runner (publicar solo el módulo), dejando el cascade al flujo local.
+6. **Alcance de los secrets.** Para todo lo de la org `tinywasm` (y tu otra org),
+   `--init-action --org` los setea **una vez** para todos los repos. Para tus repos
+   personales de `cdvelop` no hay secret de cuenta: es por-repo. ¿Confirmas registro
+   por org donde se pueda y por-repo en `cdvelop`?
 
 ## 9. Resumen
 
@@ -256,6 +321,8 @@ Consolidar todo el estado de `codejob` en el frontmatter de `docs/PLAN.md`
 (`STATUS`/`SESSION`/`PR` junto a `PLAN`/`TAG`/`AGENT`) y retirar `.env` y
 `CHECK_PLAN.md`. Como cada transición es un commit, el loop completo —despachar,
 sincronizar el PR y publicar— se ejecuta en la nube: editar la cabecera y commitear
-despacha; fusionar el PR publica. El secret del agente reutiliza el nombre del
-keyring (`jules_api_key` → `JULES_API_KEY`), manteniendo un único identificador en
-local y en la nube. Nada de esto requiere abrir la PC.
+despacha; fusionar el PR publica. Los tokens usan **un solo nombre en keyring, env
+y secret** (`JULES_API_KEY`, `GH_TOKEN`) como break change limpio, sin alias ni
+migración de código; el renombrado en el keyring se hace a mano y está documentado.
+Los secrets se registran una vez por organización donde se pueda. Nada de esto
+requiere abrir la PC.
