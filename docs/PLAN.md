@@ -156,8 +156,26 @@ flowchart TD
 
 ### 5.3 Contenido del workflow (`.github/workflows/codejob.yml`)
 
-Diseño técnico (basado en `docs/codejob/RUNNER_BEST_PRACTICES.md` — se usa
-`ubuntu-latest` porque hay compilación Go cross-platform, caso C de ese doc):
+**Elección de runner — `ubuntu-latest`, no Alpine.** No es un descuido: en
+runners hospedados no existe `runs-on: alpine` (solo Ubuntu/Windows/macOS). Usar
+Alpine obliga a `container: alpine` **encima** de un runner Ubuntu → se paga el
+arranque de la VM Ubuntu + `docker pull` + `apk add`, resultando **más lento** y
+**sin ahorro de costo** (la facturación es por minuto-runner, y el runner sigue
+siendo Ubuntu). Además `checkout`/`setup-go`/`gh`/`git` son glibc y vienen
+preinstalados en Ubuntu; en Alpine exigen `gcompat`. El valor de Alpine es como
+**imagen de despliegue** (runtime), algo ortogonal que ya cubrimos con binarios
+`CGO_ENABLED=0` estáticos de `gorelease`. Y como este job **compila** (`gotest` +
+cross-compile de 5 targets), quiere las 2 vCPU de `ubuntu-latest` — el "Caso C"
+de `docs/codejob/RUNNER_BEST_PRACTICES.md`.
+
+**Bootstrap de la herramienta — binario precompilado, no `go install`.** El
+Release ya publica `codejob-<os>-<arch>` + `checksums.txt` (vía `gorelease`);
+descargar ese asset y verificar el checksum es más rápido y reproducible que
+`go install ...@latest` (que re-resuelve módulos y recompila la herramienta). Es
+dogfooding de nuestros propios artefactos. Nota: esto **no** elimina `setup-go`
+del runner — el publish en sí (tests + cross-compile del release) necesita el
+toolchain; solo dejamos de compilar *la herramienta codejob*. La versión se
+**fija** (la estampa `--init-action`, no `@latest`) para builds reproducibles.
 
 ```yaml
 name: codejob
@@ -188,14 +206,25 @@ jobs:
           fi
       - uses: actions/setup-go@v5
         if: steps.gate.outputs.run == 'true'
-        with: { go-version: 'stable' }
-      - name: Publicar (close-loop en CI)
+        with: { go-version: 'stable' }   # necesario: el publish testea + cross-compila
+      - name: Bootstrap codejob (binario precompilado del Release)
         if: steps.gate.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          go install github.com/tinywasm/devflow/cmd/codejob@latest
-          codejob --ci-publish     # nuevo modo: lee frontmatter, publica, limpia PLAN.md
+          # Versión fijada que estampa 'codejob --init-action' (no @latest)
+          VER=v0.5.0
+          gh release download "$VER" --repo tinywasm/devflow \
+            --pattern 'codejob-linux-amd64' --pattern 'checksums.txt' -O- >/dev/null || \
+          gh release download "$VER" --repo tinywasm/devflow \
+            --pattern 'codejob-linux-amd64' --pattern 'checksums.txt'
+          grep 'codejob-linux-amd64' checksums.txt | sha256sum -c -
+          install -m755 codejob-linux-amd64 /usr/local/bin/codejob
+      - name: Publicar (close-loop en CI)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: codejob --ci-publish     # lee frontmatter, publica, limpia PLAN.md
 ```
 
 > El detalle exacto de los steps (cache de módulos, versión pinneada de la
