@@ -1,7 +1,8 @@
 ---
 PLAN: "feat: unify codejob state in docs/PLAN.md frontmatter and run the full loop in the cloud"
 TAG: v0.5.0
-AGENT: jules
+EXECUTOR: jules
+REVIEWER: none
 STATUS: dispatch
 ---
 
@@ -30,13 +31,15 @@ loop entero se puede ejecutar en la nube:
 > Edito la cabecera de `docs/PLAN.md`, hago commit → se despacha el siguiente
 > trabajo. **Sin abrir la PC en ningún momento.**
 
-## 2. Propuesta (tres piezas)
+## 2. Propuesta (cuatro piezas)
 
 1. **Estado único en el frontmatter** (§3) — retirar `.env` y `CHECK_PLAN.md`.
-2. **Modo `codejob --ci`** (§6) — ejecución no interactiva que la Action invoca:
+2. **Roles ejecutor + revisor** (§3.7) — un agente revisor opcional como compuerta
+   de calidad antes del humano, declarado en el frontmatter.
+3. **Modo `codejob --ci`** (§6) — ejecución no interactiva que la Action invoca:
    lee el frontmatter, ejecuta la fase que corresponda y **escribe el nuevo estado
    de vuelta en el frontmatter** (commit).
-3. **`codejob --init-action`** (§6) — genera `.github/workflows/codejob.yml` y
+4. **`codejob --init-action`** (§6) — genera `.github/workflows/codejob.yml` y
    registra los secrets con **la misma nomenclatura del keyring** (§3.3).
 
 ## 3. Modelo de estado — fuente única en el frontmatter
@@ -47,10 +50,13 @@ loop entero se puede ejecutar en la nube:
 ---
 PLAN: "feat: lo que implementa este plan"   # requerido — mensaje de commit al cerrar
 TAG: v0.5.0                                  # opcional  — versión (omitido = auto-bump)
-AGENT: jules                                 # opcional  — driver (default: jules)
+EXECUTOR: jules                              # opcional  — agente que implementa (default: jules)
+REVIEWER: none                               # opcional  — agente que revisa el PR (none = solo humano)
 STATUS: dispatch                             # gestionado por la máquina
-SESSION: sessions/abc123                     # gestionado — set en 'running'
-PR: https://github.com/o/r/pull/7            # gestionado — set en 'review'
+SESSION: sessions/abc123                     # gestionado — sesión del ejecutor
+REVIEW_SESSION: sessions/def456             # gestionado — sesión del revisor (si REVIEWER)
+ROUND: 0                                     # gestionado — nº de ida-vuelta ejecutor↔revisor
+PR: https://github.com/o/r/pull/7            # gestionado — PR abierto por el ejecutor
 ---
 ```
 
@@ -58,35 +64,45 @@ PR: https://github.com/o/r/pull/7            # gestionado — set en 'review'
 |---|---|---|
 | `PLAN` | humano | Mensaje de commit del cierre (requerido). |
 | `TAG` | humano | Versión explícita (opcional). |
-| `AGENT` | humano | Driver a usar (`jules` por defecto). |
-| `STATUS` | máquina | `dispatch` → `running` → `review`. |
-| `SESSION` | máquina | ID de sesión del agente (fase `running`). |
-| `PR` | máquina | URL del PR abierto por el agente (fase `review`). |
+| `EXECUTOR` | humano | Agente que implementa (antes `AGENT`; `jules` por defecto). |
+| `REVIEWER` | humano | Agente que revisa el PR. `none`/ausente = solo revisión humana (comportamiento actual). |
+| `STATUS` | máquina | `dispatch` → `running` → `reviewing` → `review`. |
+| `SESSION` | máquina | Sesión del ejecutor (fase `running`). |
+| `REVIEW_SESSION` | máquina | Sesión del revisor (fase `reviewing`). |
+| `ROUND` | máquina | Rondas ejecutor↔revisor, con tope anti-bucle (§3.7). |
+| `PR` | máquina | URL del PR abierto por el ejecutor. |
 
 `STATUS: dispatch` (o `STATUS` ausente) = "pendiente de despachar", exactamente el
 mismo criterio que hoy es "no hay `CODEJOB` en `.env` y existe `PLAN.md`". El valor
-es **derivable** de `SESSION`/`PR`, pero mantenerlo explícito hace el *gate* de la
-Action trivial y legible por un humano.
+es **derivable** de las demás claves, pero mantenerlo explícito hace el *gate* de la
+Action trivial y legible por un humano. La fase `reviewing` solo aparece si hay un
+`REVIEWER`; sin él, el flujo va directo de `running` a `review` (humano).
 
 ### 3.2 Máquina de estados (cada arista es un commit)
 
 ```mermaid
 stateDiagram-v2
     [*] --> dispatch: humano crea/edita PLAN.md
-    dispatch --> running: codejob despacha al agente<br/>(escribe SESSION)
-    running --> review: PR listo<br/>(escribe PR)
-    review --> [*]: merge del PR → gopush publica<br/>(borra PLAN.md)
+    dispatch --> running: despacha al EXECUTOR<br/>(escribe SESSION)
+    running --> reviewing: PR abierto y hay REVIEWER<br/>(despacha al revisor en rama X)
+    running --> review: PR abierto y REVIEWER=none
+    reviewing --> running: CHANGES_REQUESTED<br/>(re-despacha al ejecutor, ROUND++)
+    reviewing --> review: APPROVED por el revisor
+    review --> [*]: humano fusiona → gopush publica<br/>(borra PLAN.md)
     note right of dispatch
       Local o nube:
-      la misma lógica lee/escribe
+      la misma logica lee/escribe
       el frontmatter, no el .env
     end note
 ```
 
-- **dispatch → running:** `codejob` (local **o** `--ci` en la nube) envía el plan
-  al `AGENT`, guarda `STATUS: running` + `SESSION`, commitea.
-- **running → review:** al detectar el PR, guarda `STATUS: review` + `PR`, commitea.
-- **review → cerrado:** al fusionar el PR se publica (`gopush`, tag-only) y se
+- **dispatch → running:** `codejob` (local **o** `--ci`) envía el plan al
+  `EXECUTOR`, guarda `STATUS: running` + `SESSION`, commitea.
+- **running → reviewing / review:** al abrirse el PR, si hay `REVIEWER` se despacha
+  al revisor (§3.7); si no, pasa directo a `review` (humano).
+- **reviewing → running / review:** según el veredicto del revisor (cambios o
+  aprobado).
+- **review → cerrado:** el humano fusiona → se publica (`gopush`, tag-only) y se
   **borra `docs/PLAN.md`** (el commit de cierre usa el mensaje de `PLAN:`).
 
 ### 3.3 Nomenclatura del token (break change limpio)
@@ -172,14 +188,62 @@ security delete-generic-password -s devflow -a github_pat
 
 Esto se documentará en `docs/CODEJOB.md` para corregirlo manualmente sin adivinar.
 
+### 3.7 Roles de agente: ejecutor y revisor
+
+Hoy el modelo es **agente = ejecutor, humano = revisor**. Añadimos un eje de
+**rol** para insertar, opcionalmente, un **agente revisor** antes del humano. Esto
+encaja con la definición original de CodeJob (orquestar una *secuencia* de drivers):
+ahora cada driver declara su rol, `executor` o `reviewer`.
+
+- El humano declara los roles en el frontmatter: `EXECUTOR: <agente>` y
+  `REVIEWER: <agente|none>`. Un mismo backend (p. ej. Jules) puede registrarse en
+  ambos roles con prompts distintos, o el revisor puede ser de otro proveedor.
+- **El revisor es una compuerta de calidad *antes* del humano, no lo reemplaza.**
+  Tú sigues fusionando el PR, que es lo que publica (mantienes el control final).
+
+**El flujo que describiste, paso a paso:**
+
+1. El ejecutor abre el PR en la rama `X`.
+2. El evento `pull_request opened` dispara la Action: si `REVIEWER != none`,
+   `codejob` **despacha un job de revisión** al agente revisor con:
+   - **rama** = `X` (la cabeza del PR),
+   - **indicaciones** = "revisa este PR contra `docs/PLAN.md`" (+ guía opcional, ver
+     abajo),
+   guarda `REVIEW_SESSION`, `STATUS: reviewing`, y commitea.
+3. El revisor entrega su resultado como una **review nativa de GitHub**
+   (`APPROVED` / `CHANGES_REQUESTED`) en el PR. Ventaja doble: **tú la ves** en el
+   PR y la **máquina la lee** (`gh pr view --json reviews`). No inventamos formato.
+4. `codejob` lee el veredicto:
+   - **APPROVED** → `STATUS: review` → tu revisión final → fusionas → publica.
+   - **CHANGES_REQUESTED** → **re-despacha al ejecutor** en la misma rama `X` con
+     los comentarios de la review como feedback; `STATUS: running`, `ROUND++`.
+5. **Tope anti-bucle:** si `ROUND` supera `N` (p. ej. 3), se corta el ping-pong y
+   `STATUS: review` con nota "el revisor no convergió, decide tú". Sin bucles infinitos.
+
+**Dónde viven las "indicaciones de revisión".** Por defecto el contrato es el propio
+`docs/PLAN.md` ("¿la rama X cumple este plan?"). Opcionalmente, un
+`REVIEW_GUIDE: docs/REVIEW.md` con criterios extra (estilo, seguridad, cobertura)
+que se añaden al prompt del revisor.
+
+**Impacto en la interfaz de driver.** El job pasa de `Send(prompt, title)` a llevar
+un `JobSpec{Role, Branch, PlanPath, Prompt, Title}`: el rol y la rama `X` son lo que
+distingue "implementar el plan" de "revisar el PR de la rama X".
+
+> Esto también **resuelve la pregunta 3**: el evento `pull_request opened` deja de
+> ser cosmético — es el gancho que lanza al revisor. Con revisores, la **opción B**
+> es la natural. (Sin `REVIEWER`, sigue valiendo la opción A: `running → review`
+> directo al fusionar.)
+
 ## 4. Disparo de las Actions (revisado sobre el estado unificado)
 
 Con el estado en el frontmatter, el *gate* de cada Action es leer `STATUS`:
 
 | Evento GitHub | Guard | Acción |
 |---|---|---|
-| `push` a la rama base que toca `docs/PLAN.md` | `STATUS == dispatch` | **Despachar** al agente (`codejob --ci`). Requiere `JULES_API_KEY` + `GH_TOKEN`. |
-| `pull_request` abierto por el agente | `STATUS == running` y el PR corresponde a `SESSION` | Escribir `STATUS: review` + `PR`. |
+| `push` a la rama base que toca `docs/PLAN.md` | `STATUS == dispatch` | **Despachar** al `EXECUTOR` (`codejob --ci`). Requiere `JULES_API_KEY` + `GH_TOKEN`. |
+| `pull_request` abierto por el ejecutor | `STATUS == running`, PR = `SESSION`, `REVIEWER != none` | **Despachar al revisor** en la rama `X`; `STATUS: reviewing` + `REVIEW_SESSION`. |
+| `pull_request` abierto por el ejecutor | `STATUS == running`, `REVIEWER == none` | `STATUS: review` + `PR` (revisión humana). |
+| `pull_request_review` enviada por el revisor | `STATUS == reviewing`, review = `REVIEW_SESSION` | `APPROVED` → `STATUS: review`. `CHANGES_REQUESTED` → re-despacha al ejecutor, `ROUND++` (o corta si `ROUND > N`). |
 | `pull_request` `closed` + `merged == true` | `STATUS == review` y `PLAN.md` presente | **Publicar** (`gopush`, tag-only), borrar `PLAN.md`. |
 
 **Por qué el PAT `GH_TOKEN` y no el `GITHUB_TOKEN` por defecto:** cada transición
@@ -221,7 +285,7 @@ flowchart TD
     end
 
     A[Edito la cabecera de docs/PLAN.md<br/>STATUS: dispatch + commit] --> GA1{Action on push}
-    GA1 -->|STATUS == dispatch| B[codejob --ci: despacha al AGENT<br/>escribe STATUS: running + SESSION]
+    GA1 -->|STATUS == dispatch| B[codejob --ci: despacha al EXECUTOR<br/>escribe STATUS: running + SESSION]
     B --> C[Agente abre PR]
     C --> GA2{Action on PR opened}
     GA2 -->|STATUS == running| R[escribe STATUS: review + PR]
@@ -241,9 +305,15 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
 
 ### 6.1 Estado en el frontmatter
 
-- `frontmatter.go` — extender `PlanMeta` con `Agent`, `Status`, `Session`, `PR`;
-  añadir constantes de clave y un **escritor** que actualice solo el bloque de
-  frontmatter preservando el cuerpo (hoy `tinywasm/markdown` solo lo lee).
+- `frontmatter.go` — extender `PlanMeta` con `Executor`, `Reviewer`, `Status`,
+  `Session`, `ReviewSession`, `Round`, `PR`; añadir constantes de clave y un
+  **escritor** que actualice solo el bloque de frontmatter preservando el cuerpo
+  (hoy `tinywasm/markdown` solo lo lee).
+- `interface.go` — introducir el eje de **rol** en el driver: `CodeJobDriver` pasa
+  de `Send(prompt, title)` a `Send(JobSpec{Role, Branch, PlanPath, Prompt, Title})`
+  (§3.7); registrar drivers por rol (`executor`/`reviewer`).
+- Nuevo: lógica de despacho del revisor y lectura del veredicto de la review de
+  GitHub (`gh pr view --json reviews`), con el tope de `ROUND`.
 - `codejob.go` / `codejob_state.go` — **eliminar** la lectura/escritura de `.env`
   (`LoadCodejobState`/`SaveCodejobState`, parseo legacy, `CODEJOB_PR`) y operar
   sobre el frontmatter; eliminar el renombrado a `CHECK_PLAN.md` (`HandleDone`,
@@ -292,6 +362,9 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
 | `--ci` en `review` publica (tag-only) y borra `PLAN.md` | `TestCI_PublishTransition` |
 | `--ci` publica es no-op si `PLAN.md` ausente | `TestCI_NoopWhenNoPlan` |
 | `--init-action` crea el workflow (idempotente/`--force`) | `TestInitCodejobAction_*` |
+| PR abierto con `REVIEWER` set → despacha revisor en rama X | `TestReviewer_DispatchOnPR` |
+| Veredicto `APPROVED` → `review`; `CHANGES_REQUESTED` → `running`+`ROUND++` | `TestReviewer_VerdictTransitions` |
+| Tope de rondas: `ROUND > N` corta a revisión humana | `TestReviewer_RoundCap` |
 
 ## 8. Riesgos y decisiones abiertas (para tu aprobación)
 
@@ -301,10 +374,10 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
    comprimir las transiciones intermedias, pero perderíamos la trazabilidad.)
 2. **Conflictos de edición.** Máquina y humano escriben el mismo archivo. Mitigación:
    la máquina toca **solo** el bloque de frontmatter; el humano, el cuerpo. ¿Ok?
-3. **Poll de `running` en la nube.** La transición `running → review` necesita saber
-   cuándo el agente terminó. Propongo dispararla por el evento `pull_request opened`
-   del agente (cero polling). Alternativa: un `schedule` (cron) que sondee. ¿Cuál
-   prefieres?
+3. **~~Poll de `running`~~ (resuelto por §3.7).** Con el agente revisor, la
+   transición `running → …` se dispara por el evento `pull_request opened` (opción
+   B), que ahora es load-bearing. Sin `REVIEWER`, vale la opción A (directo a
+   `review` al fusionar). Ya no hace falta cron.
 4. **Despacho encadenado en la nube.** Con `JULES_API_KEY` + `GH_TOKEN` como
    secrets, el despacho automático ya es posible en CI (era el único bloqueo). ¿Lo
    habilito de una vez o lo dejo tras una bandera para estrenarlo con cuidado?
@@ -315,14 +388,30 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
    personales de `cdvelop` no hay secret de cuenta: es por-repo. ¿Confirmas registro
    por org donde se pueda y por-repo en `cdvelop`?
 
+**Decisiones del agente revisor (§3.7):**
+
+7. **¿El revisor juzga o corrige?** Propongo que **juzgue** (postea una review
+   APPROVED/CHANGES_REQUESTED) y que corregir sea re-despachar al ejecutor. La
+   variante "el revisor empuja fixes a la rama X" es posible pero difumina roles.
+8. **¿APPROVED del revisor pasa a tu revisión final, o auto-merge?** Recomiendo
+   mantener **tu** fusión como gatillo de publicación (control final humano); el
+   revisor solo te ahorra trabajo previo. ¿O prefieres auto-merge al aprobar?
+9. **Tope de rondas `N`.** ¿2 o 3 ida-vueltas ejecutor↔revisor antes de pasarte el
+   control?
+10. **¿Un revisor o varios?** v1 con un `REVIEWER`; se puede generalizar a una lista
+    en cadena después. ¿Suficiente con uno por ahora?
+
 ## 9. Resumen
 
 Consolidar todo el estado de `codejob` en el frontmatter de `docs/PLAN.md`
-(`STATUS`/`SESSION`/`PR` junto a `PLAN`/`TAG`/`AGENT`) y retirar `.env` y
-`CHECK_PLAN.md`. Como cada transición es un commit, el loop completo —despachar,
-sincronizar el PR y publicar— se ejecuta en la nube: editar la cabecera y commitear
-despacha; fusionar el PR publica. Los tokens usan **un solo nombre en keyring, env
-y secret** (`JULES_API_KEY`, `GH_TOKEN`) como break change limpio, sin alias ni
-migración de código; el renombrado en el keyring se hace a mano y está documentado.
-Los secrets se registran una vez por organización donde se pueda. Nada de esto
-requiere abrir la PC.
+(`STATUS`/`SESSION`/`PR`/`ROUND` junto a `PLAN`/`TAG`/`EXECUTOR`/`REVIEWER`) y
+retirar `.env` y `CHECK_PLAN.md`. Como cada transición es un commit, el loop
+completo —despachar, revisar y publicar— se ejecuta en la nube: editar la cabecera
+y commitear despacha; fusionar el PR publica. Se añade un **eje de rol** para
+insertar un **agente revisor** opcional antes del humano (ejecutor abre PR → revisor
+lo juzga con una review nativa de GitHub → cambios re-despachan al ejecutor, o
+aprobado pasa a tu fusión final), con tope de rondas anti-bucle. Los tokens usan
+**un solo nombre en keyring, env y secret** (`JULES_API_KEY`, `GH_TOKEN`) como break
+change limpio, sin alias ni migración de código; el renombrado en el keyring se hace
+a mano y está documentado. Los secrets se registran una vez por organización donde
+se pueda. Nada de esto requiere abrir la PC.
