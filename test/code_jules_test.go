@@ -47,6 +47,7 @@ func testJulesConfig() devflow.JulesConfig {
 func TestJulesDriverSendSuccess(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(&mockHTTPClient{statusCode: 200, body: `{"id":"S123"}`})
+	d.SetRunner(&mockRunner{})
 
 	result, err := d.Send("Execute the implementation plan described in docs/PLAN.md", "user/repo")
 	if err != nil {
@@ -63,6 +64,7 @@ func TestJulesDriverSendSuccess(t *testing.T) {
 func TestJulesDriverSendNon200(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(&mockHTTPClient{statusCode: 403, body: "forbidden"})
+	d.SetRunner(&mockRunner{})
 
 	_, err := d.Send("Execute the implementation plan described in docs/PLAN.md", "")
 	if err == nil {
@@ -77,6 +79,7 @@ func TestJulesDriverSendUsesProvidedAPIKey(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send("Execute the implementation plan described in docs/PLAN.md", "")
 
@@ -93,6 +96,7 @@ func TestJulesDriverSendUsesReceivedPrompt(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send(customPrompt, "")
 
@@ -118,6 +122,7 @@ func TestJulesDriverSendUsesTitle(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send("Execute the plan", "myorg/myrepo")
 
@@ -136,6 +141,7 @@ func TestJulesDriverSendConfigTitleOverrides(t *testing.T) {
 	cfg.SessionTitle = "custom title"
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send("Execute the plan", "myorg/myrepo") // title arg should be ignored
 
@@ -208,6 +214,7 @@ func TestJulesDriverSendRetriesWhenSourceNotIndexed(t *testing.T) {
 	}
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	result, err := d.Send("Execute the plan", "user/repo")
 	if err != nil {
@@ -233,6 +240,7 @@ func TestJulesDriverSendReturns404WhenSourceIndexedButStill404(t *testing.T) {
 	}
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	_, err := d.Send("Execute the plan", "")
 	if err == nil {
@@ -260,6 +268,7 @@ func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
 	}
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	_, err := d.Send("Execute the plan", "")
 	if err == nil {

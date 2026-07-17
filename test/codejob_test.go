@@ -16,8 +16,8 @@ type mockDriver struct {
 	err    error
 }
 
-func (m *mockDriver) Name() string                  { return m.name }
-func (m *mockDriver) SetLog(_ func(...any))         {}
+func (m *mockDriver) Name() string                     { return m.name }
+func (m *mockDriver) SetLog(_ func(...any))            {}
 func (m *mockDriver) Send(_, _ string) (string, error) { return m.result, m.err }
 
 func writeTempFile(t *testing.T, content string) string {
@@ -47,9 +47,10 @@ func TestCodeJob_Run_NoArgs_Dispatch(t *testing.T) {
 
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
+	job.SetRunner(&mockRunner{})
 
-    // Mock Publisher to satisfy Send's publish-before-dispatch
-    job.SetPublisher(&MockPublisher{})
+	// Mock Publisher to satisfy Send's publish-before-dispatch
+	job.SetPublisher(&MockPublisher{})
 
 	got, err := job.Run("", "", false)
 	if err != nil {
@@ -71,6 +72,7 @@ func TestCodeJob_MessageWithoutPR(t *testing.T) {
 	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: \"test plan\"\nSTATUS: review\n---\n"), 0644)
 
 	job := devflow.NewCodeJob()
+	job.SetRunner(&mockRunner{})
 	job.SetPublisher(&MockPublisher{})
 	_, err := job.Run("some message", "", false)
 	if err == nil {
@@ -98,6 +100,7 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 	}
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
+	job.SetRunner(&mockRunner{})
 	job.SetPublisher(mockPub)
 
 	_, err := job.Send(path)
@@ -122,6 +125,7 @@ func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	var logged []string
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
+	job.SetRunner(&mockRunner{})
 	job.SetPublisher(mockPub)
 	job.SetLog(func(args ...any) { logged = append(logged, fmt.Sprint(args...)) })
 

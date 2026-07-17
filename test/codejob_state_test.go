@@ -151,7 +151,6 @@ func TestCheckoutPRBranch_PopConflict(t *testing.T) {
 	}
 }
 
-
 func TestMergeAndPublish_Guard(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
@@ -206,7 +205,7 @@ func TestMergeAndPublish_NoPRURL(t *testing.T) {
 	_ = os.MkdirAll("docs", 0755)
 	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\n---\n"), 0644)
 
-	_, err := devflow.MergeAndPublish(devflow.RealRunner{}, &MockPublisher{}, "test", "")
+	_, err := devflow.MergeAndPublish(&mockRunner{}, &MockPublisher{}, "test", "")
 	if err == nil {
 		t.Fatal("expected error when no PR URL in PLAN.md, got nil")
 	}
@@ -446,4 +445,3 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 		t.Errorf("expected tag v1.2.3, got %q", result.Tag)
 	}
 }
-

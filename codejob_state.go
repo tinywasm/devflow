@@ -174,7 +174,7 @@ func resolveDefaultBranch(runner Runner) string {
 
 // MergeAndPublish merges the Jules PR, pulls the merged commit, and publishes via gopush.
 func MergeAndPublish(runner Runner, publisher Publisher, message, overrideTag string) (PushResult, error) {
-	if err := EnsureGHSession(); err != nil {
+	if err := EnsureGHSession(runner); err != nil {
 		return PushResult{}, err
 	}
 	meta, err := ReadPlanMeta(DefaultIssuePromptPath)

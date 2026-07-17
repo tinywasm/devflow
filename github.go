@@ -179,14 +179,17 @@ func (gh *GitHub) GetHelpfulErrorMessage(err error) string {
 
 // EnsureGHSession verifies the gh session and, if expired, restores it non-interactively
 // from the keyring PAT via `gh auth login --with-token`. No-op when the session is healthy.
-func EnsureGHSession() error {
+// The probe and verification run through runner so tests can inject a double and never
+// touch a real gh CLI; restore itself always uses the real process (only reached when the
+// probe genuinely fails, i.e. never under an injected test Runner that reports success).
+func EnsureGHSession(runner Runner) error {
 	// Skip if in a test environment or headless/CI without a real gh.
 	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" || os.Getenv("CI") == "true" {
 		return nil
 	}
 
 	// Cheap probe that NEVER opens a browser: fails fast if the session is invalid.
-	if _, err := command.Run("gh", "api", "user", "--jq", ".login"); err == nil {
+	if _, err := runner.Run("gh", "api", "user", "--jq", ".login"); err == nil {
 		return nil // session healthy
 	}
 
@@ -205,7 +208,7 @@ func EnsureGHSession() error {
 	}
 
 	// Verify the restored session works.
-	if _, err := command.Run("gh", "api", "user", "--jq", ".login"); err != nil {
+	if _, err := runner.Run("gh", "api", "user", "--jq", ".login"); err != nil {
 		return fmt.Errorf("gh session still invalid after restore. Rotate with: codejob --reset-gh-token\n%w", err)
 	}
 	return nil

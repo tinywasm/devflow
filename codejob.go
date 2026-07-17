@@ -66,7 +66,6 @@ func (c *CodeJob) SetRunner(r Runner) {
 	}
 }
 
-
 // ObjectsToPublish implements PublishObjector. It is stateless.
 func (CodeJob) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
 	// Skip if a session is active (running or review).
@@ -250,7 +249,7 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 // driver in order until one succeeds. Returns an error if the file is missing,
 // empty, the publish fails, or all drivers fail.
 func (c *CodeJob) Send(issuePromptPath string) (string, error) {
-	if err := EnsureGHSession(); err != nil {
+	if err := EnsureGHSession(c.runner); err != nil {
 		return "", err
 	}
 

@@ -65,10 +65,10 @@ type mockSessionDriver struct {
 	sessionID string
 }
 
-func (m *mockSessionDriver) Name() string                  { return m.name }
-func (m *mockSessionDriver) SetLog(_ func(...any))         {}
+func (m *mockSessionDriver) Name() string                     { return m.name }
+func (m *mockSessionDriver) SetLog(_ func(...any))            {}
 func (m *mockSessionDriver) Send(_, _ string) (string, error) { return "ok", nil }
-func (m *mockSessionDriver) SessionID() string              { return m.sessionID }
+func (m *mockSessionDriver) SessionID() string                { return m.sessionID }
 
 func TestCI_Dispatch_WritesRunning(t *testing.T) {
 	tmp := t.TempDir()

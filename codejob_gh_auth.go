@@ -90,7 +90,7 @@ func (a *GitHubPATAuth) Reset() error {
 
 // EnsureGitHubAuth fulfills the GitHubAuthenticator interface.
 func (a *GitHubPATAuth) EnsureGitHubAuth() error {
-	return EnsureGHSession()
+	return EnsureGHSession(RealRunner{})
 }
 
 // readSecret reads a secret from stdin without echoing.

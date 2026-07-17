@@ -87,7 +87,7 @@ func TestEnsureGHSession_Healthy(t *testing.T) {
 	os.Setenv("MOCK_GH_EXPIRED", "0")
 	defer os.Unsetenv("MOCK_GH_EXPIRED")
 
-	err := devflow.EnsureGHSession()
+	err := devflow.EnsureGHSession(devflow.RealRunner{})
 	if err != nil {
 		t.Fatalf("Expected no error for healthy session, got: %v", err)
 	}
