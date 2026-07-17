@@ -12,12 +12,17 @@ description: How to write the content of a docs/PLAN.md so a less-capable execut
 ## Frontmatter — REQUIRED, or dispatch fails
 
 Every `docs/PLAN.md` MUST **open** with a frontmatter block. The very first line of the file
-is `---`, **before** any heading or blockquote:
+is `---`, **before** any heading or blockquote. All state for the plan's loop
+lives here — there is no `.env` and no `CHECK_PLAN.md`; every phase transition
+is a git commit to this same block, so the loop runs identically locally or in
+GitHub Actions:
 
 ```markdown
 ---
 PLAN: "feat: what this plan implements"
 TAG: v0.2.0
+EXECUTOR: jules
+REVIEWER: none
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
@@ -25,10 +30,27 @@ TAG: v0.2.0
 # Plan — ...
 ```
 
-- `PLAN` — **required**. Commit message used when the loop is closed.
-- `TAG` — optional. Explicit version (`v0.2.0`); omit to let `gopush` auto-bump.
+| Key | Who writes it | Required | Meaning |
+|---|---|---|---|
+| `PLAN` | human/planning agent | **yes** | Commit message used when the loop closes (`codejob 'msg'` overrides it). |
+| `TAG` | human/planning agent | no | Explicit version (`v0.2.0`); omitted → `gopush` auto-bumps. |
+| `EXECUTOR` | human/planning agent | no | Agent that implements the plan and opens the PR (default `jules`). |
+| `REVIEWER` | human/planning agent | no | Agent that judges the PR and posts a native GitHub review (`APPROVED`/`CHANGES_REQUESTED`); `none`/absent → human-only review, no reviewer dispatch. |
+| `CORRECTOR` | human/planning agent | no | Agent that applies review feedback (default: the `EXECUTOR`). |
+| `REVIEW_GUIDE` | human/planning agent | no | Path to extra review criteria (e.g. `docs/REVIEW.md`). |
+| `STATUS` | **machine only** | — | `dispatch` → `running` → `reviewing` → `review`. Absent/`dispatch` means "pending dispatch". |
+| `SESSION` | **machine only** | — | Executor session id. |
+| `REVIEW_SESSION` | **machine only** | — | Reviewer session id. |
+| `ROUND` | **machine only** | — | Executor↔reviewer round count (capped, default 3; over cap hands to human review). |
+| `PR` | **machine only** | — | URL of the PR opened by the executor. |
 
-Without it, `codejob` aborts with `plan frontmatter: file must start with a '---' line`.
+The planning agent (and the human) only ever set `PLAN`, `TAG`, `EXECUTOR`,
+`REVIEWER`, `CORRECTOR`, `REVIEW_GUIDE` — the machine-only keys are written
+exclusively by `codejob` as the plan moves through its state machine and must
+never be hand-edited. Unknown keys are ignored. Full behavioral spec: see
+`docs/CODEJOB.md` and `docs/diagrams/CODEJOB_FLOW.md` in the `devflow` repo.
+
+Without the opening `---`, `codejob` aborts with `plan frontmatter: file must start with a '---' line`.
 
 ## `PLAN.md` Rules
 
