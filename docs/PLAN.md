@@ -220,6 +220,36 @@ ahora cada driver declara su rol, `executor` o `reviewer`.
 5. **Tope anti-bucle:** si `ROUND` supera `N` (p. ej. 3), se corta el ping-pong y
    `STATUS: review` con nota "el revisor no convergió, decide tú". Sin bucles infinitos.
 
+**Todo se mantiene en la PR (un solo hilo de mensajes).** Sí — es viable y es el
+punto central. El revisor **no** usa un canal aparte: publica en la **conversación
+del PR**, la misma caja donde tú ya respondes correcciones a Jules. En concreto,
+una *review* de GitHub tiene cuerpo + comentarios de línea, y todo aparece en el
+timeline del PR. Beneficios:
+
+- **Tú lo ves** en el PR, junto a tus propios comentarios; puedes intervenir en el
+  mismo hilo cuando quieras (comentar, matizar o anular al revisor).
+- **El ejecutor lo lee** como ya lee *tus* comentarios hoy: el feedback del revisor
+  entra por el **mismo mecanismo** que usas manualmente. Nada nuevo que aprender.
+- **La máquina lo lee** para dirigir el estado (`gh pr view --json reviews` →
+  `APPROVED`/`CHANGES_REQUESTED`). No inventamos formato ni archivos paralelos.
+
+**Roles: dos tipos de acción, no una torre de roles.** Sobre un PR solo hay dos
+cosas que hacer:
+
+| Acción | Rol | Qué produce |
+|---|---|---|
+| **Juzgar** | `reviewer` | Una review en el PR (no toca código). |
+| **Modificar** | `executor` | Commits en la rama `X`. |
+
+Por eso el **revisor juzga** y **corregir = volver a ejecutar**. El corrector, por
+defecto, **es el mismo `EXECUTOR`** (Jules) que abrió el PR: recibe los comentarios
+del revisor y corrige sobre la rama `X`, igual que hoy corrige desde tus
+comentarios. No hace falta un tercer rol.
+
+> **¿"Habrá otros que corrigen"?** Solo si tú quieres *otro* agente distinto para
+> corregir (ojos frescos). Se soporta con una clave opcional `CORRECTOR: <agente>`;
+> si se omite, corrige el `EXECUTOR`. Es configuración, no un rol nuevo en el motor.
+
 **Dónde viven las "indicaciones de revisión".** Por defecto el contrato es el propio
 `docs/PLAN.md` ("¿la rama X cumple este plan?"). Opcionalmente, un
 `REVIEW_GUIDE: docs/REVIEW.md` con criterios extra (estilo, seguridad, cobertura)
@@ -400,6 +430,14 @@ Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
    control?
 10. **¿Un revisor o varios?** v1 con un `REVIEWER`; se puede generalizar a una lista
     en cadena después. ¿Suficiente con uno por ahora?
+11. **¿Quién dispara la corrección?** Dos formas, y el mensaje del revisor queda en
+    la PR en ambas:
+    - **codejob orquesta (recomendado):** ante `CHANGES_REQUESTED`, codejob despacha
+      al corrector con ese feedback. Determinista y acotado por `ROUND`.
+    - **nativo:** el ejecutor (Jules) reacciona por su cuenta al comentario del
+      revisor, como reacciona a los tuyos. Más natural, pero sin tope de rondas y
+      con riesgo de que reaccione a *cualquier* comentario. Tus comentarios manuales
+      siguen disponibles en ambos casos. ¿Cuál prefieres como comportamiento base?
 
 ## 9. Resumen
 
