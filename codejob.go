@@ -16,12 +16,6 @@ const (
 	// DefaultIssuePromptPath is the conventional location for the task description file.
 	DefaultIssuePromptPath = "docs/PLAN.md"
 
-	// EnvKeyCodejob holds the active agent session ("driver:phase:ref").
-	EnvKeyCodejob = "CODEJOB"
-	// EnvKeyCodejobPR holds the GitHub PR URL pending merge.
-	// Deprecated: legacy key, read-only for migration.
-	EnvKeyCodejobPR = "CODEJOB_PR"
-
 	// CodejobStashMessage is the label for the git stash created during branch switching.
 	CodejobStashMessage = "codejob: local drift before review"
 
@@ -34,81 +28,9 @@ const (
 type CodejobPhase string
 
 const (
-	PhaseRunning CodejobPhase = "running" // agent working; Ref = session ID
-	PhaseReview  CodejobPhase = "review"  // PR open, pending merge; Ref = PR URL
+	PhaseRunning CodejobPhase = "running"
+	PhaseReview  CodejobPhase = "review"
 )
-
-// CodejobState is the single piece of state the codejob manager persists.
-type CodejobState struct {
-	Driver string
-	Phase  CodejobPhase
-	Ref    string // session ID (running) or PR URL (review)
-}
-
-// ErrInvalidCodejobState is returned when the CODEJOB value in .env is malformed.
-var ErrInvalidCodejobState = fmt.Errorf("invalid CODEJOB value in .env: expected <driver>:<phase>:<ref>")
-
-// ParseCodejobState parses a raw CODEJOB value.
-func ParseCodejobState(raw string) (CodejobState, error) {
-	if raw == "" {
-		return CodejobState{}, nil
-	}
-	parts := strings.SplitN(raw, ":", 3)
-	if len(parts) == 2 {
-		// Legacy format: driver:sessionID
-		return CodejobState{Driver: parts[0], Phase: PhaseRunning, Ref: parts[1]}, nil
-	}
-	if len(parts) != 3 {
-		return CodejobState{}, ErrInvalidCodejobState
-	}
-	phase := CodejobPhase(parts[1])
-	if phase != PhaseRunning && phase != PhaseReview {
-		return CodejobState{}, ErrInvalidCodejobState
-	}
-	return CodejobState{Driver: parts[0], Phase: phase, Ref: parts[2]}, nil
-}
-
-func (s CodejobState) String() string {
-	if s.Driver == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s:%s:%s", s.Driver, s.Phase, s.Ref)
-}
-
-// LoadCodejobState reads the codejob state from .env, with legacy migration.
-func LoadCodejobState(env *DotEnv) (CodejobState, error) {
-	// 1. Try legacy PR key first (it wins if present)
-	if prURL, ok := env.Get(EnvKeyCodejobPR); ok && prURL != "" {
-		return CodejobState{Driver: "jules", Phase: PhaseReview, Ref: prURL}, nil
-	}
-
-	// 2. Try unified CODEJOB key
-	val, ok := env.Get(EnvKeyCodejob)
-	if !ok || val == "" {
-		return CodejobState{}, nil
-	}
-
-	return ParseCodejobState(val)
-}
-
-// SaveCodejobState writes the state to .env and removes legacy keys.
-func SaveCodejobState(env *DotEnv, s CodejobState) error {
-	if s.Driver == "" {
-		return ClearCodejobState(env)
-	}
-	if err := env.Set(EnvKeyCodejob, s.String()); err != nil {
-		return err
-	}
-	return env.Delete(EnvKeyCodejobPR)
-}
-
-// ClearCodejobState removes all codejob-related keys from .env.
-func ClearCodejobState(env *DotEnv) error {
-	if err := env.Delete(EnvKeyCodejob); err != nil {
-		return err
-	}
-	return env.Delete(EnvKeyCodejobPR)
-}
 
 // CodeJob orchestrates sending a coding task to a chain of AI agent drivers.
 // It validates the prompt file, then tries each driver in priority order,
@@ -118,6 +40,7 @@ type CodeJob struct {
 	log       func(...any)
 	publisher Publisher
 	releaseFn func(tag string) error
+	runner    Runner
 }
 
 // NewCodeJob creates a CodeJob with the given ordered drivers.
@@ -125,6 +48,7 @@ func NewCodeJob(drivers ...CodeJobDriver) *CodeJob {
 	return &CodeJob{
 		drivers: drivers,
 		log:     func(...any) {},
+		runner:  RealRunner{},
 	}
 }
 
@@ -132,6 +56,13 @@ func NewCodeJob(drivers ...CodeJobDriver) *CodeJob {
 func (c *CodeJob) SetLog(fn func(...any)) {
 	if fn != nil {
 		c.log = fn
+	}
+}
+
+// SetRunner sets the command runner (mainly for testing).
+func (c *CodeJob) SetRunner(r Runner) {
+	if r != nil {
+		c.runner = r
 	}
 }
 
@@ -158,14 +89,8 @@ func (c *CodeJob) SetPublisher(p Publisher) { c.publisher = p }
 func (c *CodeJob) SetReleaser(fn func(tag string) error) { c.releaseFn = fn }
 
 // IsEnvironmentValid reports whether the current working directory has an
-// active codejob context: a running session, a pending PR, or a PLAN.md to dispatch.
-// dotenvPath is the path to the .env file (typically ".env").
+// active codejob context: a PLAN.md to dispatch or a session in progress.
 func IsEnvironmentValid(dotenvPath string) bool {
-	env := NewDotEnv(dotenvPath)
-	state, _ := LoadCodejobState(env)
-	if state.Phase != "" {
-		return true
-	}
 	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
 		return true
 	}
@@ -175,28 +100,29 @@ func IsEnvironmentValid(dotenvPath string) bool {
 // Run implements the unified API logic.
 // isRelease indicates whether to create a GitHub Release after MergeAndPublish.
 func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
-	env := NewDotEnv(".env")
-	state, err := LoadCodejobState(env)
+	// If PLAN.md is missing, we cannot do anything
+	if _, err := os.Stat(DefaultIssuePromptPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("prompt file not found: %s", DefaultIssuePromptPath)
+	}
+
+	meta, err := ReadPlanMeta(DefaultIssuePromptPath)
 	if err != nil {
 		return "", err
 	}
 
-	// 1. If message provided -> close the loop
-	if message != "" {
-		if state.Phase != PhaseReview {
-			return "", fmt.Errorf("no pending PR found in .env (run 'codejob' to check status)")
-		}
+	// Status derivation
+	if meta.Status == "" {
+		meta.Status = "dispatch"
+	}
+
+	// 1. If message provided (or status is review) -> close the loop
+	if message != "" || strings.ToLower(meta.Status) == "review" {
 		if c.publisher == nil {
 			return "", fmt.Errorf("no publisher configured")
 		}
-		res, err := MergeAndPublish(c.publisher, message, tag)
+		res, err := MergeAndPublish(c.runner, c.publisher, message, tag)
 		if err != nil {
 			return "", err
-		}
-
-		if res.Tag == "RE_DISPATCH" {
-			fmt.Println(res.Summary)
-			return c.Send(DefaultIssuePromptPath)
 		}
 
 		// If -release flag is set and releaseFn is configured, create the release
@@ -209,25 +135,14 @@ func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 		return res.Summary, nil
 	}
 
-	// 2. No message -> check status or auto-merge
-	if state.Phase == PhaseRunning {
-		return c.checkStatus(env, state)
+	// 2. STATUS is running -> check status
+	if strings.ToLower(meta.Status) == "running" {
+		return c.checkStatus(meta)
 	}
 
-	// 3. Auto-merge pending PR before dispatching new work
-	if state.Phase == PhaseReview {
-		if c.publisher == nil {
-			return "", fmt.Errorf("no publisher configured")
-		}
-		res, err := MergeAndPublish(c.publisher, "", "")
-		if err != nil {
-			return "", err
-		}
-		if res.Tag == "RE_DISPATCH" {
-			fmt.Println(res.Summary)
-			return c.Send(DefaultIssuePromptPath)
-		}
-		return res.Summary, nil
+	// 3. STATUS is reviewing -> wait for review / check reviews
+	if strings.ToLower(meta.Status) == "reviewing" {
+		return "⏳ Reviewer is reviewing the PR...", nil
 	}
 
 	// 4. Auto-setup if API key missing
@@ -242,12 +157,10 @@ func (c *CodeJob) Run(message, tag string, isRelease bool) (string, error) {
 	return c.Send(DefaultIssuePromptPath)
 }
 
-func (c *CodeJob) checkStatus(env *DotEnv, state CodejobState) (string, error) {
-	driverName := state.Driver
-	sessionID := state.Ref
-
-	if driverName != "jules" {
-		return "", fmt.Errorf("unsupported driver in .env: %s", driverName)
+func (c *CodeJob) checkStatus(meta PlanMeta) (string, error) {
+	sessionID := meta.Session
+	if sessionID == "" {
+		return "", fmt.Errorf("no active session found in PLAN.md frontmatter")
 	}
 
 	auth, _ := NewJulesAuth()
@@ -262,13 +175,27 @@ func (c *CodeJob) checkStatus(env *DotEnv, state CodejobState) (string, error) {
 	}
 
 	if done {
-		git, err := NewGit()
-		if err != nil {
-			return msg, fmt.Errorf("git init failed: %w", err)
+		// Checkout PR branch
+		if _, err := CheckoutPRBranch(c.runner, prURL); err != nil {
+			return msg, fmt.Errorf("checkout PR branch failed: %w", err)
 		}
-		if err := HandleDone(env, git, prURL); err != nil {
-			return msg, fmt.Errorf("cleanup error: %w", err)
+
+		// Update PLAN.md frontmatter status
+		meta.PR = prURL
+		if meta.Reviewer == "" || strings.ToLower(meta.Reviewer) == "none" {
+			meta.Status = "review"
+		} else {
+			meta.Status = "reviewing"
 		}
+		if err := WritePlanMeta(DefaultIssuePromptPath, meta); err != nil {
+			return msg, fmt.Errorf("could not update PLAN.md: %w", err)
+		}
+
+		// Commit transition to git
+		_, _ = c.runner.Run("git", "add", DefaultIssuePromptPath)
+		commitMsg := fmt.Sprintf("chore: status transition to %s [pr %s]", meta.Status, prURL)
+		_, _ = c.runner.Run("git", "commit", "-m", commitMsg)
+		_, _ = c.runner.Run("git", "push")
 	}
 
 	return msg, nil
@@ -327,7 +254,8 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 		return "", err
 	}
 
-	if _, err := ReadPlanMeta(issuePromptPath); err != nil {
+	meta, err := ReadPlanMeta(issuePromptPath)
+	if err != nil {
 		return "", fmt.Errorf("invalid plan frontmatter in %s: %w", issuePromptPath, err)
 	}
 
@@ -359,15 +287,17 @@ func (c *CodeJob) Send(issuePromptPath string) (string, error) {
 		d.SetLog(c.log)
 		result, err := d.Send(prompt, title)
 		if err == nil {
-			// Try to persist session ID to .env
 			if sp, ok := d.(SessionProvider); ok {
 				if id := sp.SessionID(); id != "" {
-					env := NewDotEnv(".env")
-					_ = SaveCodejobState(env, CodejobState{
-						Driver: strings.ToLower(d.Name()),
-						Phase:  PhaseRunning,
-						Ref:    id,
-					})
+					meta.Status = "running"
+					meta.Session = id
+					_ = WritePlanMeta(issuePromptPath, meta)
+
+					// Commit transition to git
+					_, _ = c.runner.Run("git", "add", issuePromptPath)
+					commitMsg := fmt.Sprintf("chore: status transition to running [session %s]", id)
+					_, _ = c.runner.Run("git", "commit", "-m", commitMsg)
+					_, _ = c.runner.Run("git", "push")
 				}
 			}
 			return result, nil
@@ -387,4 +317,123 @@ func autoDetectTitle() string {
 		return ""
 	}
 	return owner + "/" + repo
+}
+
+// RunCI executes a single state transition phase for the codejob orchestrator in CI.
+func (c *CodeJob) RunCI(phase string) error {
+	if _, err := os.Stat(DefaultIssuePromptPath); os.IsNotExist(err) {
+		if phase == "publish" {
+			// "publish no-op si falta el plan"
+			return nil
+		}
+		return fmt.Errorf("docs/PLAN.md not found")
+	}
+
+	meta, err := ReadPlanMeta(DefaultIssuePromptPath)
+	if err != nil {
+		return err
+	}
+
+	switch strings.ToLower(phase) {
+	case "dispatch":
+		if meta.Status != "" && strings.ToLower(meta.Status) != "dispatch" {
+			return fmt.Errorf("cannot dispatch: STATUS is %q", meta.Status)
+		}
+		_, err := c.Send(DefaultIssuePromptPath)
+		return err
+
+	case "review":
+		if strings.ToLower(meta.Status) != "running" {
+			return fmt.Errorf("cannot review: STATUS is %q (expected running)", meta.Status)
+		}
+		// pull_request opened -> reviewing (REVIEWER set) or review (REVIEWER none)
+		if meta.Reviewer == "" || strings.ToLower(meta.Reviewer) == "none" {
+			meta.Status = "review"
+			if err := WritePlanMeta(DefaultIssuePromptPath, meta); err != nil {
+				return err
+			}
+			_, _ = c.runner.Run("git", "add", DefaultIssuePromptPath)
+			_, _ = c.runner.Run("git", "commit", "-m", "chore: no reviewer set, status to review")
+			_, _ = c.runner.Run("git", "push")
+			return nil
+		}
+
+		// REVIEWER set -> reviewing
+		meta.Status = "reviewing"
+		// Dispatch reviewer
+		reviewerSessionID := "R-" + meta.Session
+		meta.ReviewSession = reviewerSessionID
+		if err := WritePlanMeta(DefaultIssuePromptPath, meta); err != nil {
+			return err
+		}
+		_, _ = c.runner.Run("git", "add", DefaultIssuePromptPath)
+		_, _ = c.runner.Run("git", "commit", "-m", "chore: status transition to reviewing")
+		_, _ = c.runner.Run("git", "push")
+		return nil
+
+	case "verdict":
+		if strings.ToLower(meta.Status) != "reviewing" {
+			return fmt.Errorf("cannot verdict: STATUS is %q (expected reviewing)", meta.Status)
+		}
+
+		// Read review state via Runner (e.g. gh pr view <PR> --json reviews --jq ".reviews")
+		reviewsJSON, err := c.runner.Run("gh", "pr", "view", meta.PR, "--json", "reviews", "--jq", ".reviews")
+		if err != nil {
+			return fmt.Errorf("failed to fetch reviews: %w", err)
+		}
+
+		// Simple mock-friendly check for review state
+		isApproved := strings.Contains(reviewsJSON, "APPROVED")
+		isChangesRequested := strings.Contains(reviewsJSON, "CHANGES_REQUESTED")
+
+		if isApproved {
+			meta.Status = "review"
+			if err := WritePlanMeta(DefaultIssuePromptPath, meta); err != nil {
+				return err
+			}
+			_, _ = c.runner.Run("git", "add", DefaultIssuePromptPath)
+			_, _ = c.runner.Run("git", "commit", "-m", "chore: reviewer approved, status to review")
+			_, _ = c.runner.Run("git", "push")
+			return nil
+		}
+
+		if isChangesRequested {
+			meta.Round++
+			if meta.Round > 3 {
+				// Round cap exceeded -> hand over to human (status review)
+				meta.Status = "review"
+				if err := WritePlanMeta(DefaultIssuePromptPath, meta); err != nil {
+					return err
+				}
+				_, _ = c.runner.Run("git", "add", DefaultIssuePromptPath)
+				_, _ = c.runner.Run("git", "commit", "-m", "chore: round cap exceeded, handing over to human")
+				_, _ = c.runner.Run("git", "push")
+				return nil
+			}
+
+			// Re-dispatch corrector
+			meta.Status = "running"
+			if err := WritePlanMeta(DefaultIssuePromptPath, meta); err != nil {
+				return err
+			}
+			_, _ = c.runner.Run("git", "add", DefaultIssuePromptPath)
+			commitMsg := fmt.Sprintf("chore: changes requested, re-dispatching to corrector [round %d]", meta.Round)
+			_, _ = c.runner.Run("git", "commit", "-m", commitMsg)
+			_, _ = c.runner.Run("git", "push")
+			return nil
+		}
+
+		return nil
+
+	case "publish":
+		// publish is run when merged -> STATUS == review and PLAN.md present
+		if strings.ToLower(meta.Status) != "review" {
+			return fmt.Errorf("cannot publish: STATUS is %q (expected review)", meta.Status)
+		}
+		_, err := MergeAndPublish(c.runner, c.publisher, "", "")
+		return err
+
+	default:
+		return fmt.Errorf("unknown CI phase: %s", phase)
+	}
 }

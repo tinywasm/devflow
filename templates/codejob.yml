@@ -1,0 +1,44 @@
+name: CodeJob
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - 'docs/PLAN.md'
+  pull_request:
+    types: [opened, synchronized, closed]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  codejob:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install CodeJob
+        run: go install github.com/tinywasm/devflow/cmd/codejob@latest
+
+      - name: Run CodeJob CLI Action
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # The execution is orchestrated by codejob --ci <phase> based on the GitHub event
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            codejob --ci dispatch
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.action }}" != "closed" ]]; then
+            codejob --ci review
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            codejob --ci verdict
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.action }}" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            codejob --ci publish
+          fi

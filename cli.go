@@ -31,18 +31,76 @@ func ParseCLIArgs(args []string) (message, tag string, isHelp, isRelease bool) {
 	return
 }
 
+// CodeJobCLIOpts holds parsed options for the codejob CLI.
+type CodeJobCLIOpts struct {
+	Message        string
+	Tag            string
+	IsHelp         bool
+	IsRelease      bool
+	IsResetGHToken bool
+	CIPhase        string // "dispatch", "review", "verdict", "publish"
+	InitAction     bool
+	Force          bool
+	Org            string
+	Visibility     string
+}
+
+// ParseCodeJobFlags parses the complete set of flags and positional arguments for the codejob CLI.
+func ParseCodeJobFlags(args []string) CodeJobCLIOpts {
+	var opts CodeJobCLIOpts
+	var remaining []string
+
+	if len(args) == 0 {
+		return opts
+	}
+
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "-h" || arg == "--help" || arg == "help" {
+			opts.IsHelp = true
+		} else if arg == "-release" || arg == "--release" {
+			opts.IsRelease = true
+		} else if arg == "--reset-gh-token" {
+			opts.IsResetGHToken = true
+		} else if arg == "--init-action" {
+			opts.InitAction = true
+		} else if arg == "--force" {
+			opts.Force = true
+		} else if strings.HasPrefix(arg, "--ci=") {
+			opts.CIPhase = strings.TrimPrefix(arg, "--ci=")
+		} else if arg == "--ci" && i+1 < len(args) {
+			opts.CIPhase = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--org=") {
+			opts.Org = strings.TrimPrefix(arg, "--org=")
+		} else if arg == "--org" && i+1 < len(args) {
+			opts.Org = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--visibility=") {
+			opts.Visibility = strings.TrimPrefix(arg, "--visibility=")
+		} else if arg == "--visibility" && i+1 < len(args) {
+			opts.Visibility = args[i+1]
+			i++
+		} else {
+			remaining = append(remaining, arg)
+		}
+	}
+
+	if len(remaining) > 0 {
+		opts.Message = remaining[0]
+	}
+	if len(remaining) > 1 {
+		opts.Tag = remaining[1]
+	}
+
+	return opts
+}
+
 // ParseCodeJobArgs parses codejob CLI: codejob [message] [tag] [--reset-gh-token]
 // Returns message, tag, isHelp, isRelease, and isResetGHToken.
 func ParseCodeJobArgs(args []string) (message, tag string, isHelp, isRelease, isResetGHToken bool) {
-	message, tag, isHelp, isRelease = ParseCLIArgs(args)
-
-	for _, arg := range args[1:] {
-		if arg == "--reset-gh-token" {
-			isResetGHToken = true
-			break
-		}
-	}
-	return
+	opts := ParseCodeJobFlags(args)
+	return opts.Message, opts.Tag, opts.IsHelp, opts.IsRelease, opts.IsResetGHToken
 }
 
 // ParseReleaseArgs parses gorelease CLI: gorelease [tag]

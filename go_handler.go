@@ -50,9 +50,20 @@ func (g *Go) GoVersion() (string, error) {
 
 // CodejobPhaseOf reports the current codejob phase for the given directory.
 func CodejobPhaseOf(dir string) CodejobPhase {
-	e := NewDotEnv(filepath.Join(dir, ".env"))
-	state, _ := LoadCodejobState(e)
-	return state.Phase
+	meta, err := ReadPlanMeta(filepath.Join(dir, DefaultIssuePromptPath))
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(meta.Status) {
+	case "running":
+		return PhaseRunning
+	case "reviewing":
+		return PhaseRunning
+	case "review":
+		return PhaseReview
+	default:
+		return ""
+	}
 }
 
 // WorkTreeDirtyBeyond returns true if the git worktree has changes beyond the allowed files.

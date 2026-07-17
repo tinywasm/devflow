@@ -9,13 +9,13 @@ import (
 )
 
 func main() {
-	msg, tag, isHelp, isRelease, isResetGHToken := devflow.ParseCodeJobArgs(os.Args)
-	if isHelp {
+	opts := devflow.ParseCodeJobFlags(os.Args)
+	if opts.IsHelp {
 		showHelp()
 		return
 	}
 
-	if isResetGHToken {
+	if opts.IsResetGHToken {
 		auth, err := devflow.NewGitHubPATAuth()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -29,7 +29,15 @@ func main() {
 		return
 	}
 
-	if msg == "" && !devflow.IsEnvironmentValid(".env") {
+	if opts.InitAction {
+		if err := devflow.InitCodejobAction(opts.Force, opts.Org, opts.Visibility); err != nil {
+			fmt.Fprintln(os.Stderr, "Error initializing action:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if opts.Message == "" && !devflow.IsEnvironmentValid(".env") {
 		showHelp()
 		return
 	}
@@ -69,13 +77,21 @@ func main() {
 	job.SetPublisher(goHandler)
 
 	// Inject the release function if -release flag is used
-	if isRelease {
+	if opts.IsRelease {
 		job.SetReleaser(func(releaseTag string) error {
 			return goHandler.ReleaseOnly(releaseTag, gh)
 		})
 	}
 
-	result, err := job.Run(msg, tag, isRelease)
+	if opts.CIPhase != "" {
+		if err := job.RunCI(opts.CIPhase); err != nil {
+			fmt.Fprintln(os.Stderr, "CI Phase Error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	result, err := job.Run(opts.Message, opts.Tag, opts.IsRelease)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
