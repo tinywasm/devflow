@@ -9,18 +9,18 @@ import (
 
 // Watchdog monitors test output for stalled tests.
 type Watchdog struct {
-	timeout     time.Duration
-	onKill      func()
-	running     map[string]time.Time
-	culprits    []string
-	mu          sync.Mutex
-	stop        chan struct{}
-	lineBuf     string
-	runRe       *regexp.Regexp
-	pauseRe     *regexp.Regexp
-	contRe      *regexp.Regexp
-	completeRe  *regexp.Regexp
-	killed      bool
+	timeout    time.Duration
+	onKill     func()
+	running    map[string]time.Time
+	culprits   []string
+	mu         sync.Mutex
+	stop       chan struct{}
+	lineBuf    string
+	runRe      *regexp.Regexp
+	pauseRe    *regexp.Regexp
+	contRe     *regexp.Regexp
+	completeRe *regexp.Regexp
+	killed     bool
 }
 
 // NewWatchdog creates a new watchdog.

@@ -8,7 +8,7 @@ import (
 	"golang.org/x/term"
 )
 
-const julesAPIKeyKey = "jules_api_key"
+const julesAPIKeyKey = "JULES_API_KEY"
 const julesAPIKeyURL = "https://jules.google.com/settings/api"
 
 // termLink returns an OSC 8 terminal hyperlink (supported by most modern terminals).
@@ -25,10 +25,7 @@ type JulesAuth struct {
 
 // NewJulesAuth creates a JulesAuth with an initialized keyring.
 func NewJulesAuth() (*JulesAuth, error) {
-	kr, err := NewKeyring()
-	if err != nil {
-		return nil, err
-	}
+	kr, _ := NewKeyring()
 	return &JulesAuth{
 		kr:  kr,
 		log: func(...any) {},
@@ -42,15 +39,29 @@ func (a *JulesAuth) SetLog(fn func(...any)) {
 	}
 }
 
-// HasKey returns true if the Jules API key is already stored in the keyring.
+// HasKey returns true if the Jules API key is already stored in the environment or keyring.
 func (a *JulesAuth) HasKey() bool {
+	if os.Getenv("JULES_API_KEY") != "" {
+		return true
+	}
+	if a.kr == nil {
+		return false
+	}
 	key, err := a.kr.Get(julesAPIKeyKey)
 	return err == nil && key != ""
 }
 
-// EnsureAPIKey returns the Jules API key from the keyring.
+// EnsureAPIKey returns the Jules API key from the environment or keyring.
 // If absent, prompts the user for it once and persists it.
 func (a *JulesAuth) EnsureAPIKey() (string, error) {
+	if envKey := os.Getenv("JULES_API_KEY"); envKey != "" {
+		return envKey, nil
+	}
+
+	if a.kr == nil {
+		return "", fmt.Errorf("keyring is unavailable and JULES_API_KEY env var is not set")
+	}
+
 	key, err := a.kr.Get(julesAPIKeyKey)
 	if err == nil && key != "" {
 		return key, nil

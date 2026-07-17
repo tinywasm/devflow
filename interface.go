@@ -1,5 +1,7 @@
 package devflow
 
+import "github.com/tinywasm/command"
+
 // GitHubClient defines the interface for GitHub operations.
 // This allows mocking the GitHub dependency in tests.
 type GitHubClient interface {
@@ -96,4 +98,17 @@ type BackupRunner interface {
 	SetCommand(command string) error
 	GetCommand() (string, error)
 	Run() (string, error)
+}
+
+// Runner abstracts command execution (git, gh, etc.) for testing.
+type Runner interface {
+	Run(name string, args ...string) (string, error)
+}
+
+// RealRunner runs actual system commands.
+type RealRunner struct{}
+
+// Run executes the command using the command package.
+func (RealRunner) Run(name string, args ...string) (string, error) {
+	return command.Run(name, args...)
 }

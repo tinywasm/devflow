@@ -3,8 +3,8 @@ package devflow_test
 import (
 	"os"
 	"path/filepath"
-	"testing"
 	"strings"
+	"testing"
 
 	"github.com/tinywasm/devflow"
 )

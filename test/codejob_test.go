@@ -16,8 +16,8 @@ type mockDriver struct {
 	err    error
 }
 
-func (m *mockDriver) Name() string                  { return m.name }
-func (m *mockDriver) SetLog(_ func(...any))         {}
+func (m *mockDriver) Name() string                     { return m.name }
+func (m *mockDriver) SetLog(_ func(...any))            {}
 func (m *mockDriver) Send(_, _ string) (string, error) { return m.result, m.err }
 
 func writeTempFile(t *testing.T, content string) string {
@@ -38,11 +38,19 @@ func TestCodeJob_Run_NoArgs_Dispatch(t *testing.T) {
 	os.MkdirAll("docs", 0755)
 	os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\n---\nsome plan"), 0644)
 
+	os.Setenv("JULES_API_KEY", "dummy_key")
+	os.Setenv("GH_TOKEN", "dummy_token")
+	defer func() {
+		os.Unsetenv("JULES_API_KEY")
+		os.Unsetenv("GH_TOKEN")
+	}()
+
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
+	job.SetRunner(&mockRunner{})
 
-    // Mock Publisher to satisfy Send's publish-before-dispatch
-    job.SetPublisher(&MockPublisher{})
+	// Mock Publisher to satisfy Send's publish-before-dispatch
+	job.SetPublisher(&MockPublisher{})
 
 	got, err := job.Run("", "", false)
 	if err != nil {
@@ -58,10 +66,14 @@ func TestCodeJob_Run_WithMessage_CloseLoop(t *testing.T) {
 }
 
 func TestCodeJob_MessageWithoutPR(t *testing.T) {
-	// Clean up any leftover .env from other tests
-	_ = os.Remove(".env")
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: \"test plan\"\nSTATUS: review\n---\n"), 0644)
 
 	job := devflow.NewCodeJob()
+	job.SetRunner(&mockRunner{})
+	job.SetPublisher(&MockPublisher{})
 	_, err := job.Run("some message", "", false)
 	if err == nil {
 		t.Fatal("expected error when no PR found")
@@ -88,6 +100,7 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 	}
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
+	job.SetRunner(&mockRunner{})
 	job.SetPublisher(mockPub)
 
 	_, err := job.Send(path)
@@ -112,6 +125,7 @@ func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	var logged []string
 	d := &mockDriver{name: "mock", result: "ok"}
 	job := devflow.NewCodeJob(d)
+	job.SetRunner(&mockRunner{})
 	job.SetPublisher(mockPub)
 	job.SetLog(func(args ...any) { logged = append(logged, fmt.Sprint(args...)) })
 
@@ -138,8 +152,10 @@ func TestCodeJob_ObjectsToPublish(t *testing.T) {
 		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
 	}
 
-	// .env with CODEJOB -> ActionSkip
-	os.WriteFile(filepath.Join(tmp, ".env"), []byte("CODEJOB=jules:x\n"), 0644)
+	// PLAN.md with STATUS: running -> ActionSkip
+	planDir := filepath.Join(tmp, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	_ = os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: running\n---\n"), 0644)
 	action, reason = cj.ObjectsToPublish(ctx)
 	if action != devflow.ActionSkip {
 		t.Errorf("expected ActionSkip, got %v (%s)", action, reason)
@@ -148,10 +164,8 @@ func TestCodeJob_ObjectsToPublish(t *testing.T) {
 		t.Errorf("expected %q, got %q", devflow.ObjectionCodejobSession, reason)
 	}
 
-	// remove .env, add PLAN.md -> ActionDepsOnly
-	os.Remove(filepath.Join(tmp, ".env"))
-	os.MkdirAll(filepath.Join(tmp, "docs"), 0755)
-	os.WriteFile(filepath.Join(tmp, devflow.DefaultIssuePromptPath), []byte("plan"), 0644)
+	// PLAN.md with STATUS: dispatch -> ActionDepsOnly
+	_ = os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: dispatch\n---\n"), 0644)
 	action, reason = cj.ObjectsToPublish(ctx)
 	if action != devflow.ActionDepsOnly {
 		t.Errorf("expected ActionDepsOnly, got %v (%s)", action, reason)
@@ -170,7 +184,10 @@ func TestCodejobObjector_SkipsOnRunningAndReview(t *testing.T) {
 	ctx := devflow.PublishContext{RepoDir: tmp}
 	cj := devflow.CodeJob{}
 
-	os.WriteFile(filepath.Join(tmp, ".env"), []byte("CODEJOB=jules:running:S1\n"), 0644)
+	planDir := filepath.Join(tmp, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+
+	os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: running\n---\n"), 0644)
 	action, reason := cj.ObjectsToPublish(ctx)
 	if action != devflow.ActionSkip {
 		t.Errorf("running phase: expected ActionSkip, got %v (%s)", action, reason)
@@ -179,7 +196,7 @@ func TestCodejobObjector_SkipsOnRunningAndReview(t *testing.T) {
 		t.Errorf("running phase: expected %q, got %q", devflow.ObjectionCodejobSession, reason)
 	}
 
-	os.WriteFile(filepath.Join(tmp, ".env"), []byte("CODEJOB=jules:review:https://github.com/o/r/pull/1\n"), 0644)
+	os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: review\n---\n"), 0644)
 	action, reason = cj.ObjectsToPublish(ctx)
 	if action != devflow.ActionSkip {
 		t.Errorf("review phase: expected ActionSkip, got %v (%s)", action, reason)

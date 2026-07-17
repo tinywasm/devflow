@@ -6,13 +6,13 @@ import (
 )
 
 type ConsoleFilter struct {
-	buffer         []string
-	output         func(string) // callback to write output
+	buffer            []string
+	output            func(string) // callback to write output
 	hasDataRace       bool
 	shownRaceMsg      bool
 	releasedFuncCalls int
-	incompleteLine string
-	inPanicMode    bool // true when we detect a panic/timeout
+	incompleteLine    string
+	inPanicMode       bool // true when we detect a panic/timeout
 }
 
 func NewConsoleFilter(output func(string)) *ConsoleFilter {

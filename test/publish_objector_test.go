@@ -1,8 +1,8 @@
 package devflow_test
 
 import (
-	"testing"
 	"github.com/tinywasm/devflow"
+	"testing"
 )
 
 type fakeObjector struct {
@@ -16,14 +16,14 @@ func (f fakeObjector) ObjectsToPublish(ctx devflow.PublishContext) (devflow.Publ
 
 func TestResolvePublishAction(t *testing.T) {
 	tests := []struct {
-		name      string
-		objectors []devflow.PublishObjector
+		name       string
+		objectors  []devflow.PublishObjector
 		wantAction devflow.PublishAction
 		wantReason string
 	}{
 		{
-			name:      "none",
-			objectors: nil,
+			name:       "none",
+			objectors:  nil,
 			wantAction: devflow.ActionNone,
 			wantReason: "",
 		},

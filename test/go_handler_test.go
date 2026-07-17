@@ -769,42 +769,45 @@ func TestParseVerifyError_UnknownPattern(t *testing.T) {
 
 func TestCodejobPhaseOf(t *testing.T) {
 	dir := t.TempDir()
-	envPath := filepath.Join(dir, ".env")
+	planDir := filepath.Join(dir, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	planPath := filepath.Join(planDir, "PLAN.md")
 
-	// No .env → none
+	// No PLAN.md → none
 	if devflow.CodejobPhaseOf(dir) != "" {
-		t.Fatal("expected empty phase when .env missing")
+		t.Fatal("expected empty phase when PLAN.md missing")
 	}
 
-	// CODEJOB set (legacy) → running
-	os.WriteFile(envPath, []byte("CODEJOB=jules:12345\n"), 0644)
+	// STATUS set to running → PhaseRunning
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: running\n---\n"), 0644)
 	if devflow.CodejobPhaseOf(dir) != devflow.PhaseRunning {
-		t.Fatal("expected running phase when legacy CODEJOB is set")
+		t.Fatal("expected running phase when STATUS: running")
 	}
 
-	// CODEJOB set (new format) → review
-	os.WriteFile(envPath, []byte("CODEJOB=jules:review:https://github.com/o/r/pull/1\n"), 0644)
+	// STATUS set to reviewing → PhaseRunning
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: reviewing\n---\n"), 0644)
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseRunning {
+		t.Fatal("expected running phase when STATUS: reviewing")
+	}
+
+	// STATUS set to review → PhaseReview
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: review\n---\n"), 0644)
 	if devflow.CodejobPhaseOf(dir) != devflow.PhaseReview {
-		t.Fatal("expected review phase when new format CODEJOB is set to review")
+		t.Fatal("expected review phase when STATUS: review")
 	}
 
-	// Only CODEJOB_PR (legacy) → review
-	os.Remove(envPath)
-	os.WriteFile(envPath, []byte("CODEJOB_PR=https://github.com/org/repo/pull/1\n"), 0644)
-	if devflow.CodejobPhaseOf(dir) != devflow.PhaseReview {
-		t.Fatal("expected review phase when only legacy CODEJOB_PR is set")
-	}
-
-	// Empty CODEJOB → none
-	os.WriteFile(envPath, []byte("CODEJOB=\n"), 0644)
+	// STATUS set to dispatch (or missing) → ""
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: dispatch\n---\n"), 0644)
 	if devflow.CodejobPhaseOf(dir) != "" {
-		t.Fatal("expected empty phase when CODEJOB is empty")
+		t.Fatal("expected empty phase when STATUS: dispatch")
 	}
 }
 
 func TestGoPush_BlockedOnRunningPhase(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB=jules:running:test-session\n"), 0644)
+	planDir := filepath.Join(dir, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: \"test\"\nSTATUS: running\n---\n"), 0644)
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{}

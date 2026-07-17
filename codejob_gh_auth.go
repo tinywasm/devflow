@@ -8,7 +8,7 @@ import (
 	"golang.org/x/term"
 )
 
-const ghTokenKey = "github_pat"
+const ghTokenKey = "GH_TOKEN"
 
 // GitHubPATAuth manages the GitHub PAT via the system keyring.
 // It is used to recover the gh CLI session non-interactively.
@@ -19,10 +19,7 @@ type GitHubPATAuth struct {
 
 // NewGitHubPATAuth creates a GitHubPATAuth with an initialized keyring.
 func NewGitHubPATAuth() (*GitHubPATAuth, error) {
-	kr, err := NewKeyring()
-	if err != nil {
-		return nil, err
-	}
+	kr, _ := NewKeyring()
 	return &GitHubPATAuth{
 		kr:  kr,
 		log: func(...any) {},
@@ -36,14 +33,28 @@ func (a *GitHubPATAuth) SetLog(fn func(...any)) {
 	}
 }
 
-// HasToken returns true if the GitHub PAT is already stored in the keyring.
+// HasToken returns true if the GitHub PAT is already stored in the environment or keyring.
 func (a *GitHubPATAuth) HasToken() bool {
+	if os.Getenv("GH_TOKEN") != "" {
+		return true
+	}
+	if a.kr == nil {
+		return false
+	}
 	tok, err := a.kr.Get(ghTokenKey)
 	return err == nil && tok != ""
 }
 
-// EnsureToken returns the PAT from the keyring; if absent, prompts once and persists.
+// EnsureToken returns the PAT from the environment or keyring; if absent, prompts once and persists.
 func (a *GitHubPATAuth) EnsureToken() (string, error) {
+	if envTok := os.Getenv("GH_TOKEN"); envTok != "" {
+		return envTok, nil
+	}
+
+	if a.kr == nil {
+		return "", fmt.Errorf("keyring is unavailable and GH_TOKEN env var is not set")
+	}
+
 	tok, err := a.kr.Get(ghTokenKey)
 	if err == nil && tok != "" {
 		return tok, nil
@@ -71,12 +82,15 @@ func (a *GitHubPATAuth) EnsureToken() (string, error) {
 
 // Reset removes the GitHub PAT from the keyring.
 func (a *GitHubPATAuth) Reset() error {
+	if a.kr == nil {
+		return fmt.Errorf("keyring is unavailable")
+	}
 	return a.kr.Delete(ghTokenKey)
 }
 
 // EnsureGitHubAuth fulfills the GitHubAuthenticator interface.
 func (a *GitHubPATAuth) EnsureGitHubAuth() error {
-	return EnsureGHSession()
+	return EnsureGHSession(RealRunner{})
 }
 
 // readSecret reads a secret from stdin without echoing.

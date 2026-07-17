@@ -314,7 +314,9 @@ func TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched(t *testing.T) {
 	os.MkdirAll(depDir, 0755)
 	gomodContent := "module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nreplace github.com/test/mylib => ../mylib\n"
 	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
-	os.WriteFile(filepath.Join(depDir, ".env"), []byte("CODEJOB=jules:test-session\n"), 0644)
+	planDir := filepath.Join(depDir, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	_ = os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: running\n---\n"), 0644)
 
 	g, _ := devflow.NewGo(&MockGitClient{})
 	g.SetConsoleOutput(func(string) {})

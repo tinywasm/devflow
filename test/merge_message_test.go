@@ -1,10 +1,10 @@
 package devflow_test
 
 import (
+	"github.com/tinywasm/devflow"
 	"os"
 	"path/filepath"
 	"testing"
-	"github.com/tinywasm/devflow"
 )
 
 func TestResolvePublishMessage(t *testing.T) {
@@ -36,18 +36,18 @@ func TestResolvePublishMessage(t *testing.T) {
 			wantErr:    devflow.ErrNoCloseLoopMessage,
 		},
 		{
-			name:       "CLI wins tag",
-			cliTag:     "v2.0.0",
-			meta:       devflow.PlanMeta{Message: "ok", Tag: "v1.0.0"},
-			wantMsg:    "ok",
-			wantTag:    "v2.0.0",
+			name:    "CLI wins tag",
+			cliTag:  "v2.0.0",
+			meta:    devflow.PlanMeta{Message: "ok", Tag: "v1.0.0"},
+			wantMsg: "ok",
+			wantTag: "v2.0.0",
 		},
 		{
-			name:       "CLI empty uses frontmatter tag",
-			cliTag:     "",
-			meta:       devflow.PlanMeta{Message: "ok", Tag: "v1.0.0"},
-			wantMsg:    "ok",
-			wantTag:    "v1.0.0",
+			name:    "CLI empty uses frontmatter tag",
+			cliTag:  "",
+			meta:    devflow.PlanMeta{Message: "ok", Tag: "v1.0.0"},
+			wantMsg: "ok",
+			wantTag: "v1.0.0",
 		},
 	}
 
@@ -76,7 +76,7 @@ func TestResolvePublishMessage(t *testing.T) {
 func TestReadPlanMeta_CheckPlan(t *testing.T) {
 	tmp := t.TempDir()
 	os.MkdirAll(filepath.Join(tmp, "docs"), 0755)
-	path := filepath.Join(tmp, devflow.DefaultCheckPlanPath)
+	path := filepath.Join(tmp, "docs/PLAN.md")
 	content := "---\nPLAN: check plan\n---\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
