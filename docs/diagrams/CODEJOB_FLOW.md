@@ -1,85 +1,116 @@
 # codejob Flow
 
-Orchestrator for dispatching coding tasks to external AI agents and closing the loop.
+Orchestrator for dispatching a coding task to external AI agents and closing the
+loop. All state lives in the frontmatter of `docs/PLAN.md` (there is no `.env`
+state and no `CHECK_PLAN.md`), so every transition is a git commit and the whole
+loop can run either locally or in GitHub Actions.
+
+See also: [CODEJOB.md](../CODEJOB.md).
+
+## State machine
+
+`STATUS` in the plan frontmatter is the single source of truth. Each edge is a
+commit written by `codejob` (locally or via `codejob --ci`).
+
+```mermaid
+stateDiagram-v2
+    [*] --> dispatch: human writes/edits docs/PLAN.md
+    dispatch --> running: dispatch to EXECUTOR (writes SESSION)
+    running --> reviewing: PR opened and REVIEWER set (dispatch reviewer on branch X)
+    running --> review: PR opened and REVIEWER is none
+    reviewing --> running: CHANGES_REQUESTED (re-dispatch corrector, ROUND plus one)
+    reviewing --> review: APPROVED by reviewer
+    reviewing --> review: ROUND over cap (hand to human)
+    review --> [*]: human merges, gopush (tag-only), deletes docs/PLAN.md
+```
+
+## Cloud loop (GitHub Actions)
+
+The workflow `.github/workflows/codejob.yml` maps each GitHub event to a phase of
+`codejob --ci`. Commits are pushed with the `GH_TOKEN` PAT so they trigger the
+next workflow (commits made with the default `GITHUB_TOKEN` do not).
 
 ```mermaid
 flowchart TD
-    A[codejob args] --> GH[Ensure GH Session<br/>PAT recovery]
-    GH --> B{Message provided?}
-    B -- No --> C{CODEJOB phase?}
-    C -- running --> D[Query agent session state]
-    D --> E{PR ready?}
-    E -- No --> F[Print status]
-    E -- Yes --> G[CheckoutPRBranch:<br/>fetch, stash, checkout,<br/>verify, pop stash]
-    G -- Success --> G1[HandleDone:<br/>rename PLAN → CHECK_PLAN,<br/>state → review]
-    G -- Failure --> G2[Print hints,<br/>state preserved]
-    G2 --> U
-    G1 --> U
-    C -- review --> CP
-    C -- none --> H{API key exists?}
-    H -- No --> H1[Run setup wizard]
-    H1 --> I
-    H -- Yes --> I{PLAN.md exists?}
-    I -- No --> J[Error: no plan]
-    I -- Yes --> IV{Valid frontmatter?<br/>PLAN: required}
-    IV -- No --> JV[Error: invalid/missing<br/>plan frontmatter]
-    IV -- Yes --> K[git commit + push<br/>skip tag, tests, deps, backup, verify]
-    K --> L[Dispatch PLAN.md to agent]
-    L --> M[Save state: CODEJOB=driver:running:id]
-    B -- Yes --> N{CODEJOB phase == review?}
-    N -- No --> O[Error: no pending PR]
-    N -- Yes --> CP[CheckoutPRBranch]
-    CP -- Failure --> O
-    CP -- Success --> P[Merge PR + delete branch]
-    P --> Q[git pull]
-    Q --> RM[Read CHECK_PLAN.md frontmatter<br/>message + tag]
-    RM --> R[Cleanup: delete CHECK_PLAN.md,<br/>clean .env]
-    R --> S{PLAN.md exists?}
-    S -- Yes --> K
-    S -- No --> T[gopush: msg/tag =<br/>CLI value or plan frontmatter<br/>full: deps + backup]
-    T --> U[Done]
-    M --> U
+    A[Edit docs/PLAN.md header<br/>STATUS: dispatch + commit] --> E1{on push}
+    E1 -->|STATUS == dispatch| J1[ci dispatch:<br/>send to EXECUTOR<br/>STATUS: running + SESSION]
+    J1 --> PR[EXECUTOR opens PR on branch X]
+    PR --> E2{on pull_request opened}
+    E2 -->|REVIEWER != none| J2[ci review:<br/>dispatch reviewer on X<br/>STATUS: reviewing]
+    E2 -->|REVIEWER == none| RVW[STATUS: review]
+    J2 --> RV[reviewer posts native review on the PR]
+    RV --> E3{on pull_request_review}
+    E3 -->|CHANGES_REQUESTED| J3[ci verdict:<br/>re-dispatch corrector on X<br/>ROUND++ or cap]
+    E3 -->|APPROVED| RVW
+    J3 --> PR
+    RVW --> M[human merges the PR from web/mobile]
+    M --> E4{on pull_request merged}
+    E4 -->|STATUS == review and PLAN.md present| J4[ci publish:<br/>gopush tag-only<br/>delete docs/PLAN.md]
+    J4 --> DONE[new version + tag published]
+
+    style A fill:#d4edda,stroke:#28a745
+    style M fill:#d4edda,stroke:#28a745
 ```
 
-The close-loop commit message is **not** hardcoded: it comes from the finished
-plan's `CHECK_PLAN.md` frontmatter (`PLAN:`, optional `TAG:`), unless an
-explicit CLI value overrides it. Because dispatch (`IV`) rejects a `PLAN.md`
-without valid frontmatter, the message always exists by the time the loop closes
-— the old generic `chore: merge agent PR` no longer occurs.
+Local flow is identical but driven by running `codejob` yourself instead of the
+Action; both share the same frontmatter state and the same phase functions.
 
-> El árbol sucio que `CheckoutPRBranch` absorbe con stash/pop es ahora, por construcción,
-> únicamente WIP del desarrollador: la cascada de `gopush` no toca un repo con sesión
-> activa, y `gopush` se niega a publicar en él.
+## Event guards
+
+Events do not carry the agent session id, so correlation is by identity/branch,
+not by `SESSION`:
+
+| Event | Guard |
+|---|---|
+| `push` | `STATUS == dispatch` and `docs/PLAN.md` valid |
+| `pull_request` opened | `STATUS == running` and PR head is the tracked branch |
+| `pull_request_review` | `STATUS == reviewing` and review author is the REVIEWER identity |
+| `pull_request` closed | `merged == true` and `STATUS == review` and `docs/PLAN.md` present |
 
 ## Traceability (Test Map)
 
-| Diagram Edge / Branch | Test Name |
-|---|---|
-| CheckoutPRBranch: stash/pop success | `TestCheckoutPRBranch_DirtyTreeSuccess` |
-| CheckoutPRBranch: pop conflict | `TestCheckoutPRBranch_PopConflict` |
-| HandleDone: Success path | `TestHandleDone_HappyPath` |
-| HandleDone: Failure path (retryable) | `TestHandleDone_Retryability` |
-| MergeAndPublish: Checkout failure | `TestMergeAndPublish_Guard` |
-| Dispatch rejects invalid plan frontmatter (`IV -- No`) | `test/codejob_test.go` |
-| Close-loop message = plan frontmatter unless CLI override | `TestResolvePublishMessage_*` (`test/merge_message_test.go`) |
+Every edge/guard is covered by a mock-based test (no real network, git, gh or
+keyring):
+
+| Edge / Behavior | Test | Mock used |
+|---|---|---|
+| Read frontmatter state | `TestPlanState_ReadFrontmatter` | temp file |
+| Write state, preserve body | `TestPlanState_WritePreservesBody` | temp file |
+| `STATUS` derived when absent | `TestPlanState_StatusDerivation` | temp file |
+| Token read: env then keyring, same name | `TestAuth_EnvVarThenKeyring` | fake keyring/env |
+| dispatch → running | `TestCI_Dispatch_WritesRunning` | fake driver + runner |
+| running → reviewing (REVIEWER set) | `TestCI_PROpened_DispatchesReviewer` | fake driver + runner |
+| running → review (REVIEWER none) | `TestCI_PROpened_NoReviewer` | fake runner |
+| reviewing → review (APPROVED) | `TestCI_Verdict_Approved` | fake runner (review json) |
+| reviewing → running (CHANGES_REQUESTED) | `TestCI_Verdict_ChangesRequested_RoundInc` | fake driver + runner |
+| reviewing → review (ROUND > N) | `TestCI_Verdict_RoundCap` | fake runner |
+| review → published (tag-only, delete plan) | `TestCI_Publish_TagOnly` | mock Publisher |
+| publish no-op when plan absent | `TestCI_Publish_NoopWhenNoPlan` | mock Publisher |
+| workflow scaffold idempotent/force | `TestInitAction_*` | temp dir |
+| secret register repo/org | `TestInitAction_SecretScope` | mock SecretRunner |
+| workflow template contract | `TestActionTemplate_Contract` | embedded string |
 
 ## Plan frontmatter
 
-Every `docs/PLAN.md` must start with a frontmatter block; `PLAN` is required
-and becomes the close-loop commit message, `TAG` is optional:
+Every `docs/PLAN.md` must start with a frontmatter block; `PLAN` is required (it
+becomes the close-loop commit message). Full key reference in
+[CODEJOB.md](../CODEJOB.md#frontmatter).
 
 ```markdown
 ---
-PLAN: "feat: topological dependency cascade and dirty-tree guard"
-TAG: v0.4.41
+PLAN: "feat: what this plan implements"
+TAG: v0.2.0
+EXECUTOR: jules
+REVIEWER: none
 ---
 ```
 
 ## Usage
 
 ```bash
-codejob                        # dispatch PLAN.md, or check status / auto-merge a pending PR
-                               #   (close-loop message taken from the plan frontmatter)
-codejob 'commit message'       # close loop with an explicit message override
-codejob 'commit message' v1.0  # close loop with explicit message + tag override
+codejob                 # local: run the phase implied by the current STATUS
+codejob --init-action   # scaffold .github/workflows/codejob.yml + register secrets
 ```
+
+In the cloud the workflow calls `codejob --ci <phase>` (`dispatch`, `review`,
+`verdict`, `publish`); you never call `--ci` by hand.

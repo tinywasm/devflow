@@ -1,286 +1,147 @@
 ---
-PLAN: "feat: codejob action subcommand to close the loop on PR merge from CI"
+PLAN: "feat: unify codejob state in PLAN.md frontmatter, agent roles, and the cloud loop"
 TAG: v0.5.0
+EXECUTOR: jules
+REVIEWER: none
+STATUS: dispatch
 ---
 
-# Plan — Cerrar el loop de `codejob` desde el merge (GitHub Action)
+# Plan — Estado único en `docs/PLAN.md`, roles de agente y loop en la nube
 
-## 1. Problema (justificación)
+Plan de ejecución para un agente. El **comportamiento objetivo** ya está descrito
+en la documentación (que este plan implementa):
 
-Hoy `codejob` cierra el loop **solo en local**. El flujo típico cuando un agente
-(Jules u otro) termina su tarea es:
+- Comportamiento y uso: [`docs/CODEJOB.md`](CODEJOB.md)
+- Diagramas y mapa de pruebas: [`docs/diagrams/CODEJOB_FLOW.md`](diagrams/CODEJOB_FLOW.md)
 
-1. El agente abre un PR.
-2. Reviso el PR desde la tablet — todo bien.
-3. **Tengo que ir a la PC** y ejecutar `codejob` → descarga el repo, hace fetch y
-   posiciona el árbol en la rama del PR (fase `review`).
-4. Ejecuto **otra vez** `codejob 'mensaje'` → fusiona el PR y publica la nueva
-   versión (`gopush`: tests, **tag**, push, cascade, backup — **solo crea el tag
-   automáticamente, no lanza `gorelease`**).
+Implementa el código hasta que coincida con esos documentos y todas las pruebas
+de §5 pasen.
 
-El paso 3–4 **obliga a estar físicamente frente al computador** con las
-credenciales locales (keyring de Jules, PAT de GitHub, `.env` con la sesión
-`CODEJOB`). Cuando la revisión ya se hizo desde el móvil y "todo está bien", ese
-viaje a la PC es puro overhead: lo único que falta es *fusionar y publicar*, algo
-que no requiere criterio humano adicional.
+## 1. Objetivo
 
-**Objetivo:** poder **cerrar el PR fusionándolo desde GitHub (móvil/web)** y que
-la nueva versión se publique automáticamente, sin abrir la PC. El flujo local
-actual se mantiene intacto como alternativa.
+Hoy el estado de `codejob` se reparte entre `.env` (sesión efímera, local,
+gitignored) y `docs/PLAN.md`. Por eso el loop **solo vive en la PC**: un runner de
+la nube arranca sin ese `.env`. Movemos **todo** el estado al frontmatter de
+`docs/PLAN.md`; como se commitea, cada transición queda en git y el loop entero
+(despachar → revisar → publicar) corre en GitHub Actions. Además añadimos un
+**agente revisor** opcional como compuerta de calidad antes del humano.
 
-## 2. Propuesta
+Resultado: editar la cabecera y commitear despacha; fusionar el PR publica. Sin
+abrir la PC.
 
-Dos piezas:
+## 2. Principios de ejecución
 
-### 2.1 Nuevo subcomando: `codejob --init-action`
+- **TDD estricto.** Para cada comportamiento: primero el test (rojo), luego el
+  código (verde). El mapa de §5 es la lista mínima; ninguna arista del flujo queda
+  sin test.
+- **Todo con mocks, sin red real.** Ninguna prueba toca red, `git`, `gh` ni el
+  keyring reales. Se inyectan dobles (ver §4.1, seam de `Runner`).
+- **Break change limpio.** Se **elimina** el código viejo (`.env`/`CODEJOB`,
+  `CHECK_PLAN.md`, claves de keyring antiguas). Sin alias, sin migración
+  automática, sin ramas de compatibilidad.
+- **No romper `gopush`.** El cierre sigue siendo `gopush` tag-only (no `gorelease`).
 
-Genera `.github/workflows/codejob.yml` en el repo **si no existe** (idempotente:
-si ya existe, no lo sobreescribe salvo `--force`). El workflow se llama `codejob`.
+## 3. Decisiones tomadas (defaults fijados, ya no son preguntas)
 
-- Escribe el YAML embebido (`go:embed`) en `.github/workflows/codejob.yml`.
-- Verifica/registra los secrets que el publish en CI necesite, reutilizando el
-  `GitHub.SetSecret` / `ListSecrets` que **ya existen** en `github_secrets.go`.
-- No toca nada más; el usuario revisa, commitea y pushea el workflow una sola vez.
-
-### 2.2 GitHub Action `codejob` (publica al fusionar)
-
-El workflow se activa **solo** cuando se cierra un PR **y** ese cierre es un
-**merge** **y** se trata de la finalización de un `codejob`. La discriminación es
-la clave del diseño (§3).
-
-Al dispararse, corre en CI el equivalente al *close-loop* de `codejob 'mensaje'`
-(publish vía `gopush`): **tests → tag → push → limpieza**. Igual que en local,
-**solo se crea el tag automáticamente; no se ejecuta `gorelease`** (los binarios
-cross-platform son otra herramienta, fuera de alcance — ver §7.4). El mensaje y
-el tag salen del **frontmatter de `docs/PLAN.md`** (`PLAN:` / `TAG:`), exactamente
-la misma fuente de verdad que ya usa el flujo local vía `CHECK_PLAN.md`.
-
-## 3. Decisión de diseño clave — cómo distinguir "finalizando un codejob"
-
-El requisito "el action solo debe activarse si es un merge y si estamos
-finalizando un codejob" necesita una señal **fiable y sin intervención local**.
-
-La señal elegida: **la presencia de `docs/PLAN.md` (con frontmatter válido) en la
-rama por defecto tras el merge.**
-
-Por qué funciona y por qué es robusta frente al doble-publish:
-
-| Escenario de cierre | ¿Queda `docs/PLAN.md` en la rama base? | Quién publica |
-|---|---|---|
-| **Desde tablet/web** (merge en GitHub) | **Sí** — el flujo local nunca corrió, nunca renombró `PLAN.md`→`CHECK_PLAN.md` | **La Action** |
-| **Desde la PC** (`codejob 'msg'`) | **No** — el flujo local ya renombró/borró `PLAN.md` y lo publicó | El flujo local |
-
-Esto hace ambos caminos **mutuamente excluyentes por construcción**: la Action
-solo actúa cuando el `PLAN.md` sigue presente, es decir, cuando el loop **no** se
-cerró en local. No hace falta coordinación ni locks. (Recordar: en dispatch,
-`Send()` commitea y pushea `docs/PLAN.md` con su frontmatter, así que el archivo
-está en el historial y viaja a la rama del agente y al merge.)
-
-- **Trigger YAML:** `pull_request: types: [closed]` sobre la rama por defecto.
-  No se usa filtro `paths:` porque el PR del agente puede **no** modificar
-  `PLAN.md` (si el agente no lo tocó, el diff no lo incluye y `paths` no
-  dispararía). El filtrado real se hace en el *guard* del job.
-- **Guard del job:** `if: github.event.pull_request.merged == true` (descarta PRs
-  cerrados sin merge) **más** un paso que verifica que `docs/PLAN.md` existe y
-  tiene frontmatter válido; si no, el job termina en *no-op* (exit 0).
-- **Anti-re-trigger:** tras publicar, la Action **borra `docs/PLAN.md`** y commitea
-  la limpieza. Ese commit es un `push` directo, no un `pull_request`, así que no
-  vuelve a disparar el workflow. Y el gate queda cerrado para futuros eventos.
-
-## 4. Diagramas
-
-### 4.1 Flujo actual (el cuello de botella)
-
-```mermaid
-flowchart TD
-    A[Escribo docs/PLAN.md] --> B[codejob: dispatch al agente]
-    B --> C[Agente trabaja y abre PR]
-    C --> D[Reviso el PR desde la tablet - OK]
-    D --> E{Cerrar el loop}
-    E --> F[IR A LA PC]
-    F --> G[codejob: fetch + checkout rama PR<br/>fase review]
-    G --> H[codejob 'mensaje':<br/>merge PR + gopush publica]
-    H --> I[Nueva versión + tag publicados]
-
-    style F fill:#ffdddd,stroke:#c00,stroke-width:2px
-    style E fill:#fff3cd,stroke:#d90
-```
-
-### 4.2 Flujo propuesto (cerrar desde el móvil)
-
-```mermaid
-flowchart TD
-    subgraph SETUP["Una sola vez por repo"]
-        S1[codejob --init-action] --> S2[.github/workflows/codejob.yml<br/>+ secrets] --> S3[commit + push del workflow]
-    end
-
-    A[Escribo docs/PLAN.md] --> B[codejob: dispatch al agente]
-    B --> C[Agente trabaja y abre PR]
-    C --> D[Reviso el PR desde la tablet - OK]
-    D --> E[Merge del PR en GitHub<br/>desde el movil/web]
-
-    E --> GA{Action codejob}
-    GA -->|PR merged == true?| GA2
-    GA2{docs/PLAN.md presente<br/>con frontmatter?}
-    GA2 -->|No: cerrado en local| NOOP[no-op, exit 0]
-    GA2 -->|Si: finalizando codejob| P[CI: go install codejob pinneado<br/>gopush: tests + tag + push<br/>sin gorelease]
-    P --> CLEAN[Borra docs/PLAN.md + commit limpieza]
-    CLEAN --> I[Nueva version + tag publicados]
-
-    ALT[Alternativa: sigo pudiendo<br/>correr codejob 'msg' en la PC] -.-> I
-
-    style E fill:#d4edda,stroke:#28a745,stroke-width:2px
-    style GA fill:#cce5ff,stroke:#004085
-```
-
-## 5. Alcance de la implementación
-
-### 5.1 Archivos nuevos
-
-- `codejob_action.go` — lógica del subcomando:
-  - `InitCodejobAction(force bool) error`: crea `.github/workflows/` si falta,
-    escribe el YAML embebido si no existe (o con `--force`), y devuelve mensajes
-    claros (creado / ya existe / sobreescrito).
-  - Plantilla del workflow embebida con `//go:embed templates/codejob_action.yml`.
-- `templates/codejob_action.yml` — el workflow (ver §5.3).
-- `codejob_action_test.go` (en `test/`) — cobertura (ver §6).
-
-### 5.2 Archivos modificados
-
-- `cli.go` — parsear el flag `--init-action` (y `--force`) en `ParseCodeJobArgs`,
-  devolviendo un nuevo booleano `isInitAction`.
-- `cmd/codejob/main.go` — atender `--init-action` antes del flujo normal
-  (igual que ya hace con `--reset-gh-token`): llamar a `InitCodejobAction`,
-  imprimir resultado y salir.
-- `cmd/codejob/main.go` `showHelp()` — documentar el subcomando.
-- `docs/CODEJOB.md` y `docs/diagrams/CODEJOB_FLOW.md` — documentar el modo CI y
-  actualizar la tabla de uso.
-
-### 5.3 Contenido del workflow (`.github/workflows/codejob.yml`)
-
-**Elección de runner — `ubuntu-latest`, no Alpine.** No es un descuido: en
-runners hospedados no existe `runs-on: alpine` (solo Ubuntu/Windows/macOS). Usar
-Alpine obliga a `container: alpine` **encima** de un runner Ubuntu → se paga el
-arranque de la VM Ubuntu + `docker pull` + `apk add`, resultando **más lento** y
-**sin ahorro de costo** (la facturación es por minuto-runner, y el runner sigue
-siendo Ubuntu). Además `checkout`/`setup-go`/`gh`/`git` son glibc y vienen
-preinstalados en Ubuntu; en Alpine exigen `gcompat`. La carga de cómputo real de
-este job es `go install` de la herramienta + `gotest` (vet + tests + **race
-detector**, que quiere cgo/gcc y varios núcleos) — no hay `gorelease` ni
-cross-compile aquí. Eso encaja con `ubuntu-latest` (2 vCPU, gcc y `gh` de fábrica)
-mejor que con Alpine, donde el race detector es problemático bajo musl. El valor
-de Alpine es como **imagen de despliegue** (runtime), algo ortogonal a este runner.
-
-**Bootstrap de la herramienta — `go install` pinneado (no binario descargado).**
-Aclaración importante tras la revisión: como el close-loop es `gopush` (tag-only,
-**no** `gorelease`), los releases de devflow **no** llevan assets binarios
-garantizados — no hay `codejob-linux-amd64` que descargar de forma fiable. Por
-eso el bootstrap correcto es `go install github.com/tinywasm/devflow/cmd/codejob@vX.Y.Z`,
-**fijado a la versión** que estampa `--init-action` (no `@latest`) para
-reproducibilidad. El toolchain Go ya está en el runner porque `gotest` lo
-necesita, así que `go install` no añade dependencias extra. (Descargar un binario
-precompilado solo tendría sentido si el proyecto publicara releases con
-`gorelease`; no es el caso del flujo de `codejob`.)
-
-```yaml
-name: codejob
-on:
-  pull_request:
-    types: [closed]
-permissions:
-  contents: write   # crear tag, release, push de limpieza
-jobs:
-  publish:
-    # Solo merges reales (descarta PR cerrados sin fusionar)
-    if: github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref }}
-          fetch-depth: 0          # historial completo para tags/gopush
-      - name: Gate — ¿estamos finalizando un codejob?
-        id: gate
-        run: |
-          # PLAN.md presente con frontmatter => cierre desde web (no se cerró en local)
-          if [ -f docs/PLAN.md ] && head -1 docs/PLAN.md | grep -q '^---'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "No hay codejob pendiente; no-op."
-          fi
-      - uses: actions/setup-go@v5
-        if: steps.gate.outputs.run == 'true'
-        with: { go-version: 'stable' }   # necesario: gopush corre gotest (vet+test+race)
-      - name: Publicar (close-loop en CI)
-        if: steps.gate.outputs.run == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Versión fijada que estampa 'codejob --init-action' (no @latest)
-          go install github.com/tinywasm/devflow/cmd/codejob@v0.5.0
-          codejob --ci-publish     # lee frontmatter, gopush (tag-only), limpia PLAN.md
-```
-
-> El detalle exacto de los steps (cache de módulos, versión pinneada de la
-> herramienta en vez de `@latest`, publicación a repo público separado cuando el
-> origin es privado) se afina en implementación. Lo esencial es el par
-> **trigger `closed` + guard `merged` + gate `PLAN.md`**.
-
-### 5.4 Nuevo modo `codejob --ci-publish`
-
-Ruta de ejecución **no interactiva** pensada para el runner, que reutiliza la
-maquinaria existente sin depender del estado local (`.env`/keyring/PAT):
-
-- No hay sesión `CODEJOB` en `.env` (el runner es efímero): se salta el manejo de
-  fases; el PR **ya está fusionado** por GitHub.
-- Lee `docs/PLAN.md` con `ReadPlanMeta` → `message` y `tag` (`PLAN:`/`TAG:`).
-- Borra `docs/PLAN.md` (equivale al borrado de `CHECK_PLAN.md` del flujo local).
-- Llama a `Publisher.Publish(message, tag, ...)` = `gopush`: tests + **tag** +
-  push (más limpieza), usando `GITHUB_TOKEN` para el push y el tag. **No** crea
-  GitHub Release ni binarios (`gorelease` queda fuera; ver §7.4).
-- **No** despacha planes encadenados en CI (requiere API key de Jules); si tras el
-  merge hay un `PLAN.md` nuevo distinto, se deja como *follow-up* opcional (§7).
-
-Esto mantiene una única fuente de verdad para el mensaje/tag (frontmatter) y
-reaprovecha `gopush` sin duplicar lógica.
-
-## 6. Pruebas (test map)
-
-| Comportamiento | Test |
+| # | Decisión |
 |---|---|
-| `InitCodejobAction` crea el workflow si no existe | `TestInitCodejobAction_CreatesWhenAbsent` |
-| Es idempotente (no sobreescribe sin `--force`) | `TestInitCodejobAction_NoOverwrite` |
-| `--force` sí sobreescribe | `TestInitCodejobAction_ForceOverwrites` |
-| El YAML embebido es válido y contiene el guard `merged` + gate `PLAN.md` | `TestCodejobActionTemplate_Contract` |
-| `ParseCodeJobArgs` detecta `--init-action` / `--force` | `TestParseCodeJobArgs_InitAction` |
-| `--ci-publish` con `PLAN.md` válido publica con msg/tag del frontmatter | `TestCIPublish_UsesFrontmatter` |
-| `--ci-publish` sin `PLAN.md` es no-op | `TestCIPublish_NoopWhenNoPlan` |
+| Estado | Único en el frontmatter de `docs/PLAN.md`; `.env`/`CHECK_PLAN.md` eliminados. |
+| Tokens | Nombre único keyring = env = secret: `JULES_API_KEY`, `GH_TOKEN`. Sin alias. |
+| Runner CI | `ubuntu-latest`; bootstrap `go install …/cmd/codejob@<versión-fijada>`. |
+| Publicación CI | `gopush` tag-only, `--no-cascade`, sin backup. |
+| Revisor | Juzga (postea review nativa de GitHub). No commitea. |
+| Corrección | La orquesta codejob ante `CHANGES_REQUESTED`; corrector = `EXECUTOR` salvo `CORRECTOR`. |
+| Tope de rondas | `ROUND` máximo **3**; superado → pasa a revisión humana. |
+| Cierre | El **humano fusiona** (sin auto-merge); la fusión publica. |
+| Revisores | Uno (`REVIEWER`); lista en cadena queda para después. |
+| Secrets | Por org con `--init-action --org` donde exista org; por-repo en cuentas personales. |
+| Correlación | Por **rama/identidad**, no por session id (los eventos de GitHub no traen el session id). |
 
-## 7. Riesgos y decisiones abiertas (para tu aprobación)
+## 4. Cambios por archivo
 
-1. **Señal de discriminación.** Propongo *presencia de `docs/PLAN.md`* por ser
-   cero-fricción. Alternativa más explícita: una **label `codejob`** en el PR
-   (más autodocumentada, pero requiere que algo la ponga sin la PC — habría que
-   añadir el etiquetado al abrir/detectar el PR). ¿Prefieres archivo o label?
-2. **Token de push/tag.** Como el flujo es tag-only (sin `gorelease`), para push y
-   tag basta el `GITHUB_TOKEN` del runner en repos normales. Solo si en el futuro
-   añadiéramos `gorelease` en CI (publicar binarios a un repo público derivado
-   cuando el origin es privado) haría falta un **PAT** como secret (`SetSecret` ya
-   existe). Por ahora **no** hace falta secret extra. ¿De acuerdo en dejarlo así?
-3. **Planes encadenados en CI.** El re-dispatch automático necesita la API key de
-   Jules como secret. Lo dejo **fuera** del alcance inicial (queda solo-local),
-   salvo que lo quieras dentro.
-4. **Cascade/backup en CI.** El backup asíncrono y el cascade a módulos
-   dependientes asumen entorno local; en CI conviene `--no-cascade` y omitir
-   backup. Propongo publicar **solo el módulo** en CI y dejar el cascade al flujo
-   local. ¿De acuerdo?
+### 4.1 Testabilidad — seam de `Runner` (habilita todo el TDD)
+- **Nuevo** `Runner` interface (generaliza `SecretRunner` de `github_secrets.go`)
+  con `Run(name string, args ...string) (string, error)`. Inyectable en las
+  funciones de estado. Un `defaultRunner` envuelve `tinywasm/command`.
+- Reescribir `CheckoutPRBranch`, `MergePR`, `MergeAndPublish`, `resolveDefaultBranch`
+  para usar el `Runner` inyectado (hoy llaman `command.Run` directo → no mockeable).
 
-## 8. Resumen
+### 4.2 Estado en el frontmatter
+- `frontmatter.go` — `PlanMeta` gana `Executor, Reviewer, Corrector, ReviewGuide,
+  Status, Session, ReviewSession, Round, PR` + constantes de clave. **Escritor**
+  que actualiza solo el bloque de frontmatter preservando el cuerpo.
+- `codejob.go` / `codejob_state.go` — **eliminar** `.env`/`CODEJOB` (parseo,
+  legacy, `CODEJOB_PR`, `LoadCodejobState`/`SaveCodejobState`) y el renombrado a
+  `CHECK_PLAN.md` (`HandleDone`, `.gitignore CHECK_*.md`). El estado se lee/escribe
+  en el frontmatter. Sin código de migración.
 
-Añadir `codejob --init-action` (scaffolding one-shot del workflow) y un modo
-`codejob --ci-publish` que la Action invoca al fusionar un PR de codejob. El
-disparo es preciso — merge real **y** `docs/PLAN.md` aún presente — lo que separa
-limpiamente el cierre-desde-web (publica la Action) del cierre-en-PC (publica el
-flujo local), sin doble publicación. Resultado: cerrar el PR desde el móvil
-publica la versión, sin tocar la PC.
+### 4.3 Roles y drivers
+- `interface.go` — `CodeJobDriver.Send(prompt, title)` → `Send(JobSpec{Role,
+  Branch, PlanPath, Prompt, Title})`; registro de drivers por rol.
+- `code_jules.go` — adaptar `JulesDriver` a `JobSpec`; soportar rol `executor`
+  (implementar el plan) y `reviewer` (revisar el PR de la rama `X` y postear una
+  review nativa).
+- **Nuevo**: despacho del revisor y lectura del veredicto vía `Runner`
+  (`gh pr view --json reviews`), con el tope `ROUND` (=3).
+
+### 4.4 Auth / tokens
+- `codejob_auth.go` / `codejob_gh_auth.go` — renombrar claves de keyring a
+  `JULES_API_KEY` y `GH_TOKEN` (borrar `jules_api_key`, `github_pat`,
+  `github_token`). Leer primero de la **variable de entorno del mismo nombre**
+  (CI), cayendo al keyring (local).
+
+### 4.5 CLI y Action
+- `cli.go` — parsear `--ci <phase>` (`dispatch|review|verdict|publish`),
+  `--init-action`, `--force`, `--org`, `--visibility`.
+- `cmd/codejob/main.go` — atender los flags nuevos; actualizar `showHelp()`.
+- **Nuevo** `codejob_action.go` + `templates/codejob.yml` embebido (`go:embed`):
+  `InitCodejobAction(force bool, org, visibility string)` crea
+  `.github/workflows/codejob.yml` (idempotente) y registra `JULES_API_KEY`+`GH_TOKEN`.
+- `github_secrets.go` — `SetSecret` gana soporte `--org`/`--visibility`.
+
+### 4.6 Documentación (ya actualizada a objetivo; mantener en sync)
+- `docs/CODEJOB.md`, `docs/diagrams/CODEJOB_FLOW.md`,
+  `docs/codejob/JULES_AUTOMATION.md` describen ya el estado final.
+
+## 5. Mapa de pruebas (TDD)
+
+Refleja la traza de [`CODEJOB_FLOW.md`](diagrams/CODEJOB_FLOW.md#traceability-test-map).
+Todas con dobles: `Runner` falso (git/gh), driver falso (executor/reviewer),
+`Publisher` mock, `SecretRunner` mock, keyring/env falsos.
+
+| Comportamiento | Test | Mock |
+|---|---|---|
+| Leer estado del frontmatter | `TestPlanState_ReadFrontmatter` | temp file |
+| Escribir estado preservando el cuerpo | `TestPlanState_WritePreservesBody` | temp file |
+| `STATUS` derivado cuando falta | `TestPlanState_StatusDerivation` | temp file |
+| Token: env → keyring, mismo nombre | `TestAuth_EnvVarThenKeyring` | keyring/env falsos |
+| Parseo `--ci <phase>` / flags init | `TestParseArgs_CIPhases`, `TestParseArgs_InitFlags` | — |
+| dispatch → running | `TestCI_Dispatch_WritesRunning` | driver + Runner |
+| running → reviewing (REVIEWER set) | `TestCI_PROpened_DispatchesReviewer` | driver + Runner |
+| running → review (REVIEWER none) | `TestCI_PROpened_NoReviewer` | Runner |
+| reviewing → review (APPROVED) | `TestCI_Verdict_Approved` | Runner (reviews json) |
+| reviewing → running (CHANGES_REQUESTED, ROUND++) | `TestCI_Verdict_ChangesRequested_RoundInc` | driver + Runner |
+| reviewing → review (ROUND > 3) | `TestCI_Verdict_RoundCap` | Runner |
+| review → publicado (tag-only, borra plan) | `TestCI_Publish_TagOnly` | mock Publisher |
+| publish no-op si falta el plan | `TestCI_Publish_NoopWhenNoPlan` | mock Publisher |
+| `--init-action` crea/idempotente/`--force` | `TestInitAction_CreatesWhenAbsent`, `_Idempotent`, `_ForceOverwrites` | temp dir |
+| Registro de secret repo y `--org` | `TestInitAction_SecretScope` | mock SecretRunner |
+| Contrato del workflow embebido | `TestActionTemplate_Contract` | string embebido |
+
+## 6. Criterios de aceptación (Definition of Done)
+
+1. `gotest` verde (vet, tests, race) en todo el repo.
+2. Todas las pruebas de §5 existen y pasan; se escribieron antes que su código.
+3. **Cero** referencias en código a: `CODEJOB` en `.env`, `CODEJOB_PR`,
+   `CHECK_PLAN`, `jules_api_key`, `github_pat`, `github_token`.
+4. `codejob --init-action` genera un `.github/workflows/codejob.yml` que satisface
+   `TestActionTemplate_Contract` (guard `merged==true` + gates por `STATUS`).
+5. El comportamiento coincide con `docs/CODEJOB.md` y `docs/diagrams/CODEJOB_FLOW.md`.
+
+## 7. Fuera de alcance
+
+- `gorelease` en CI (binarios cross-platform): el cierre es tag-only.
+- Re-dispatch nativo por comentario (Jules reaccionando solo): la corrección la
+  orquesta codejob.
+- Cadena de varios revisores (v1 = un `REVIEWER`).
+- Cascade a módulos dependientes en CI (queda al flujo local).
