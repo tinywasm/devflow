@@ -1,171 +1,146 @@
 # CodeJob
 
-`CodeJob` is a chain-of-responsibility orchestrator that sends a coding task (defined in an `PLAN.md` file) to a sequence of external AI agent drivers.
+`CodeJob` is a chain-of-responsibility orchestrator that drives a coding task
+(defined in `docs/PLAN.md`) through a sequence of external AI agents and closes
+the loop by publishing a new version.
 
-## Architecture
+All state lives in the **frontmatter of `docs/PLAN.md`**. There is no `.env`
+state and no `CHECK_PLAN.md`: every phase transition is a git commit, so the full
+loop runs identically on your machine or in GitHub Actions.
 
-See: [CODEJOB_FLOW.md](diagrams/CODEJOB_FLOW.md)
+Architecture & diagrams: [diagrams/CODEJOB_FLOW.md](diagrams/CODEJOB_FLOW.md).
 
-## Key Types
+## Roles
 
-### `CodeJobDriver` interface
-```go
-type CodeJobDriver interface {
-    Name() string
-    SetLog(fn func(...any))
-    // prompt: "Execute the implementation plan described in docs/PLAN.md"
-    // title:  "owner/repo" derived by CodeJob via autoDetectTitle()
-    Send(prompt, title string) (string, error)
-}
-```
+CodeJob distinguishes two kinds of action on a task, declared in the frontmatter:
 
-### `CodeJob` orchestrator
-```go
-job := devflow.NewCodeJob(drivers ...CodeJobDriver)
-job.SetLog(log.Println)
-result, err := job.Send("docs/PLAN.md")
-```
+| Role | Key | What it does |
+|---|---|---|
+| **Executor** | `EXECUTOR` | Implements the plan and opens the PR; also applies corrections (commits on the PR branch). |
+| **Reviewer** | `REVIEWER` | Judges the PR and posts a **native GitHub review** (`APPROVED` / `CHANGES_REQUESTED`). Never commits code. |
 
-## Setup (one-time per repo)
+The reviewer is an **optional quality gate before the human** — you still merge
+the PR yourself, and the merge is what publishes. Correcting is just executing
+again: by default the `EXECUTOR` applies the reviewer's feedback; set the optional
+`CORRECTOR` key to route corrections to a different agent.
 
-Dispatching a task automatically runs the setup wizard if the Jules API key is missing from your system keyring.
+Everything stays in the PR conversation: the reviewer posts to the same thread
+where you already reply corrections, the executor reads it the same way it reads
+your comments, and codejob reads the review state to drive the state machine.
 
-## Authentication & Auto-Detection
+## <a name="frontmatter"></a>Plan frontmatter (REQUIRED — dispatch fails without it)
 
-### Jules Auth
-Jules API key is managed via the system keyring (`github.com/zalando/go-keyring`):
-- **After first run**: reads silently from keyring — no env vars required in local use
-
-### GitHub Auth
-To prevent interactive Device Flow prompts during `codejob` (which can block the flow), `devflow` uses a fine-grained Personal Access Token (PAT) stored in the keyring to recover the `gh` session automatically if it expires.
-
-**Setup:**
-1. Create a **fine-grained PAT** at [github.com/settings/tokens](https://github.com/settings/tokens) with the following permissions:
-   - **Contents**: Read/Write
-   - **Pull requests**: Read/Write
-2. The first time `codejob` detects an expired session, it will prompt you for this PAT and save it in the keyring.
-3. To rotate the token, run: `codejob --reset-gh-token`.
-
-### Auto-Detection
-GitHub repo and branch are auto-detected when not provided:
-- `SourceID` — via `gh repo view --json owner,name`
-- `StartBranch` — via `git branch --show-current`
-
-## Adding a New Driver
-
-Implement `CodeJobDriver` and pass it to `NewCodeJob`:
-
-```go
-type MyDriver struct{}
-
-func (d *MyDriver) Name() string                                { return "MyAgent" }
-func (d *MyDriver) SetLog(fn func(...any))                      {}
-func (d *MyDriver) Send(prompt, title string) (string, error)   { /* ... */ }
-
-job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}), &MyDriver{})
-```
-
-## `codejob` vs `gopush` — not alternatives
-
-**`gopush` publishes. `codejob` runs the plan loop** (dispatch → review → close) and calls
-`gopush` for you at the end.
-
-| You did… | Publish with |
-|---|---|
-| Edited docs, or a small fix — **no plan** | **`gopush 'message'`** — there is no PR for codejob to close |
-| Wrote `docs/PLAN.md` and dispatched it | **`codejob 'message'`** — merges the PR, calls `gopush`, deletes `CHECK_PLAN.md` |
-
-> **Nota sobre `gopush`**: `gopush` **falla** si hay una sesión `CODEJOB` activa en el
-> repo. La salida es cerrar el loop con `codejob` (que fusiona el PR y limpia la sesión)
-> antes de intentar publicar cambios manuales.
-
-⚠️ Bare `codejob` (no arguments) **dispatches** `docs/PLAN.md` to the execution agent. It is
-not a dry-run, a lint, or a way to inspect an error.
-
-## `docs/PLAN.md` frontmatter (REQUIRED — dispatch fails without it)
-
-Every `docs/PLAN.md` must **open** with a frontmatter block. The very first line of the file
-is `---`, before any heading or blockquote:
+The first line of `docs/PLAN.md` must be `---`:
 
 ```markdown
 ---
 PLAN: "feat: what this plan implements"
 TAG: v0.2.0
+EXECUTOR: jules
+REVIEWER: none
 ---
 
 # Plan — ...
 ```
 
-| Key | Required | Meaning |
-|-----|----------|---------|
-| `PLAN` | **yes** | Commit message used when the loop is closed (`codejob 'msg'` overrides it). |
-| `TAG` | no | Explicit version (`v0.2.0`). Omitted → `gopush` auto-bumps. |
+| Key | Who writes it | Required | Meaning |
+|-----|---------------|----------|---------|
+| `PLAN` | human | **yes** | Commit message used when the loop closes (`codejob 'msg'` overrides it). |
+| `TAG` | human | no | Explicit version (`v0.2.0`); omitted → `gopush` auto-bumps. |
+| `EXECUTOR` | human | no | Agent that implements (default `jules`). |
+| `REVIEWER` | human | no | Agent that reviews the PR; `none`/absent → human-only review. |
+| `CORRECTOR` | human | no | Agent that applies review feedback (default: the `EXECUTOR`). |
+| `REVIEW_GUIDE` | human | no | Path to extra review criteria (e.g. `docs/REVIEW.md`). |
+| `STATUS` | machine | — | `dispatch` → `running` → `reviewing` → `review`. |
+| `SESSION` | machine | — | Executor session id. |
+| `REVIEW_SESSION` | machine | — | Reviewer session id. |
+| `ROUND` | machine | — | Executor↔reviewer round count (capped, default 3). |
+| `PR` | machine | — | URL of the PR opened by the executor. |
 
-Unknown keys are ignored. Values may be quoted or bare.
-
-Without it, dispatch aborts with:
-
-```
-Error: invalid plan frontmatter in docs/PLAN.md: plan frontmatter: file must start with a '---' line
-```
+Unknown keys are ignored. `STATUS: dispatch` (or no machine keys) means "pending
+dispatch".
 
 ## Usage
 
-### CLI
+### Local
+
 ```bash
 go install github.com/tinywasm/devflow/cmd/codejob@latest
 
-# ── DESPACHAR ──────────────────────────────────────────────────────────────
-# Envía docs/PLAN.md al agente externo (Jules).
-# El wizard de setup corre automáticamente si falta el API key.
+# Dispatch / advance: runs the phase implied by the current STATUS.
 codejob
 
-# ── PUBLICAR (cerrar el loop) ───────────────────────────────────────────────
-# Ejecutar DESPUÉS de revisar y aprobar el PR abierto por Jules.
-# Fusiona el PR y publica via gopush (git tag + push).
-# Si existe un nuevo docs/PLAN.md, despacha el siguiente job automáticamente.
+# Close the loop with an explicit message/tag override (optional).
 codejob 'feat: implemented feature'
-codejob 'feat: implemented feature' v0.3.0  # con tag explícito
+codejob 'feat: implemented feature' v0.3.0
 ```
 
-### Go Library
+### Cloud (one-time setup, then zero-touch)
+
+```bash
+# Scaffold the workflow and register the secrets from your keyring.
+codejob --init-action                          # this repo only
+codejob --init-action --org tinywasm --visibility all   # once for the whole org
+```
+
+After that, the loop runs without opening your PC:
+
+- Edit the `docs/PLAN.md` header and commit → the workflow dispatches the executor.
+- The (optional) reviewer runs when the PR opens and posts its review.
+- You review the PR from web/mobile and **merge** → the workflow publishes
+  (`gopush`, tag-only) and deletes `docs/PLAN.md`.
+
+The workflow invokes `codejob --ci <phase>` (`dispatch`, `review`, `verdict`,
+`publish`); you never call `--ci` yourself.
+
+## Tokens & secrets
+
+One identifier everywhere — keyring key, environment variable and GitHub Actions
+secret share the **same name**:
+
+| Purpose | Name (keyring = env = secret) |
+|---|---|
+| Agent (Jules) | `JULES_API_KEY` |
+| GitHub token (PAT) | `GH_TOKEN` |
+
+- `GH_TOKEN` (not `GITHUB_TOKEN`): Actions secrets cannot start with `GITHUB_`,
+  and a commit pushed with the default `GITHUB_TOKEN` does **not** trigger the next
+  workflow — the chained cloud loop needs a PAT.
+- `codejob --ci` reads these from environment variables (injected by the Action
+  from the secrets); locally it reads them from the keyring under the same name.
+- `codejob --init-action` reads them from the keyring and registers them as
+  secrets (repo-level, or org-level with `--org`).
+
+### Renaming keyring keys (one-time, manual)
+
+Token names changed to `JULES_API_KEY` / `GH_TOKEN` with no backwards-compat
+shim. Simplest path: run `codejob`; when the key isn't found under the new name it
+prompts you and stores it. Optional cleanup of the old entries (keyring service
+`devflow`):
+
+```bash
+# Linux (libsecret)
+secret-tool clear service devflow username jules_api_key
+# macOS (Keychain)
+security delete-generic-password -s devflow -a jules_api_key
+# Windows: Credential Manager → search "devflow"
+```
+
+To rotate the GitHub token: `codejob --reset-gh-token`.
+
+## Adding a driver
+
+Implement `CodeJobDriver` and register it for a role:
+
 ```go
-// Zero-config: API key from keyring, repo/branch auto-detected via gh/git
-job := devflow.NewCodeJob(devflow.NewJulesDriver(devflow.JulesConfig{}))
-result, err := job.Send("docs/PLAN.md")
-
-// Explicit config (override any field)
-cfg := devflow.JulesConfig{
-    APIKey:      "key",                        // optional: defaults to keyring
-    SourceID:    "sources/github/user/repo",  // optional: auto-detected via gh
-    StartBranch: "main",                       // optional: auto-detected via git
+type CodeJobDriver interface {
+    Name() string
+    SetLog(fn func(...any))
+    // Send runs one job. JobSpec carries the role (executor/reviewer), the
+    // target branch (for reviews/corrections), the plan path and the prompt.
+    Send(spec JobSpec) (string, error)
 }
-job := devflow.NewCodeJob(devflow.NewJulesDriver(cfg))
 ```
-
-## Integrated Flow (via gopush)
-
-`codejob` uses `gopush` to sync changes before dispatch and to publish changes when "closing the loop". It inherits all `gopush` behavior, including **automatic internal submodule syncing** when publishing a release.
-
-## State Check & Cleanup
-
-To avoid redundant dispatches and track task progress, `CodeJob` persists an active session to the `.env` file using a unified `CODEJOB` key:
-
-```
-CODEJOB=jules:running:SESSION_ID
-CODEJOB=jules:review:https://github.com/owner/repo/pull/1
-```
-
-Legacy format `CODEJOB=jules:SESSION_ID` and `CODEJOB_PR=...` are automatically
-migrated to the new unified format upon the next state save.
-
-The `codejob` command becomes dual-mode:
-- **If session active (running phase)**: Queries Jules API. If a Pull Request is ready, it performs cleanup:
-    1. `CheckoutPRBranch`: fetches, stashes local drift, and hard-positions the tree on the Jules branch. This is **transactional**: if checkout or stashing fails, cleanup aborts and state is preserved for retry.
-    2. Renames `docs/PLAN.md` to `docs/CHECK_PLAN.md`.
-    3. Updates state in `.env` to `review` phase with the PR URL.
-- **If pending review (review phase)**: `codejob` with no arguments will attempt to merge the PR and close the loop.
-- **If no session**: Dispatches the task from `docs/PLAN.md`.
 
 ## Drivers
 

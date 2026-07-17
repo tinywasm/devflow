@@ -1,455 +1,147 @@
 ---
-PLAN: "feat: unify codejob state in docs/PLAN.md frontmatter and run the full loop in the cloud"
+PLAN: "feat: unify codejob state in PLAN.md frontmatter, agent roles, and the cloud loop"
 TAG: v0.5.0
 EXECUTOR: jules
 REVIEWER: none
 STATUS: dispatch
 ---
 
-# Plan — Estado único en `docs/PLAN.md` y loop completo en la nube
+# Plan — Estado único en `docs/PLAN.md`, roles de agente y loop en la nube
 
-## 1. Problema (justificación)
+Plan de ejecución para un agente. El **comportamiento objetivo** ya está descrito
+en la documentación (que este plan implementa):
 
-Hoy el estado de `codejob` está **repartido en dos lugares**:
+- Comportamiento y uso: [`docs/CODEJOB.md`](CODEJOB.md)
+- Diagramas y mapa de pruebas: [`docs/diagrams/CODEJOB_FLOW.md`](diagrams/CODEJOB_FLOW.md)
 
-- **`.env`** → la sesión activa: `CODEJOB=jules:running:SESSION_ID` /
-  `jules:review:PR_URL`. Es **efímero, local y gitignored**.
-- **`docs/PLAN.md`** → la tarea + frontmatter (`PLAN`, `TAG`). Además, durante la
-  revisión se renombra a `docs/CHECK_PLAN.md` (también gitignored).
+Implementa el código hasta que coincida con esos documentos y todas las pruebas
+de §5 pasen.
 
-Consecuencia: el ciclo (dispatch → poll → review → publish) **solo puede vivir en
-la PC**, porque el `.env` con la sesión nunca sale del disco local. Un runner de
-la nube es efímero y arranca sin ese estado, así que no puede continuar el loop.
-El flujo típico obliga a ir a la PC a ejecutar `codejob` dos veces (posicionar la
-rama y luego fusionar+publicar) aunque la revisión ya se hizo desde el móvil.
+## 1. Objetivo
 
-**Objetivo:** mover **todo** el estado al **frontmatter de `docs/PLAN.md`** y dejar
-de usar `.env`. Como el frontmatter se commitea, cada transición queda en git y el
-loop entero se puede ejecutar en la nube:
+Hoy el estado de `codejob` se reparte entre `.env` (sesión efímera, local,
+gitignored) y `docs/PLAN.md`. Por eso el loop **solo vive en la PC**: un runner de
+la nube arranca sin ese `.env`. Movemos **todo** el estado al frontmatter de
+`docs/PLAN.md`; como se commitea, cada transición queda en git y el loop entero
+(despachar → revisar → publicar) corre en GitHub Actions. Además añadimos un
+**agente revisor** opcional como compuerta de calidad antes del humano.
 
-> Fusiono el PR desde el móvil → se publica.
-> Edito la cabecera de `docs/PLAN.md`, hago commit → se despacha el siguiente
-> trabajo. **Sin abrir la PC en ningún momento.**
+Resultado: editar la cabecera y commitear despacha; fusionar el PR publica. Sin
+abrir la PC.
 
-## 2. Propuesta (cuatro piezas)
+## 2. Principios de ejecución
 
-1. **Estado único en el frontmatter** (§3) — retirar `.env` y `CHECK_PLAN.md`.
-2. **Roles ejecutor + revisor** (§3.7) — un agente revisor opcional como compuerta
-   de calidad antes del humano, declarado en el frontmatter.
-3. **Modo `codejob --ci`** (§6) — ejecución no interactiva que la Action invoca:
-   lee el frontmatter, ejecuta la fase que corresponda y **escribe el nuevo estado
-   de vuelta en el frontmatter** (commit).
-4. **`codejob --init-action`** (§6) — genera `.github/workflows/codejob.yml` y
-   registra los secrets con **la misma nomenclatura del keyring** (§3.3).
+- **TDD estricto.** Para cada comportamiento: primero el test (rojo), luego el
+  código (verde). El mapa de §5 es la lista mínima; ninguna arista del flujo queda
+  sin test.
+- **Todo con mocks, sin red real.** Ninguna prueba toca red, `git`, `gh` ni el
+  keyring reales. Se inyectan dobles (ver §4.1, seam de `Runner`).
+- **Break change limpio.** Se **elimina** el código viejo (`.env`/`CODEJOB`,
+  `CHECK_PLAN.md`, claves de keyring antiguas). Sin alias, sin migración
+  automática, sin ramas de compatibilidad.
+- **No romper `gopush`.** El cierre sigue siendo `gopush` tag-only (no `gorelease`).
 
-## 3. Modelo de estado — fuente única en el frontmatter
+## 3. Decisiones tomadas (defaults fijados, ya no son preguntas)
 
-### 3.1 Claves del frontmatter
-
-```markdown
----
-PLAN: "feat: lo que implementa este plan"   # requerido — mensaje de commit al cerrar
-TAG: v0.5.0                                  # opcional  — versión (omitido = auto-bump)
-EXECUTOR: jules                              # opcional  — agente que implementa (default: jules)
-REVIEWER: none                               # opcional  — agente que revisa el PR (none = solo humano)
-STATUS: dispatch                             # gestionado por la máquina
-SESSION: sessions/abc123                     # gestionado — sesión del ejecutor
-REVIEW_SESSION: sessions/def456             # gestionado — sesión del revisor (si REVIEWER)
-ROUND: 0                                     # gestionado — nº de ida-vuelta ejecutor↔revisor
-PR: https://github.com/o/r/pull/7            # gestionado — PR abierto por el ejecutor
----
-```
-
-| Clave | Quién la escribe | Significado |
-|---|---|---|
-| `PLAN` | humano | Mensaje de commit del cierre (requerido). |
-| `TAG` | humano | Versión explícita (opcional). |
-| `EXECUTOR` | humano | Agente que implementa (antes `AGENT`; `jules` por defecto). |
-| `REVIEWER` | humano | Agente que revisa el PR. `none`/ausente = solo revisión humana (comportamiento actual). |
-| `STATUS` | máquina | `dispatch` → `running` → `reviewing` → `review`. |
-| `SESSION` | máquina | Sesión del ejecutor (fase `running`). |
-| `REVIEW_SESSION` | máquina | Sesión del revisor (fase `reviewing`). |
-| `ROUND` | máquina | Rondas ejecutor↔revisor, con tope anti-bucle (§3.7). |
-| `PR` | máquina | URL del PR abierto por el ejecutor. |
-
-`STATUS: dispatch` (o `STATUS` ausente) = "pendiente de despachar", exactamente el
-mismo criterio que hoy es "no hay `CODEJOB` en `.env` y existe `PLAN.md`". El valor
-es **derivable** de las demás claves, pero mantenerlo explícito hace el *gate* de la
-Action trivial y legible por un humano. La fase `reviewing` solo aparece si hay un
-`REVIEWER`; sin él, el flujo va directo de `running` a `review` (humano).
-
-### 3.2 Máquina de estados (cada arista es un commit)
-
-```mermaid
-stateDiagram-v2
-    [*] --> dispatch: humano crea/edita PLAN.md
-    dispatch --> running: despacha al EXECUTOR<br/>(escribe SESSION)
-    running --> reviewing: PR abierto y hay REVIEWER<br/>(despacha al revisor en rama X)
-    running --> review: PR abierto y REVIEWER=none
-    reviewing --> running: CHANGES_REQUESTED<br/>(re-despacha al ejecutor, ROUND++)
-    reviewing --> review: APPROVED por el revisor
-    review --> [*]: humano fusiona → gopush publica<br/>(borra PLAN.md)
-    note right of dispatch
-      Local o nube:
-      la misma logica lee/escribe
-      el frontmatter, no el .env
-    end note
-```
-
-- **dispatch → running:** `codejob` (local **o** `--ci`) envía el plan al
-  `EXECUTOR`, guarda `STATUS: running` + `SESSION`, commitea.
-- **running → reviewing / review:** al abrirse el PR, si hay `REVIEWER` se despacha
-  al revisor (§3.7); si no, pasa directo a `review` (humano).
-- **reviewing → running / review:** según el veredicto del revisor (cambios o
-  aprobado).
-- **review → cerrado:** el humano fusiona → se publica (`gopush`, tag-only) y se
-  **borra `docs/PLAN.md`** (el commit de cierre usa el mensaje de `PLAN:`).
-
-### 3.3 Nomenclatura del token (break change limpio)
-
-**El nombre es idéntico en keyring, variable de entorno y secret de GitHub.** Sin
-mapeos, sin `ToUpper`, sin alias deprecados. Se renombran las claves del keyring
-para que coincidan exactamente con el secret:
-
-| Uso | Nombre único (keyring = env = secret) | Antes (se elimina) |
-|---|---|---|
-| Agente (Jules) | `JULES_API_KEY` | `jules_api_key` |
-| Token de GitHub | `GH_TOKEN` | `github_pat`, `github_token` |
-
-Dos restricciones de GitHub que fijan estos nombres:
-
-1. **Los secrets de Actions no pueden empezar por `GITHUB_`** (prefijo reservado).
-   Por eso el token de GitHub usa `GH_TOKEN` — además es el nombre estándar que el
-   `gh` CLI ya lee de la variable de entorno.
-2. **Un commit hecho con el `GITHUB_TOKEN` por defecto no dispara otros
-   workflows** (anti-bucle de GitHub). Como el loop encadena "commit del `STATUS`
-   → dispara la siguiente Action", el PAT `GH_TOKEN` es **necesario** para que el
-   despacho automático en cadena funcione en la nube.
-
-- `codejob --ci` lee `JULES_API_KEY` y `GH_TOKEN` de variables de entorno (que la
-  Action inyecta desde los secrets); en local, del keyring bajo el mismo nombre.
-- `codejob --init-action` lee esos valores del keyring y los registra como secrets
-  con el `GitHub.SetSecret` que ya existe. **Un solo identificador en todas partes.**
-
-Es un **break change**: no hay código de compatibilidad ni migración automática de
-las claves viejas (evitamos "código basura por deprecados"). El cambio es manual y
-documentado (§3.6).
-
-### 3.4 Registrar los secrets una sola vez por organización
-
-GitHub soporta **secrets a nivel de organización**: se definen una vez y quedan
-disponibles para todos (o los repos seleccionados) de la org.
-
-| Ámbito | ¿Secret único para todos los repos? | Cómo |
-|---|---|---|
-| Org (`tinywasm`, y tu otra org) | **Sí** | `gh secret set JULES_API_KEY --org tinywasm --visibility all` (ídem `GH_TOKEN`) |
-| Cuenta personal (`cdvelop`) | **No** — GitHub no tiene secrets de cuenta que cubran todos tus repos personales | Por-repo: `gh secret set … --repo cdvelop/<repo>` (scriptable en bucle) |
-
-`codejob --init-action` aceptará `--org <nombre> [--visibility all|selected]` para
-registrar a nivel de organización (así, para todo lo que vive en `tinywasm`, lo
-seteas **una vez**). Para los repos personales de `cdvelop` se registra por repo.
-
-### 3.5 Qué se retira (sin código de compatibilidad)
-
-Break change limpio: se **elimina** el código viejo, no se mantiene deprecado.
-
-- **Claves de keyring antiguas:** `jules_api_key`, `github_pat`, `github_token` →
-  reemplazadas por `JULES_API_KEY` y `GH_TOKEN`. Sin alias ni lectura de las viejas.
-- **`.env` para estado de codejob:** se elimina la clave `CODEJOB` y todo su
-  parseo (incluido el formato legacy y `CODEJOB_PR`). devflow deja de leer/escribir
-  `.env`. (No borramos el `.env` del usuario; solo dejamos de tocarlo.)
-- **`docs/CHECK_PLAN.md`:** ya no hace falta el renombrado — `STATUS: review`
-  marca la fase de revisión. Se elimina también el truco `.gitignore CHECK_*.md`.
-
-Sin migración automática. Coste único al actualizar: si hay una sesión en vuelo
-guardada en `.env`, se re-despacha (raro y de una sola vez); las claves se vuelven
-a añadir (§3.6). Esto evita arrastrar código de migración indefinidamente.
-
-### 3.6 Renombrar las claves del keyring a mano (documentado)
-
-Como no hay migración automática, el cambio de nombre se hace una vez. **Camino
-simple (recomendado):** ejecuta `codejob`; al no encontrar la clave bajo el nombre
-nuevo, te la pide y la guardas. Listo.
-
-**Limpieza opcional** de las entradas viejas (servicio de keyring `devflow`):
-
-```bash
-# Linux (libsecret)
-secret-tool clear service devflow username jules_api_key
-secret-tool clear service devflow username github_pat
-secret-tool clear service devflow username github_token
-
-# macOS (Keychain)
-security delete-generic-password -s devflow -a jules_api_key
-security delete-generic-password -s devflow -a github_pat
-
-# Windows: Administrador de credenciales → buscar "devflow"
-```
-
-Esto se documentará en `docs/CODEJOB.md` para corregirlo manualmente sin adivinar.
-
-### 3.7 Roles de agente: ejecutor y revisor
-
-Hoy el modelo es **agente = ejecutor, humano = revisor**. Añadimos un eje de
-**rol** para insertar, opcionalmente, un **agente revisor** antes del humano. Esto
-encaja con la definición original de CodeJob (orquestar una *secuencia* de drivers):
-ahora cada driver declara su rol, `executor` o `reviewer`.
-
-- El humano declara los roles en el frontmatter: `EXECUTOR: <agente>` y
-  `REVIEWER: <agente|none>`. Un mismo backend (p. ej. Jules) puede registrarse en
-  ambos roles con prompts distintos, o el revisor puede ser de otro proveedor.
-- **El revisor es una compuerta de calidad *antes* del humano, no lo reemplaza.**
-  Tú sigues fusionando el PR, que es lo que publica (mantienes el control final).
-
-**El flujo que describiste, paso a paso:**
-
-1. El ejecutor abre el PR en la rama `X`.
-2. El evento `pull_request opened` dispara la Action: si `REVIEWER != none`,
-   `codejob` **despacha un job de revisión** al agente revisor con:
-   - **rama** = `X` (la cabeza del PR),
-   - **indicaciones** = "revisa este PR contra `docs/PLAN.md`" (+ guía opcional, ver
-     abajo),
-   guarda `REVIEW_SESSION`, `STATUS: reviewing`, y commitea.
-3. El revisor entrega su resultado como una **review nativa de GitHub**
-   (`APPROVED` / `CHANGES_REQUESTED`) en el PR. Ventaja doble: **tú la ves** en el
-   PR y la **máquina la lee** (`gh pr view --json reviews`). No inventamos formato.
-4. `codejob` lee el veredicto:
-   - **APPROVED** → `STATUS: review` → tu revisión final → fusionas → publica.
-   - **CHANGES_REQUESTED** → **re-despacha al ejecutor** en la misma rama `X` con
-     los comentarios de la review como feedback; `STATUS: running`, `ROUND++`.
-5. **Tope anti-bucle:** si `ROUND` supera `N` (p. ej. 3), se corta el ping-pong y
-   `STATUS: review` con nota "el revisor no convergió, decide tú". Sin bucles infinitos.
-
-**Todo se mantiene en la PR (un solo hilo de mensajes).** Sí — es viable y es el
-punto central. El revisor **no** usa un canal aparte: publica en la **conversación
-del PR**, la misma caja donde tú ya respondes correcciones a Jules. En concreto,
-una *review* de GitHub tiene cuerpo + comentarios de línea, y todo aparece en el
-timeline del PR. Beneficios:
-
-- **Tú lo ves** en el PR, junto a tus propios comentarios; puedes intervenir en el
-  mismo hilo cuando quieras (comentar, matizar o anular al revisor).
-- **El ejecutor lo lee** como ya lee *tus* comentarios hoy: el feedback del revisor
-  entra por el **mismo mecanismo** que usas manualmente. Nada nuevo que aprender.
-- **La máquina lo lee** para dirigir el estado (`gh pr view --json reviews` →
-  `APPROVED`/`CHANGES_REQUESTED`). No inventamos formato ni archivos paralelos.
-
-**Roles: dos tipos de acción, no una torre de roles.** Sobre un PR solo hay dos
-cosas que hacer:
-
-| Acción | Rol | Qué produce |
-|---|---|---|
-| **Juzgar** | `reviewer` | Una review en el PR (no toca código). |
-| **Modificar** | `executor` | Commits en la rama `X`. |
-
-Por eso el **revisor juzga** y **corregir = volver a ejecutar**. El corrector, por
-defecto, **es el mismo `EXECUTOR`** (Jules) que abrió el PR: recibe los comentarios
-del revisor y corrige sobre la rama `X`, igual que hoy corrige desde tus
-comentarios. No hace falta un tercer rol.
-
-> **¿"Habrá otros que corrigen"?** Solo si tú quieres *otro* agente distinto para
-> corregir (ojos frescos). Se soporta con una clave opcional `CORRECTOR: <agente>`;
-> si se omite, corrige el `EXECUTOR`. Es configuración, no un rol nuevo en el motor.
-
-**Dónde viven las "indicaciones de revisión".** Por defecto el contrato es el propio
-`docs/PLAN.md` ("¿la rama X cumple este plan?"). Opcionalmente, un
-`REVIEW_GUIDE: docs/REVIEW.md` con criterios extra (estilo, seguridad, cobertura)
-que se añaden al prompt del revisor.
-
-**Impacto en la interfaz de driver.** El job pasa de `Send(prompt, title)` a llevar
-un `JobSpec{Role, Branch, PlanPath, Prompt, Title}`: el rol y la rama `X` son lo que
-distingue "implementar el plan" de "revisar el PR de la rama X".
-
-> Esto también **resuelve la pregunta 3**: el evento `pull_request opened` deja de
-> ser cosmético — es el gancho que lanza al revisor. Con revisores, la **opción B**
-> es la natural. (Sin `REVIEWER`, sigue valiendo la opción A: `running → review`
-> directo al fusionar.)
-
-## 4. Disparo de las Actions (revisado sobre el estado unificado)
-
-Con el estado en el frontmatter, el *gate* de cada Action es leer `STATUS`:
-
-| Evento GitHub | Guard | Acción |
-|---|---|---|
-| `push` a la rama base que toca `docs/PLAN.md` | `STATUS == dispatch` | **Despachar** al `EXECUTOR` (`codejob --ci`). Requiere `JULES_API_KEY` + `GH_TOKEN`. |
-| `pull_request` abierto por el ejecutor | `STATUS == running`, PR = `SESSION`, `REVIEWER != none` | **Despachar al revisor** en la rama `X`; `STATUS: reviewing` + `REVIEW_SESSION`. |
-| `pull_request` abierto por el ejecutor | `STATUS == running`, `REVIEWER == none` | `STATUS: review` + `PR` (revisión humana). |
-| `pull_request_review` enviada por el revisor | `STATUS == reviewing`, review = `REVIEW_SESSION` | `APPROVED` → `STATUS: review`. `CHANGES_REQUESTED` → re-despacha al ejecutor, `ROUND++` (o corta si `ROUND > N`). |
-| `pull_request` `closed` + `merged == true` | `STATUS == review` y `PLAN.md` presente | **Publicar** (`gopush`, tag-only), borrar `PLAN.md`. |
-
-**Por qué el PAT `GH_TOKEN` y no el `GITHUB_TOKEN` por defecto:** cada transición
-escribe el nuevo `STATUS` y **commitea**. Ese commit debe disparar la siguiente
-Action (p. ej. `dispatch → running` deja el árbol listo para el PR). GitHub, por
-diseño anti-bucle, **no dispara workflows por commits hechos con el
-`GITHUB_TOKEN`**. El PAT `GH_TOKEN` sí los dispara → es lo que sostiene el
-encadenado en la nube.
-
-**Exclusión mutua sin locks:** el gate de publicación exige `STATUS == review` con
-`PLAN.md` presente. Si el cierre se hizo en la PC (`codejob 'msg'` ya publicó y
-borró `PLAN.md`), la Action encuentra el archivo ausente y hace *no-op*. Nube y PC
-siguen siendo mutuamente excluyentes, ahora con una señal más precisa que "el
-archivo existe": el propio `STATUS`.
-
-## 5. Diagramas
-
-### 5.1 Flujo actual (el cuello de botella)
-
-```mermaid
-flowchart TD
-    A[Escribo docs/PLAN.md] --> B[codejob: dispatch<br/>estado va al .env local]
-    B --> C[Agente trabaja y abre PR]
-    C --> D[Reviso el PR desde la tablet - OK]
-    D --> F[IR A LA PC<br/>el .env con la sesion esta aqui]
-    F --> G[codejob: fetch + checkout rama PR]
-    G --> H[codejob 'mensaje': merge + gopush]
-    H --> I[Nueva version + tag publicados]
-
-    style F fill:#ffdddd,stroke:#c00,stroke-width:2px
-```
-
-### 5.2 Flujo propuesto (loop completo en la nube)
-
-```mermaid
-flowchart TD
-    subgraph SETUP["Una vez por repo"]
-        S1[codejob --init-action] --> S2[workflow + secret JULES_API_KEY<br/>desde el keyring]
-    end
-
-    A[Edito la cabecera de docs/PLAN.md<br/>STATUS: dispatch + commit] --> GA1{Action on push}
-    GA1 -->|STATUS == dispatch| B[codejob --ci: despacha al EXECUTOR<br/>escribe STATUS: running + SESSION]
-    B --> C[Agente abre PR]
-    C --> GA2{Action on PR opened}
-    GA2 -->|STATUS == running| R[escribe STATUS: review + PR]
-    R --> D[Reviso el PR desde la tablet - OK]
-    D --> E[Merge del PR desde el movil/web]
-    E --> GA3{Action on PR merged}
-    GA3 -->|STATUS == review| P[codejob --ci: gopush tag-only<br/>borra docs/PLAN.md]
-    P --> I[Nueva version + tag publicados]
-
-    style A fill:#d4edda,stroke:#28a745,stroke-width:2px
-    style E fill:#d4edda,stroke:#28a745,stroke-width:2px
-```
-
-Todo ocurre sin tocar la PC: editar/commitear despacha; fusionar publica.
-
-## 6. Alcance de la implementación
-
-### 6.1 Estado en el frontmatter
-
-- `frontmatter.go` — extender `PlanMeta` con `Executor`, `Reviewer`, `Status`,
-  `Session`, `ReviewSession`, `Round`, `PR`; añadir constantes de clave y un
-  **escritor** que actualice solo el bloque de frontmatter preservando el cuerpo
-  (hoy `tinywasm/markdown` solo lo lee).
-- `interface.go` — introducir el eje de **rol** en el driver: `CodeJobDriver` pasa
-  de `Send(prompt, title)` a `Send(JobSpec{Role, Branch, PlanPath, Prompt, Title})`
-  (§3.7); registrar drivers por rol (`executor`/`reviewer`).
-- Nuevo: lógica de despacho del revisor y lectura del veredicto de la review de
-  GitHub (`gh pr view --json reviews`), con el tope de `ROUND`.
-- `codejob.go` / `codejob_state.go` — **eliminar** la lectura/escritura de `.env`
-  (`LoadCodejobState`/`SaveCodejobState`, parseo legacy, `CODEJOB_PR`) y operar
-  sobre el frontmatter; eliminar el renombrado a `CHECK_PLAN.md` (`HandleDone`,
-  `MergeAndPublish`, `.gitignore`). Sin código de migración (§3.5).
-- `codejob_auth.go` / `codejob_gh_auth.go` — **renombrar** las claves de keyring a
-  `JULES_API_KEY` y `GH_TOKEN` (borrar `jules_api_key`, `github_pat`,
-  `github_token`, sin alias). Leer primero de la variable de entorno del **mismo
-  nombre** (para CI), cayendo al keyring en local.
-
-### 6.2 Modos de CLI y Action
-
-- `codejob --ci` — orquestador no interactivo para el runner: lee `STATUS` del
-  frontmatter y ejecuta la fase (dispatch / sync-PR / publish), escribiendo el
-  nuevo estado de vuelta y commiteando (con `GH_TOKEN` para que dispare la
-  siguiente Action). Publica con `gopush` **tag-only** (sin `gorelease`).
-- `codejob --init-action [--org <nombre> [--visibility all|selected]]` — crea
-  `.github/workflows/codejob.yml` (idempotente, `--force` sobreescribe) y registra
-  `JULES_API_KEY` + `GH_TOKEN` desde el keyring, a nivel de **repo** o de **org**
-  (§3.4). `github_secrets.go` gana soporte `--org`/`--visibility` sobre el
-  `SetSecret` existente.
-- `cli.go` — parsear `--ci`, `--init-action`, `--force`, `--org`, `--visibility`.
-- `cmd/codejob/main.go` — atender los nuevos flags y actualizar `showHelp()`.
-
-### 6.3 Workflow (decisiones ya acordadas)
-
-- **Runner `ubuntu-latest`, no Alpine.** No existe `runs-on: alpine`; Alpine-en-
-  contenedor es más lento y no ahorra costo (facturación por minuto-runner), y
-  `gh`/`git`/gcc vienen preinstalados. La carga real es `go install` + `gotest`
-  (con race detector, que quiere cgo/gcc y es problemático bajo musl). Alpine solo
-  aporta como imagen de despliegue, algo ortogonal.
-- **Bootstrap `go install` pinneado** (no binario descargado): como el flujo es
-  `gopush` tag-only (sin `gorelease`), los releases no llevan assets binarios que
-  descargar. `go install ...cmd/codejob@vX.Y.Z` fijado a versión es el bootstrap
-  correcto (Go ya está para `gotest`).
-- **Docs:** actualizar `docs/CODEJOB.md` y `docs/diagrams/CODEJOB_FLOW.md`.
-
-## 7. Pruebas (test map)
-
-| Comportamiento | Test |
+| # | Decisión |
 |---|---|
-| Leer estado (`STATUS`/`SESSION`/`PR`) del frontmatter | `TestPlanState_Read` |
-| Escribir estado preservando el cuerpo del `PLAN.md` | `TestPlanState_WritePreservesBody` |
-| Auth lee de env var (CI) y cae al keyring (local), mismo nombre | `TestAuth_EnvThenKeyring` |
-| `--init-action` registra secret a nivel de repo y de `--org` | `TestInitAction_SecretScope` |
-| `--ci` en `dispatch` despacha y escribe `running` | `TestCI_DispatchTransition` |
-| `--ci` en `review` publica (tag-only) y borra `PLAN.md` | `TestCI_PublishTransition` |
-| `--ci` publica es no-op si `PLAN.md` ausente | `TestCI_NoopWhenNoPlan` |
-| `--init-action` crea el workflow (idempotente/`--force`) | `TestInitCodejobAction_*` |
-| PR abierto con `REVIEWER` set → despacha revisor en rama X | `TestReviewer_DispatchOnPR` |
-| Veredicto `APPROVED` → `review`; `CHANGES_REQUESTED` → `running`+`ROUND++` | `TestReviewer_VerdictTransitions` |
-| Tope de rondas: `ROUND > N` corta a revisión humana | `TestReviewer_RoundCap` |
+| Estado | Único en el frontmatter de `docs/PLAN.md`; `.env`/`CHECK_PLAN.md` eliminados. |
+| Tokens | Nombre único keyring = env = secret: `JULES_API_KEY`, `GH_TOKEN`. Sin alias. |
+| Runner CI | `ubuntu-latest`; bootstrap `go install …/cmd/codejob@<versión-fijada>`. |
+| Publicación CI | `gopush` tag-only, `--no-cascade`, sin backup. |
+| Revisor | Juzga (postea review nativa de GitHub). No commitea. |
+| Corrección | La orquesta codejob ante `CHANGES_REQUESTED`; corrector = `EXECUTOR` salvo `CORRECTOR`. |
+| Tope de rondas | `ROUND` máximo **3**; superado → pasa a revisión humana. |
+| Cierre | El **humano fusiona** (sin auto-merge); la fusión publica. |
+| Revisores | Uno (`REVIEWER`); lista en cadena queda para después. |
+| Secrets | Por org con `--init-action --org` donde exista org; por-repo en cuentas personales. |
+| Correlación | Por **rama/identidad**, no por session id (los eventos de GitHub no traen el session id). |
 
-## 8. Riesgos y decisiones abiertas (para tu aprobación)
+## 4. Cambios por archivo
 
-1. **Estado commiteado en el historial.** `SESSION`/`PR` quedan en git para
-   siempre. No son secretos (el PR URL es público; el session ID es un
-   identificador), pero es ruido en el historial. ¿Aceptable? (Alternativa:
-   comprimir las transiciones intermedias, pero perderíamos la trazabilidad.)
-2. **Conflictos de edición.** Máquina y humano escriben el mismo archivo. Mitigación:
-   la máquina toca **solo** el bloque de frontmatter; el humano, el cuerpo. ¿Ok?
-3. **~~Poll de `running`~~ (resuelto por §3.7).** Con el agente revisor, la
-   transición `running → …` se dispara por el evento `pull_request opened` (opción
-   B), que ahora es load-bearing. Sin `REVIEWER`, vale la opción A (directo a
-   `review` al fusionar). Ya no hace falta cron.
-4. **Despacho encadenado en la nube.** Con `JULES_API_KEY` + `GH_TOKEN` como
-   secrets, el despacho automático ya es posible en CI (era el único bloqueo). ¿Lo
-   habilito de una vez o lo dejo tras una bandera para estrenarlo con cuidado?
-5. **Cascade/backup en CI.** Asumen entorno local; propongo `--no-cascade` y sin
-   backup en el runner (publicar solo el módulo), dejando el cascade al flujo local.
-6. **Alcance de los secrets.** Para todo lo de la org `tinywasm` (y tu otra org),
-   `--init-action --org` los setea **una vez** para todos los repos. Para tus repos
-   personales de `cdvelop` no hay secret de cuenta: es por-repo. ¿Confirmas registro
-   por org donde se pueda y por-repo en `cdvelop`?
+### 4.1 Testabilidad — seam de `Runner` (habilita todo el TDD)
+- **Nuevo** `Runner` interface (generaliza `SecretRunner` de `github_secrets.go`)
+  con `Run(name string, args ...string) (string, error)`. Inyectable en las
+  funciones de estado. Un `defaultRunner` envuelve `tinywasm/command`.
+- Reescribir `CheckoutPRBranch`, `MergePR`, `MergeAndPublish`, `resolveDefaultBranch`
+  para usar el `Runner` inyectado (hoy llaman `command.Run` directo → no mockeable).
 
-**Decisiones del agente revisor (§3.7):**
+### 4.2 Estado en el frontmatter
+- `frontmatter.go` — `PlanMeta` gana `Executor, Reviewer, Corrector, ReviewGuide,
+  Status, Session, ReviewSession, Round, PR` + constantes de clave. **Escritor**
+  que actualiza solo el bloque de frontmatter preservando el cuerpo.
+- `codejob.go` / `codejob_state.go` — **eliminar** `.env`/`CODEJOB` (parseo,
+  legacy, `CODEJOB_PR`, `LoadCodejobState`/`SaveCodejobState`) y el renombrado a
+  `CHECK_PLAN.md` (`HandleDone`, `.gitignore CHECK_*.md`). El estado se lee/escribe
+  en el frontmatter. Sin código de migración.
 
-7. **¿El revisor juzga o corrige?** Propongo que **juzgue** (postea una review
-   APPROVED/CHANGES_REQUESTED) y que corregir sea re-despachar al ejecutor. La
-   variante "el revisor empuja fixes a la rama X" es posible pero difumina roles.
-8. **¿APPROVED del revisor pasa a tu revisión final, o auto-merge?** Recomiendo
-   mantener **tu** fusión como gatillo de publicación (control final humano); el
-   revisor solo te ahorra trabajo previo. ¿O prefieres auto-merge al aprobar?
-9. **Tope de rondas `N`.** ¿2 o 3 ida-vueltas ejecutor↔revisor antes de pasarte el
-   control?
-10. **¿Un revisor o varios?** v1 con un `REVIEWER`; se puede generalizar a una lista
-    en cadena después. ¿Suficiente con uno por ahora?
-11. **¿Quién dispara la corrección?** Dos formas, y el mensaje del revisor queda en
-    la PR en ambas:
-    - **codejob orquesta (recomendado):** ante `CHANGES_REQUESTED`, codejob despacha
-      al corrector con ese feedback. Determinista y acotado por `ROUND`.
-    - **nativo:** el ejecutor (Jules) reacciona por su cuenta al comentario del
-      revisor, como reacciona a los tuyos. Más natural, pero sin tope de rondas y
-      con riesgo de que reaccione a *cualquier* comentario. Tus comentarios manuales
-      siguen disponibles en ambos casos. ¿Cuál prefieres como comportamiento base?
+### 4.3 Roles y drivers
+- `interface.go` — `CodeJobDriver.Send(prompt, title)` → `Send(JobSpec{Role,
+  Branch, PlanPath, Prompt, Title})`; registro de drivers por rol.
+- `code_jules.go` — adaptar `JulesDriver` a `JobSpec`; soportar rol `executor`
+  (implementar el plan) y `reviewer` (revisar el PR de la rama `X` y postear una
+  review nativa).
+- **Nuevo**: despacho del revisor y lectura del veredicto vía `Runner`
+  (`gh pr view --json reviews`), con el tope `ROUND` (=3).
 
-## 9. Resumen
+### 4.4 Auth / tokens
+- `codejob_auth.go` / `codejob_gh_auth.go` — renombrar claves de keyring a
+  `JULES_API_KEY` y `GH_TOKEN` (borrar `jules_api_key`, `github_pat`,
+  `github_token`). Leer primero de la **variable de entorno del mismo nombre**
+  (CI), cayendo al keyring (local).
 
-Consolidar todo el estado de `codejob` en el frontmatter de `docs/PLAN.md`
-(`STATUS`/`SESSION`/`PR`/`ROUND` junto a `PLAN`/`TAG`/`EXECUTOR`/`REVIEWER`) y
-retirar `.env` y `CHECK_PLAN.md`. Como cada transición es un commit, el loop
-completo —despachar, revisar y publicar— se ejecuta en la nube: editar la cabecera
-y commitear despacha; fusionar el PR publica. Se añade un **eje de rol** para
-insertar un **agente revisor** opcional antes del humano (ejecutor abre PR → revisor
-lo juzga con una review nativa de GitHub → cambios re-despachan al ejecutor, o
-aprobado pasa a tu fusión final), con tope de rondas anti-bucle. Los tokens usan
-**un solo nombre en keyring, env y secret** (`JULES_API_KEY`, `GH_TOKEN`) como break
-change limpio, sin alias ni migración de código; el renombrado en el keyring se hace
-a mano y está documentado. Los secrets se registran una vez por organización donde
-se pueda. Nada de esto requiere abrir la PC.
+### 4.5 CLI y Action
+- `cli.go` — parsear `--ci <phase>` (`dispatch|review|verdict|publish`),
+  `--init-action`, `--force`, `--org`, `--visibility`.
+- `cmd/codejob/main.go` — atender los flags nuevos; actualizar `showHelp()`.
+- **Nuevo** `codejob_action.go` + `templates/codejob.yml` embebido (`go:embed`):
+  `InitCodejobAction(force bool, org, visibility string)` crea
+  `.github/workflows/codejob.yml` (idempotente) y registra `JULES_API_KEY`+`GH_TOKEN`.
+- `github_secrets.go` — `SetSecret` gana soporte `--org`/`--visibility`.
+
+### 4.6 Documentación (ya actualizada a objetivo; mantener en sync)
+- `docs/CODEJOB.md`, `docs/diagrams/CODEJOB_FLOW.md`,
+  `docs/codejob/JULES_AUTOMATION.md` describen ya el estado final.
+
+## 5. Mapa de pruebas (TDD)
+
+Refleja la traza de [`CODEJOB_FLOW.md`](diagrams/CODEJOB_FLOW.md#traceability-test-map).
+Todas con dobles: `Runner` falso (git/gh), driver falso (executor/reviewer),
+`Publisher` mock, `SecretRunner` mock, keyring/env falsos.
+
+| Comportamiento | Test | Mock |
+|---|---|---|
+| Leer estado del frontmatter | `TestPlanState_ReadFrontmatter` | temp file |
+| Escribir estado preservando el cuerpo | `TestPlanState_WritePreservesBody` | temp file |
+| `STATUS` derivado cuando falta | `TestPlanState_StatusDerivation` | temp file |
+| Token: env → keyring, mismo nombre | `TestAuth_EnvVarThenKeyring` | keyring/env falsos |
+| Parseo `--ci <phase>` / flags init | `TestParseArgs_CIPhases`, `TestParseArgs_InitFlags` | — |
+| dispatch → running | `TestCI_Dispatch_WritesRunning` | driver + Runner |
+| running → reviewing (REVIEWER set) | `TestCI_PROpened_DispatchesReviewer` | driver + Runner |
+| running → review (REVIEWER none) | `TestCI_PROpened_NoReviewer` | Runner |
+| reviewing → review (APPROVED) | `TestCI_Verdict_Approved` | Runner (reviews json) |
+| reviewing → running (CHANGES_REQUESTED, ROUND++) | `TestCI_Verdict_ChangesRequested_RoundInc` | driver + Runner |
+| reviewing → review (ROUND > 3) | `TestCI_Verdict_RoundCap` | Runner |
+| review → publicado (tag-only, borra plan) | `TestCI_Publish_TagOnly` | mock Publisher |
+| publish no-op si falta el plan | `TestCI_Publish_NoopWhenNoPlan` | mock Publisher |
+| `--init-action` crea/idempotente/`--force` | `TestInitAction_CreatesWhenAbsent`, `_Idempotent`, `_ForceOverwrites` | temp dir |
+| Registro de secret repo y `--org` | `TestInitAction_SecretScope` | mock SecretRunner |
+| Contrato del workflow embebido | `TestActionTemplate_Contract` | string embebido |
+
+## 6. Criterios de aceptación (Definition of Done)
+
+1. `gotest` verde (vet, tests, race) en todo el repo.
+2. Todas las pruebas de §5 existen y pasan; se escribieron antes que su código.
+3. **Cero** referencias en código a: `CODEJOB` en `.env`, `CODEJOB_PR`,
+   `CHECK_PLAN`, `jules_api_key`, `github_pat`, `github_token`.
+4. `codejob --init-action` genera un `.github/workflows/codejob.yml` que satisface
+   `TestActionTemplate_Contract` (guard `merged==true` + gates por `STATUS`).
+5. El comportamiento coincide con `docs/CODEJOB.md` y `docs/diagrams/CODEJOB_FLOW.md`.
+
+## 7. Fuera de alcance
+
+- `gorelease` en CI (binarios cross-platform): el cierre es tag-only.
+- Re-dispatch nativo por comentario (Jules reaccionando solo): la corrección la
+  orquesta codejob.
+- Cadena de varios revisores (v1 = un `REVIEWER`).
+- Cascade a módulos dependientes en CI (queda al flujo local).

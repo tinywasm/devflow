@@ -52,12 +52,18 @@ driver := devflow.NewJulesDriver(cfg)
 
 ## Workflow
 
-1. **Dispatch**: `codejob` sends `docs/PLAN.md` to Jules.
-2. **Persistence**: A session ID is saved to `.env` as `CODEJOB=jules:ID`.
-3. **Poll**: Subsequent runs of `codejob` check the session status.
-4. **Pull Request**: When Jules is done, a PR is created on GitHub.
-5. **Review**: `codejob` fetches the new branch and renames your plan to `docs/CHECK_PLAN.md`.
-6. **Merge**: After reviewing, run `codejob 'message'` to merge and publish.
+State lives in the `docs/PLAN.md` frontmatter (not `.env`), so each step is a
+commit and the loop can also run in GitHub Actions.
+
+1. **Dispatch**: `codejob` sends `docs/PLAN.md` to the `EXECUTOR` (Jules) and
+   writes `STATUS: running` + `SESSION` to the frontmatter.
+2. **Pull Request**: When Jules is done, a PR is created on GitHub.
+3. **Review**: if a `REVIEWER` is set, it posts a native review on the PR;
+   otherwise `STATUS: review` awaits you.
+4. **Merge**: you merge the PR (locally or from web) → `gopush` publishes
+   (tag-only) and `docs/PLAN.md` is deleted.
+
+See [CODEJOB.md](../CODEJOB.md) for the full state model and the cloud setup.
 
 ## See Also
 
