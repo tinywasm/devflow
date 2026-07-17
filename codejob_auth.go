@@ -9,7 +9,7 @@ import (
 )
 
 // Deprecated: use SecretJulesAPIKey with SecretStore
-const julesAPIKeyKey = "jules_api_key"
+const julesAPIKeyKey = "JULES_API_KEY"
 const julesAPIKeyURL = "https://jules.google.com/settings/api"
 
 // termLink returns an OSC 8 terminal hyperlink (supported by most modern terminals).
@@ -40,13 +40,13 @@ func (a *JulesAuth) SetLog(fn func(...any)) {
 	}
 }
 
-// HasKey returns true if the Jules API key is already stored in the keyring.
+// HasKey returns true if the Jules API key is already stored in the environment or keyring.
 func (a *JulesAuth) HasKey() bool {
 	_, _, err := a.store.Get(SecretJulesAPIKey)
 	return err == nil
 }
 
-// EnsureAPIKey returns the Jules API key from the keyring.
+// EnsureAPIKey returns the Jules API key from the environment or keyring.
 // If absent, prompts the user for it once and persists it.
 func (a *JulesAuth) EnsureAPIKey() (string, error) {
 	key, _, err := a.store.Get(SecretJulesAPIKey)

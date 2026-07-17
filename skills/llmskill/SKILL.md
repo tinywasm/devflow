@@ -9,19 +9,30 @@ description: Sync skills from tinywasm/devflow/skills to all installed LLM agent
 
 ## When to Run
 
-Run `llmskill` immediately after:
-- Creating a new `SKILL.md` in `tinywasm/devflow/skills/<name>/`
-- Modifying an existing `SKILL.md`
+After creating or modifying any `SKILL.md` in `tinywasm/devflow/skills/<name>/`:
 
-This makes the skill available to Claude, Gemini, and any other installed LLM agent.
+```bash
+cd tinywasm/devflow && go install ./cmd/llmskill && llmskill -f
+```
+
+**The rebuild step is mandatory**: skills are EMBEDDED in the binary at
+compile time (`//go:embed skills` in `llm_skill.go`) — `llmskill` does NOT
+read the working directory. Running the old binary reinstalls the OLD
+embedded skills and still prints "Skills updated". Always verify the change
+landed:
+
+```bash
+grep -c "<some new phrase>" ~/.claude/skills/<name>/SKILL.md
+```
 
 ## How It Works
 
-1. Skills live in `tinywasm/devflow/skills/` (source of truth).
-2. `llmskill` installs them to `~/skills/`.
-3. It then symlinks `~/skills/` from each detected LLM config dir:
-   - `~/.claude/skills/` → Claude Code
-   - `~/.gemini/skills/` → Gemini
+1. Skills live in `tinywasm/devflow/skills/` (source of truth) and are
+   embedded into the `llmskill` binary when it is built.
+2. `llmskill` installs the embedded skills to `~/skills/`.
+3. It then symlinks `~/skills/` from each detected LLM config dir
+   (`~/.claude/skills/`, `~/.gemini/skills/`); if the target already exists
+   as a real directory, it falls back to copying into it.
 
 ## Installation
 
@@ -39,7 +50,8 @@ Or install all devflow binaries at once (requires the repo to be cloned first):
 go install github.com/tinywasm/devflow/cmd/goinstall@latest && goinstall
 ```
 
-**Step 2 — Clone the devflow repo** (required — skills live in the source tree, not in the binary):
+**Step 2 — Clone the devflow repo** (required to EDIT skills — the binary
+carries an embedded copy from build time):
 
 ```bash
 git clone https://github.com/tinywasm/devflow
@@ -47,8 +59,7 @@ cd devflow
 llmskill
 ```
 
-`llmskill` reads skills from the local `skills/` directory and syncs them to the installed LLM agents.
-Cloning is a one-time setup; after that, `git pull` + `llmskill` is enough to update.
+To pick up local skill edits: `git pull` (or edit) + `go install ./cmd/llmskill` + `llmskill -f`.
 
 ## Usage
 

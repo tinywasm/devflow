@@ -6,13 +6,13 @@ import (
 )
 
 type ConsoleFilter struct {
-	buffer         []string
-	output         func(string) // callback to write output
+	buffer            []string
+	output            func(string) // callback to write output
 	hasDataRace       bool
 	shownRaceMsg      bool
 	releasedFuncCalls int
-	incompleteLine string
-	inPanicMode    bool // true when we detect a panic/timeout
+	incompleteLine    string
+	inPanicMode       bool // true when we detect a panic/timeout
 }
 
 func NewConsoleFilter(output func(string)) *ConsoleFilter {
@@ -257,22 +257,23 @@ func (cf *ConsoleFilter) Flush() {
 		cf.releasedFuncCalls = 0
 	}
 
-	// Deduplicate: count repeated lines, show with ×N suffix
-	seen := make(map[string]int)
-	var unique []string
-	for _, line := range cf.buffer {
-		seen[line]++
-		if seen[line] == 1 {
-			unique = append(unique, line)
+	// Deduplicate consecutive repeated lines only (like `uniq -c`).
+	// Non-consecutive matches (e.g. identical header lines in unrelated
+	// request/response blocks) must NOT be merged — doing so silently
+	// drops legitimate output.
+	i := 0
+	for i < len(cf.buffer) {
+		line := cf.buffer[i]
+		count := 1
+		for i+count < len(cf.buffer) && cf.buffer[i+count] == line {
+			count++
 		}
-	}
-
-	for _, line := range unique {
-		if count := seen[line]; count > 1 {
+		if count > 1 {
 			cf.output(fmt.Sprintf("%s (×%d)", line, count))
 		} else {
 			cf.output(line)
 		}
+		i += count
 	}
 	cf.buffer = nil
 }

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,14 +31,14 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 	hasCustomArgs := len(customArgs) > 0
 
 	// Detect Module Name
-	moduleName, err := getModuleName(".")
+	moduleName, err := getModuleName(g.rootDir)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
 	}
 
 	// Check cache only for full suite runs
 	if !hasCustomArgs && !noCache {
-		cache := NewTestCache()
+		cache := NewTestCache(g.rootDir)
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
 		}
@@ -55,7 +57,7 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
 	if !noCache {
-		cache := NewTestCache()
+		cache := NewTestCache(g.rootDir)
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
 		}
@@ -94,7 +96,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			vetArgs = append(vetArgs, "-tags=integration")
 		}
 		vetArgs = append(vetArgs, "./...")
-		vetOutput, vetErr = RunCommand("go", vetArgs...)
+		vetOutput, vetErr = command.RunInDir(g.rootDir, "go", vetArgs...)
 	}()
 
 	// Check for WASM test files (async)
@@ -110,6 +112,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 		nativeArgs = append(nativeArgs, "./...")
 		nativeCmd := exec.Command("go", nativeArgs...)
+		nativeCmd.Dir = g.rootDir
 		nativeOut, _ := nativeCmd.CombinedOutput()
 
 		// 2. Get WASM test files
@@ -119,6 +122,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 		wasmArgs = append(wasmArgs, "./...")
 		wasmCmd := exec.Command("go", wasmArgs...)
+		wasmCmd.Dir = g.rootDir
 		wasmCmd.Env = os.Environ()
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
@@ -168,7 +172,11 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	var testErr error
 	var testOutput string
 
-	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
+	// Watchdog and backstop timeout semantincs:
+	// -t N now means "max N seconds per test stall"
+	// backstop is 10x larger to catch overall package hangs
+	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec*10)
+
 	tmpCovDir, _ := os.MkdirTemp("", "gotest-cov")
 	defer os.RemoveAll(tmpCovDir)
 	coverProfilePath := fmt.Sprintf("%s/cover.out", tmpCovDir)
@@ -183,11 +191,19 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		testArgs = append(testArgs[:1], append([]string{"-race"}, testArgs[1:]...)...)
 	}
 
-	// Safety net: context kills process 10s after Go's -timeout should have fired
-	// This ensures we get the nice panic output from Go if possible
-	testCtx, testCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+	// Watchdog setup
+	testCtx, testCancel := context.WithCancel(context.Background())
 	defer testCancel()
-	testCmd := GoTestCmdFn(testCtx, "go", testArgs...)
+
+	var watchdogFired bool
+	wd := NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+		watchdogFired = true
+		testCancel()
+	})
+	wd.Start()
+	defer wd.Stop()
+
+	testCmd := GoTestCmdFn(testCtx, g.rootDir, "go", testArgs...)
 
 	testBuffer := &bytes.Buffer{}
 
@@ -198,6 +214,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 			s := string(p)
 			testBuffer.Write(p)
 			testFilter.Add(s)
+			wd.Add(s)
 			return len(p), nil
 		},
 	}
@@ -205,20 +222,55 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	testCmd.Stdout = testPipe
 	testCmd.Stderr = testPipe
 	testErr = testCmd.Run()
+
+	// Run tests in submodule directories (own go.mod — not reached by ./...)
+	// Pass -coverpkg pointing to the parent module so coverage reflects the actual code under test.
+	covPkgFlag := fmt.Sprintf("-coverpkg=%s/...", moduleName)
+	for _, subDir := range findSubModuleDirs(g.rootDir) {
+		subArgs := []string{"test", "-v", "-cover", covPkgFlag, "-count=1", timeoutFlag, "./..."}
+		if !skipRace {
+			subArgs = append([]string{"test", "-race"}, subArgs[1:]...)
+		}
+		if runAll {
+			subArgs = append(subArgs[:len(subArgs)-1], "-tags=integration", "./...")
+		}
+
+		subCtx, subCancel := context.WithCancel(context.Background())
+		defer subCancel()
+
+		// Re-initialize watchdog for submodule run
+		wd = NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+			watchdogFired = true
+			subCancel()
+		})
+		wd.Start()
+
+		subCmd := GoTestCmdFn(subCtx, subDir, "go", subArgs...)
+		subCmd.Stdout = testPipe
+		subCmd.Stderr = testPipe
+		if err := subCmd.Run(); err != nil && testErr == nil {
+			testErr = err
+		}
+		wd.Stop()
+	}
+
 	testFilter.Flush()
 
 	testOutput = testBuffer.String()
 
-	// Detect process-level timeout (killed by context)
-	if testCtx.Err() == context.DeadlineExceeded {
-		timedOut := FindTimedOutTests(testOutput)
-		if len(timedOut) > 0 {
-			for _, name := range timedOut {
-				addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
+	// Detect process-level timeout (killed by watchdog or backstop)
+	if testCtx.Err() == context.Canceled && watchdogFired {
+		culprits := wd.Culprits()
+		if len(culprits) > 0 {
+			for _, name := range culprits {
+				addMsg(false, fmt.Sprintf("timeout: %s stalled >%ds (no progress)", name, timeoutSec))
 			}
 		} else {
-			addMsg(false, fmt.Sprintf("timeout: tests exceeded %ds", timeoutSec))
+			addMsg(false, fmt.Sprintf("timeout: stall detected (>%ds)", timeoutSec))
 		}
+		testStatus = "Failed"
+	} else if testCtx.Err() == context.DeadlineExceeded {
+		addMsg(false, fmt.Sprintf("timeout: package exceeded %ds total (backstop)", timeoutSec*10))
 		testStatus = "Failed"
 	}
 
@@ -238,7 +290,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Process coverage results from the profile generated during the test run above
 	if stdTestsRan {
-		if cov := exactCoverageFromProfile(coverProfilePath); cov != "" {
+		if cov := exactCoverageFromProfile(coverProfilePath); cov != "" && cov != "0" && cov != "0.0" {
 			coveragePercent = cov
 		} else {
 			coveragePercent = calculateAverageCoverage(testOutput)
@@ -253,14 +305,15 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 			addMsg(false, "WASM tests skipped (setup failed)")
 		} else {
-			execArg := "wasmbrowsertest"
+			execArg := g.wasmExecArg()
 			// Add -count=1 to force cache bypass for WASM tests, consistent with native run
-			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1", "./..."}
+			testArgs := []string{"test", "-exec", execArg, "-v", "-cover", "-coverpkg=./...", "-count=1"}
+			testArgs = append(testArgs, g.wasmTestPackages(runAll)...)
 
 			// Add cushion for WASM tests too
-			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), g.wasmTimeout(timeoutSec))
 			defer wasmCancel()
-			wasmCmd := testCommand(wasmCtx, "go", testArgs...)
+			wasmCmd := GoTestCmdFn(wasmCtx, g.rootDir, "go", testArgs...)
 			wasmCmd.Env = os.Environ()
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
@@ -357,8 +410,13 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 		}
 	}
 
-	// Badges
+	// Return error if tests or vet failed
+	summary := fmt.Sprintf("%s%s (%.1fs)", strings.Join(msgs, ", "), g.currentTagSuffix(), time.Since(start).Seconds())
+	if testStatus == "Failed" || vetStatus == "Issues" {
+		return summary, fmt.Errorf("%s", summary)
+	}
 
+	// Badges
 	licenseType := "MIT"
 	if checkFileExists("LICENSE") {
 		// naive check
@@ -366,20 +424,15 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 	goVer := GetGoVersion()
 
 	bh := NewBadges()
+	bh.SetRootDir(g.rootDir)
 	bh.SetLog(g.log)
 	if err := bh.updateBadges("README.md", licenseType, goVer, testStatus, coveragePercent, raceStatus, vetStatus, true); err != nil {
-
-	}
-
-	// Return error if tests or vet failed
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
-	if testStatus == "Failed" || vetStatus == "Issues" {
-		return summary, fmt.Errorf("%s", summary)
+		g.log("Warning: failed to update badges:", err)
 	}
 
 	// Save test cache on success (for gopush optimization)
 	// We save even if noCache=true, because this was a valid run
-	cache := NewTestCache()
+	cache := NewTestCache(g.rootDir)
 	if err := cache.SaveCache(summary); err != nil {
 		g.log("Warning: failed to save test cache:", err)
 	}
@@ -416,6 +469,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		}
 		nativeArgs = append(nativeArgs, "./...")
 		nativeCmd := exec.Command("go", nativeArgs...)
+		nativeCmd.Dir = g.rootDir
 		nativeOut, _ := nativeCmd.CombinedOutput()
 
 		wasmArgs := []string{"list", "-f", "{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}"}
@@ -424,6 +478,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		}
 		wasmArgs = append(wasmArgs, "./...")
 		wasmCmd := exec.Command("go", wasmArgs...)
+		wasmCmd.Dir = g.rootDir
 		wasmCmd.Env = os.Environ()
 		wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 		wasmOut, _ := wasmCmd.CombinedOutput()
@@ -432,7 +487,27 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	}()
 
 	// Inject timeout if user didn't already pass -timeout
-	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec)
+	// Use -v for watchdog to work, ConsoleFilter will suppress the noise
+	if !HasVFlag(customArgs) {
+		customArgs = append([]string{"-v"}, customArgs...)
+	}
+
+	// Parse custom timeout if present
+	for _, arg := range customArgs {
+		if strings.HasPrefix(arg, "-t=") {
+			if t, err := strconv.Atoi(strings.TrimPrefix(arg, "-t=")); err == nil {
+				timeoutSec = t
+			}
+		} else if strings.HasPrefix(arg, "-timeout=") {
+			// Try to parse go's duration format
+			dStr := strings.TrimPrefix(arg, "-timeout=")
+			if d, err := time.ParseDuration(dStr); err == nil {
+				timeoutSec = int(d.Seconds())
+			}
+		}
+	}
+
+	timeoutFlag := fmt.Sprintf("-timeout=%ds", timeoutSec*10)
 	if !HasTimeoutFlag(customArgs) {
 		customArgs = append(customArgs, timeoutFlag)
 	}
@@ -444,9 +519,18 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	}
 	testArgs = append(testArgs, "./...")
 
-	customCtx, customCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
+	customCtx, customCancel := context.WithCancel(context.Background())
 	defer customCancel()
-	testCmd := GoTestCmdFn(customCtx, "go", testArgs...)
+
+	var watchdogFired bool
+	wd := NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+		watchdogFired = true
+		customCancel()
+	})
+	wd.Start()
+	defer wd.Stop()
+
+	testCmd := GoTestCmdFn(customCtx, g.rootDir, "go", testArgs...)
 	testBuffer := &bytes.Buffer{}
 
 	// CRITICAL: Keep ConsoleFilter for clean output
@@ -456,6 +540,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 			s := string(p)
 			testBuffer.Write(p)
 			testFilter.Add(s)
+			wd.Add(s)
 			return len(p), nil
 		},
 	}
@@ -463,21 +548,53 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	testCmd.Stdout = testPipe
 	testCmd.Stderr = testPipe
 	testErr := testCmd.Run()
+
+	// Run tests in submodule directories (own go.mod — not reached by ./...)
+	for _, subDir := range findSubModuleDirs(g.rootDir) {
+		subArgs := append([]string{"test"}, customArgs...)
+		if runAll {
+			subArgs = append(subArgs, "-tags=integration")
+		}
+		subArgs = append(subArgs, "./...")
+
+		subCtx, subCancel := context.WithCancel(context.Background())
+		defer subCancel()
+
+		// Re-initialize watchdog for submodule run
+		wd = NewWatchdog(time.Duration(timeoutSec)*time.Second, func() {
+			watchdogFired = true
+			subCancel()
+		})
+		wd.Start()
+
+		subCmd := GoTestCmdFn(subCtx, subDir, "go", subArgs...)
+		subCmd.Stdout = testPipe
+		subCmd.Stderr = testPipe
+		if err := subCmd.Run(); err != nil && testErr == nil {
+			testErr = err
+		}
+		wd.Stop()
+	}
+
 	testFilter.Flush()
 
 	testOutput := testBuffer.String()
 
 	// Detect process-level timeout
-	if customCtx.Err() == context.DeadlineExceeded {
-		timedOut := FindTimedOutTests(testOutput)
-		if len(timedOut) > 0 {
-			for _, name := range timedOut {
-				addMsg(false, fmt.Sprintf("timeout: %s (exceeded %ds)", name, timeoutSec))
+	customTestStatus := "Failed"
+	if customCtx.Err() == context.Canceled && watchdogFired {
+		culprits := wd.Culprits()
+		if len(culprits) > 0 {
+			for _, name := range culprits {
+				addMsg(false, fmt.Sprintf("timeout: %s stalled >%ds (no progress)", name, timeoutSec))
 			}
 		} else {
-			addMsg(false, fmt.Sprintf("timeout: tests exceeded %ds", timeoutSec))
+			addMsg(false, fmt.Sprintf("timeout: stall detected (>%ds)", timeoutSec))
 		}
-		// Will be caught by EvaluateTestResults as a failure
+	} else if customCtx.Err() == context.DeadlineExceeded {
+		addMsg(false, fmt.Sprintf("timeout: package exceeded %ds total (backstop)", timeoutSec*10))
+	} else {
+		customTestStatus = "" // Not a context-triggered failure
 	}
 
 	// Wait for WASM detection to complete
@@ -485,6 +602,9 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 	// Process stdlib test results (without race detection reporting)
 	testStatus, _, stdTestsRan, msgs := EvaluateTestResults(testErr, testOutput, moduleName, msgs, false)
+	if customTestStatus != "" {
+		testStatus = customTestStatus
+	}
 
 	// Initialize coveragePercent for custom runs (not calculated for stdlib in fast path usually, but we need it for comparison)
 	coveragePercent := "0"
@@ -552,7 +672,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 
 			wasmCtx, wasmCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec+10)*time.Second)
 			defer wasmCancel()
-			wasmCmd := testCommand(wasmCtx, "go", wasmTestArgs...)
+			wasmCmd := GoTestCmdFn(wasmCtx, g.rootDir, "go", wasmTestArgs...)
 			wasmCmd.Env = os.Environ()
 			wasmCmd.Env = append(wasmCmd.Env, "GOOS=js", "GOARCH=wasm")
 
@@ -609,7 +729,7 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 		msgs = append(msgs, "coverage: "+coveragePercent+"%")
 	}
 
-	summary := fmt.Sprintf("%s (%.1fs)", strings.Join(msgs, ", "), time.Since(start).Seconds())
+	summary := fmt.Sprintf("%s%s (%.1fs)", strings.Join(msgs, ", "), g.currentTagSuffix(), time.Since(start).Seconds())
 	if testStatus == "Failed" {
 		return summary, fmt.Errorf("%s", summary)
 	}
@@ -618,10 +738,44 @@ func (g *Go) runCustomTests(customArgs []string, moduleName string, timeoutSec i
 	return summary, nil
 }
 
+// currentTagSuffix returns " <latest-git-tag>" for appending to a summary line,
+// or "" if no git handler is configured or no tag exists yet.
+func (g *Go) currentTagSuffix() string {
+	if g.git == nil {
+		return ""
+	}
+	tag, err := g.git.GetLatestTag()
+	if err != nil || tag == "" {
+		return ""
+	}
+	return " " + tag
+}
+
+// findSubModuleDirs returns immediate subdirectories that contain their own go.mod.
+// go test ./... does not cross module boundaries, so callers must run tests in each separately.
+func findSubModuleDirs(rootDir string) []string {
+	entries, err := os.ReadDir(rootDir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		sub := filepath.Join(rootDir, e.Name())
+		if _, err := os.Stat(filepath.Join(sub, "go.mod")); err == nil {
+			dirs = append(dirs, sub)
+		}
+	}
+	return dirs
+}
+
 // testCommand creates an exec.Cmd with graceful timeout handling.
 // On timeout: sends SIGINT first (lets the process flush output), then SIGKILL after 5s.
-func testCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+func testCommand(ctx context.Context, dir string, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
 	cmd.Cancel = func() error {
 		return cmd.Process.Signal(os.Interrupt)
 	}
@@ -735,7 +889,7 @@ func calculateAverageCoverage(output string) string {
 
 // exactCoverageFromProfile reads a coverage profile and returns the total percentage.
 func exactCoverageFromProfile(profilePath string) string {
-	out, err := exec.Command("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
+	out, err := command.Exec("go", "tool", "cover", fmt.Sprintf("-func=%s", profilePath)).CombinedOutput()
 	if err != nil {
 		return ""
 	}
@@ -751,15 +905,75 @@ func exactCoverageFromProfile(profilePath string) string {
 }
 
 func (g *Go) installWasmBrowserTest() error {
-	if _, err := RunCommandSilent("which", "wasmbrowsertest"); err == nil {
+	if _, err := command.RunInDir(g.rootDir, "which", "wasmbrowsertest"); err == nil {
 		return nil
 	}
 
-	_, err := RunCommand("go", "install", "github.com/tinywasm/wasmbrowsertest@latest")
+	_, err := command.RunInDir(g.rootDir, "go", "install", "github.com/tinywasm/wasmbrowsertest@latest")
 	if err != nil {
 		return fmt.Errorf("go install failed: %w", err)
 	}
 	return nil
+}
+
+// wasmTestPackages lists the packages whose tests can actually be built for js/wasm.
+//
+// It exists because `go test ./...` under GOOS=js is wrong for any repo with two build
+// targets (host tooling + an edge binary). A package whose sources are all `//go:build
+// !wasm` still gets compiled by `./...`, and fails with "build constraints exclude all
+// Go files" — a red suite that reports nothing about the code. The same goes for any
+// package importing one. Selecting the packages up front means the runner only builds
+// what the wasm target actually contains.
+//
+// Falls back to "./..." if go list gives nothing, so the caller still sees a real error
+// instead of an empty, silently-passing run.
+func (g *Go) wasmTestPackages(runAll bool) []string {
+	args := []string{"list", "-f", "{{.ImportPath}} {{len .GoFiles}} {{len .TestGoFiles}} {{len .XTestGoFiles}}"}
+	if runAll {
+		args = append(args, "-tags=integration")
+	}
+	args = append(args, "./...")
+
+	cmd := exec.Command("go", args...)
+	cmd.Dir = g.rootDir
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	out, _ := cmd.Output() // stderr carries the excluded packages: expected, not fatal
+
+	pkgs := ParseWasmTestPackages(string(out))
+	if len(pkgs) == 0 {
+		return []string{"./..."}
+	}
+	return pkgs
+}
+
+// ParseWasmTestPackages keeps the packages that have tests AND can be built for wasm.
+func ParseWasmTestPackages(goListOut string) []string {
+	var pkgs []string
+	for _, line := range strings.Split(goListOut, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 4 {
+			continue
+		}
+		path := fields[0]
+		goFiles, err1 := strconv.Atoi(fields[1])
+		testFiles, err2 := strconv.Atoi(fields[2])
+		xTestFiles, err3 := strconv.Atoi(fields[3])
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+
+		if testFiles == 0 && xTestFiles == 0 {
+			continue // nothing to run here
+		}
+		// An internal test needs the package's own sources. With none of them left
+		// under wasm, the package cannot compile: that is a host-only package, not
+		// a failure.
+		if testFiles > 0 && goFiles == 0 {
+			continue
+		}
+		pkgs = append(pkgs, path)
+	}
+	return pkgs
 }
 
 // ShouldEnableWasm decides if WASM tests should be run based on go list output differences
@@ -774,6 +988,16 @@ func ShouldEnableWasm(nativeOut, wasmOut string) bool {
 	// This means it has a //go:build wasm tag or similar.
 	for f := range wasmFiles {
 		if !nativeFiles[f] {
+			return true
+		}
+	}
+	return false
+}
+
+// HasVFlag checks if -v is already present in the args
+func HasVFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-v" || arg == "-test.v" {
 			return true
 		}
 	}
@@ -987,7 +1211,7 @@ func FindTimedOutTests(output string) []string {
 // Called after a bulk WASM run times out (wasmbrowsertest buffers output, so we can't
 // determine the culprit from the output buffer).
 func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
-	names := discoverWasmTestNames()
+	names := g.discoverWasmTestNames()
 	if len(names) <= 1 {
 		return names
 	}
@@ -996,7 +1220,7 @@ func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
 
 	for _, name := range names {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-		cmd := testCommand(ctx, "go", "test", "-exec", "wasmbrowsertest", "-run", "^"+name+"$", "-v", "./...")
+		cmd := GoTestCmdFn(ctx, g.rootDir, "go", "test", "-exec", "wasmbrowsertest", "-run", "^"+name+"$", "-v", "./...")
 		cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 		cmd.Stdout = nil
 		cmd.Stderr = nil
@@ -1010,10 +1234,11 @@ func (g *Go) findWasmTimeoutCulprit(timeoutSec int) []string {
 	return nil
 }
 
-func discoverWasmTestNames() []string {
+func (g *Go) discoverWasmTestNames() []string {
 	listCmd := exec.Command("go", "list", "-f",
 		`{{range .TestGoFiles}}{{$.Dir}}/{{.}} {{end}}{{range .XTestGoFiles}}{{$.Dir}}/{{.}} {{end}}`,
 		"./...")
+	listCmd.Dir = g.rootDir
 	listCmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 	out, err := listCmd.Output()
 	if err != nil {

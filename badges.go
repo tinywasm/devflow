@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +19,7 @@ const DevFlowRepository = "github.com/tinywasm/devflow"
 // the necessary markdown to embed the badges in a file.
 type Badges struct {
 	args       []string
+	rootDir    string
 	outputFile string
 	readmeFile string
 	// stored initialization/parsing error; methods must check this
@@ -31,7 +33,7 @@ type Badges struct {
 	labelPadding int
 	valuePadding int
 	badgeSpacing int
-	labelBg string
+	labelBg      string
 	// text used in the svg comment/header
 	svgInfo string
 	log     func(...any)
@@ -41,6 +43,7 @@ type Badges struct {
 func NewBadges(args ...string) *Badges {
 	// Create handler with defaults
 	h := &Badges{
+		rootDir:      "",
 		outputFile:   "docs/img/badges.svg",
 		svgHeight:    20,
 		badgeHeight:  20,
@@ -103,6 +106,21 @@ func (h *Badges) SetLog(fn func(...any)) {
 	}
 }
 
+// SetRootDir sets the root directory for badge operations
+func (h *Badges) SetRootDir(dir string) {
+	h.rootDir = dir
+	if h.goH != nil {
+		h.goH.SetRootDir(dir)
+	}
+}
+
+func (h *Badges) getRootDir() string {
+	if h.rootDir == "" {
+		return "."
+	}
+	return h.rootDir
+}
+
 // BuildBadges generates the SVG image, writes it to the specified output file,
 // and returns a slice of strings intended for updating a markdown file.
 func (h *Badges) BuildBadges() ([]string, error) {
@@ -156,20 +174,25 @@ func (h *Badges) BuildBadges() ([]string, error) {
 	}
 
 	// ensure directory exists when writing file
-	if err := os.MkdirAll(filepath.Dir(h.outputFile), 0o755); err != nil {
+	outputPath := h.outputFile
+	if !filepath.IsAbs(outputPath) && h.rootDir != "" {
+		outputPath = filepath.Join(h.rootDir, h.outputFile)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create output dir: %w", err)
 	}
 
 	// Check if file exists and content is the same (don't rewrite if identical)
 	shouldWrite := true
-	if existing, err := os.ReadFile(h.outputFile); err == nil {
+	if existing, err := os.ReadFile(outputPath); err == nil {
 		if bytes.Equal(existing, svgBytes) {
 			shouldWrite = false
 		}
 	}
 
 	if shouldWrite {
-		if err := os.WriteFile(h.outputFile, svgBytes, 0o644); err != nil {
+		if err := os.WriteFile(outputPath, svgBytes, 0o644); err != nil {
 			return nil, fmt.Errorf("write svg file: %w", err)
 		}
 	}
@@ -190,12 +213,16 @@ func (h *Badges) UpdateReadme() error {
 		return h.err
 	}
 
+	readmePath := h.readmeFile
+	if !filepath.IsAbs(readmePath) && h.rootDir != "" {
+		readmePath = filepath.Join(h.rootDir, h.readmeFile)
+	}
 	// Read the README file
-	content, err := os.ReadFile(h.readmeFile)
+	content, err := os.ReadFile(readmePath)
 	if err != nil {
 		// File doesn't exist yet, create it with just the badge
 		newContent := h.BadgeMarkdown() + "\n"
-		return os.WriteFile(h.readmeFile, []byte(newContent), 0o644)
+		return os.WriteFile(readmePath, []byte(newContent), 0o644)
 	}
 
 	currentContent := string(content)
@@ -269,7 +296,7 @@ func (h *Badges) UpdateReadme() error {
 		return nil
 	}
 
-	if err := os.WriteFile(h.readmeFile, []byte(newContent), 0o644); err != nil {
+	if err := os.WriteFile(readmePath, []byte(newContent), 0o644); err != nil {
 		return fmt.Errorf("write readme: %w", err)
 	}
 
@@ -313,7 +340,7 @@ func (h *Badges) GoHandler() *Go {
 }
 
 func GetGoVersion() string {
-	out, err := RunCommand("go", "version")
+	out, err := command.Run("go", "version")
 	if err != nil {
 		return "unknown"
 	}
@@ -358,6 +385,9 @@ func GetBadgeColor(typ, value string) string {
 }
 
 func getModuleName(dir string) (string, error) {
+	if dir == "" {
+		dir = "."
+	}
 	f, err := os.Open(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		return "", err
@@ -404,6 +434,7 @@ func (h *Badges) updateBadges(readmeFile, licenseType, goVer, testStatus, covera
 	}
 
 	bh := NewBadges(badgeArgs...)
+	bh.SetRootDir(h.rootDir)
 	bh.SetLog(h.log)
 	if _, err := bh.BuildBadges(); err != nil {
 		return fmt.Errorf("error building badges: %w", err)

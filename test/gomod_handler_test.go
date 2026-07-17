@@ -158,3 +158,31 @@ func TestGoModHandler(t *testing.T) {
 		}
 	})
 }
+
+func TestGoModHandler_ObjectsToPublish(t *testing.T) {
+	tmp := t.TempDir()
+	gomodPath := filepath.Join(tmp, "go.mod")
+	content := "module github.com/test/app\n\ngo 1.20\n\nreplace github.com/foo/bar => ../bar\n"
+	os.WriteFile(gomodPath, []byte(content), 0644)
+
+	m := devflow.NewGoModHandler()
+	ctx := devflow.PublishContext{RepoDir: tmp, ModulePaths: []string{"github.com/foo/bar"}}
+
+	// with only the expected replace -> ActionNone
+	action, reason := m.ObjectsToPublish(ctx)
+	if action != devflow.ActionNone {
+		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
+	}
+
+	// with another replace -> ActionSkip
+	content2 := content + "replace github.com/other/lib => ../other\n"
+	os.WriteFile(gomodPath, []byte(content2), 0644)
+	m = devflow.NewGoModHandler() // fresh load
+	action, reason = m.ObjectsToPublish(ctx)
+	if action != devflow.ActionSkip {
+		t.Errorf("expected ActionSkip, got %v (%s)", action, reason)
+	}
+	if reason != devflow.ObjectionOtherReplaces {
+		t.Errorf("expected %q, got %q", devflow.ObjectionOtherReplaces, reason)
+	}
+}

@@ -11,6 +11,7 @@ import (
 //   - linux/amd64, linux/arm64 (ARM servers, CI, Raspberry)
 //   - darwin/arm64 (Apple Silicon), darwin/amd64 (Intel Macs)
 //   - windows/amd64
+//
 // darwin/amd64 and linux/arm64 are currently missing.
 func TestDefaultTargets_CoversDistributionMatrix(t *testing.T) {
 	targets := devflow.DefaultTargets()

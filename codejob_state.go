@@ -55,79 +55,88 @@ func JulesSessionState(sessionID, apiKey string, client HTTPClient) (msg, prURL 
 	return "⏳ Jules: working...", "", false, nil
 }
 
+// CheckoutPRBranch fetches and hard-positions the working tree on the PR's
+// head branch. A dirty working tree is handled, not feared: local drift is
+// stashed with a labeled stash (CodejobStashMessage) and re-applied after the
+// switch; if re-applying conflicts, the stash is KEPT, the conflict files are
+// listed, and an error is returned. Returns the branch name on success.
+func CheckoutPRBranch(runner Runner, prURL string) (string, error) {
+	if prURL == "" {
+		return "", fmt.Errorf("empty PR URL")
+	}
+
+	// 1. git fetch --all
+	if _, err := runner.Run("git", "fetch", "--all"); err != nil {
+		return "", fmt.Errorf("git fetch --all failed: %w", err)
+	}
+
+	// 2. Resolve branch via gh pr view
+	branchOut, err := runner.Run("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
+	if err != nil {
+		return "", fmt.Errorf("%s %s", HintManualPRCheckout, prURL)
+	}
+	branch := strings.TrimSpace(branchOut)
+	if branch == "" {
+		return "", fmt.Errorf("could not resolve branch name from PR %s", prURL)
+	}
+
+	// 3. Check for dirty working tree
+	statusOut, _ := runner.Run("git", "status", "--porcelain")
+	isDirty := strings.TrimSpace(statusOut) != ""
+
+	// 4. Stash if dirty
+	if isDirty {
+		if _, err := runner.Run("git", "stash", "push", "-u", "-m", CodejobStashMessage); err != nil {
+			return "", fmt.Errorf("git stash failed: %w", err)
+		}
+	}
+
+	// 5. Checkout
+	if _, err := runner.Run("git", "checkout", branch); err != nil {
+		// If checkout fails, try to restore stash before returning
+		if isDirty {
+			_, _ = runner.Run("git", "stash", "pop")
+		}
+		return "", fmt.Errorf("%s\n    git checkout %s", HintManualCheckout, branch)
+	}
+
+	// 6. Verify checkout
+	currentBranch, err := runner.Run("git", "branch", "--show-current")
+	if err != nil || strings.TrimSpace(currentBranch) != branch {
+		return "", fmt.Errorf("checkout verification failed: expected %s, got %s", branch, strings.TrimSpace(currentBranch))
+	}
+
+	// 7. Pop stash if we stashed
+	if isDirty {
+		if out, err := runner.Run("git", "stash", "pop"); err != nil {
+			return branch, fmt.Errorf("conflict while re-applying local drift.\nStash kept: %s\nConflicts:\n%s", CodejobStashMessage, out)
+		}
+	}
+
+	return branch, nil
+}
+
 // HandleDone executes cleanup when Jules completes:
-// 1. git fetch --all
-// 2. git checkout <jules-branch> for local review
-// 3. os.Rename("docs/PLAN.md", "docs/CHECK_PLAN.md")
-// 4. env.Delete(EnvKeyCodejob)
-// 5. env.Set(EnvKeyCodejobPR, prURL)
-// 6. Update .gitignore
-func HandleDone(env *DotEnv, git *Git, prURL string) error {
-	// 1. git fetch (non-fatal: state cleanup must proceed regardless)
-	RunCommandSilent("git", "fetch", "--all") //nolint: ignore fetch failure
-
-	// 2. checkout Jules branch for local review (non-fatal)
-	if prURL != "" {
-		branchOut, err := RunCommandSilent("gh", "pr", "view", prURL,
-			"--json", "headRefName", "--jq", ".headRefName")
-		if err == nil {
-			if branch := strings.TrimSpace(branchOut); branch != "" {
-				if _, checkoutErr := RunCommandSilent("git", "checkout", branch); checkoutErr != nil {
-					fmt.Printf("⚠️  Could not switch branch automatically — run manually:\n    git checkout %s\n", branch)
-				} else {
-					fmt.Printf("🔀 Switched to branch: %s\n", branch)
-				}
-			}
-		} else {
-			fmt.Printf("⚠️  Could not resolve branch from PR — switch manually:\n    gh pr checkout %s\n", prURL)
-		}
-	}
-
-	// 3. rename PLAN.md
-	planPath := DefaultIssuePromptPath
-	if _, err := os.Stat(planPath); err == nil {
-		checkPlanPath := "docs/CHECK_PLAN.md"
-		if err := os.Rename(planPath, checkPlanPath); err != nil {
-			return fmt.Errorf("could not rename %s: %w", planPath, err)
-		}
-	}
-
-	// 4. delete from env
-	if err := env.Delete(EnvKeyCodejob); err != nil {
-		return fmt.Errorf("could not update .env: %w", err)
-	}
-
-	// 5. persist PR URL for 'codejob done'
-	if prURL != "" {
-		if err := env.Set(EnvKeyCodejobPR, prURL); err != nil {
-			return fmt.Errorf("could not save %s: %w", EnvKeyCodejobPR, err)
-		}
-	}
-
-	// 6. .gitignore update
-	if git != nil {
-		if err := git.GitIgnoreAdd("CHECK_*.md"); err != nil {
-			return fmt.Errorf("could not update .gitignore: %w", err)
-		}
-	}
-
+// HandleDone is kept for signature compatibility but is a no-op under the new PLAN.md state model.
+func HandleDone(runner Runner, env *DotEnv, git *Git, prURL string) error {
 	return nil
 }
 
-// MergePR merges the Jules PR persisted in .env as CODEJOB_PR,
-// deletes docs/CHECK_PLAN.md, and cleans up state.
-func MergePR() error {
-	env := NewDotEnv(".env")
-	prURL, ok := env.Get(EnvKeyCodejobPR)
-	if !ok || prURL == "" {
-		return fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
+// MergePR merges the Jules PR and deletes PLAN.md.
+func MergePR(runner Runner) error {
+	meta, err := ReadPlanMeta(DefaultIssuePromptPath)
+	if err != nil {
+		return fmt.Errorf("could not read PLAN.md: %w", err)
+	}
+	prURL := meta.PR
+	if prURL == "" {
+		return fmt.Errorf("no pending PR found in PLAN.md frontmatter")
 	}
 
 	// 1. merge PR and delete Jules branch
 	var out string
-	var err error
 	for i := 0; i < 5; i++ {
-		out, err = RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		out, err = runner.Run("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
 		if err == nil {
 			break
 		}
@@ -141,64 +150,72 @@ func MergePR() error {
 		return fmt.Errorf("gh pr merge failed: %w\n%s", err, out)
 	}
 
-	// 2. delete docs/CHECK_PLAN.md
-	if _, err := os.Stat("docs/CHECK_PLAN.md"); err == nil {
-		if err := os.Remove("docs/CHECK_PLAN.md"); err != nil {
-			return fmt.Errorf("could not delete CHECK_PLAN.md: %w", err)
+	// 2. delete docs/PLAN.md
+	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
+		if err := os.Remove(DefaultIssuePromptPath); err != nil {
+			return fmt.Errorf("could not delete %s: %w", DefaultIssuePromptPath, err)
 		}
-	}
-
-	// 3. clean up .env
-	if err := env.Delete(EnvKeyCodejobPR); err != nil {
-		return fmt.Errorf("could not clean up .env: %w", err)
 	}
 
 	return nil
 }
 
-// MergeAndPublish merges the Jules PR, pulls the merged commit, commits any
-// cleanup files (e.g. .gitignore updated by HandleDone), and publishes via gopush.
-func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResult, error) {
-	env := NewDotEnv(".env")
-	prURL, ok := env.Get(EnvKeyCodejobPR)
-	if !ok || prURL == "" {
-		return PushResult{}, fmt.Errorf("no pending PR found. Run 'codejob' first to check status")
+// resolveDefaultBranch returns the repo's actual default branch (e.g. "main"
+// or "master") by reading the cached origin/HEAD ref, falling back to "main"
+// if that ref isn't set locally or the command fails.
+func resolveDefaultBranch(runner Runner) string {
+	out, err := runner.Run("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	branch := strings.TrimSpace(out)
+	if err == nil && branch != "" {
+		return strings.TrimPrefix(branch, "origin/")
+	}
+	return "main"
+}
+
+// MergeAndPublish merges the Jules PR, pulls the merged commit, and publishes via gopush.
+func MergeAndPublish(runner Runner, publisher Publisher, message, overrideTag string) (PushResult, error) {
+	if err := EnsureGHSession(runner); err != nil {
+		return PushResult{}, err
+	}
+	meta, err := ReadPlanMeta(DefaultIssuePromptPath)
+	if err != nil {
+		return PushResult{}, fmt.Errorf("could not read PLAN.md: %w", err)
+	}
+	prURL := meta.PR
+	if prURL == "" {
+		return PushResult{}, fmt.Errorf("no pending PR found in PLAN.md frontmatter")
 	}
 
 	// 0. Ensure we are on the Jules branch before committing anything
-	branchOut, err := RunCommandSilent("gh", "pr", "view", prURL, "--json", "headRefName", "--jq", ".headRefName")
-	var julesBranch string
-	if err == nil {
-		julesBranch = strings.TrimSpace(branchOut)
-		if julesBranch != "" {
-			RunCommandSilent("git", "checkout", julesBranch)
-		}
+	if _, err := CheckoutPRBranch(runner, prURL); err != nil {
+		return PushResult{}, err
 	}
 
 	// 1. Pre-merge: if working tree is dirty, commit corrections to Jules branch and push
-	statusOut, _ := RunCommandSilent("git", "status", "--porcelain")
+	statusOut, _ := runner.Run("git", "status", "--porcelain")
 	if strings.TrimSpace(statusOut) != "" {
-		if out, err := RunCommandSilent("git", "add", "."); err != nil {
+		if out, err := runner.Run("git", "add", "."); err != nil {
 			return PushResult{}, fmt.Errorf("pre-merge git add failed: %w\n%s", err, out)
 		}
-		if out, err := RunCommandSilent("git", "commit", "-m", "review: corrections before merge"); err != nil {
+		if out, err := runner.Run("git", "commit", "-m", "review: corrections before merge"); err != nil {
 			return PushResult{}, fmt.Errorf("pre-merge commit failed: %w\n%s", err, out)
 		}
-		if out, err := RunCommandSilent("git", "push"); err != nil {
+		if out, err := runner.Run("git", "push"); err != nil {
 			return PushResult{}, fmt.Errorf("pre-merge push failed: %w\n%s", err, out)
 		}
 	}
 
-	// Switch to main before merging to avoid 'gh pr merge' branch-switch errors
-	if out, err := RunCommandSilent("git", "checkout", "main"); err != nil {
-		return PushResult{}, fmt.Errorf("git checkout main failed: %w\n%s", err, out)
+	// Switch to default branch before merging
+	defaultBranch := resolveDefaultBranch(runner)
+	if out, err := runner.Run("git", "checkout", defaultBranch); err != nil {
+		return PushResult{}, fmt.Errorf("git checkout %s failed: %w\n%s", defaultBranch, err, out)
 	}
 
 	// 2. merge PR and delete Jules branch on GitHub
 	var mergeOut string
 	var mergeErr error
 	for i := 0; i < 5; i++ {
-		mergeOut, mergeErr = RunCommandSilent("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		mergeOut, mergeErr = runner.Run("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
 		if mergeErr == nil {
 			break
 		}
@@ -215,35 +232,21 @@ func MergeAndPublish(publisher Publisher, message, overrideTag string) (PushResu
 	}
 
 	// 2. pull the merged commit locally
-	if _, err := RunCommandSilent("git", "pull"); err != nil {
+	if _, err := runner.Run("git", "pull"); err != nil {
 		return PushResult{}, fmt.Errorf("git pull failed: %w", err)
 	}
 
-	// 3. remove CHECK_PLAN.md (gitignored, local cleanup only)
-	if _, err := os.Stat("docs/CHECK_PLAN.md"); err == nil {
-		if err := os.Remove("docs/CHECK_PLAN.md"); err != nil {
-			return PushResult{}, fmt.Errorf("could not delete CHECK_PLAN.md: %w", err)
-		}
-	}
-
-	// 4. clean up state
-	if err := env.Delete(EnvKeyCodejobPR); err != nil {
-		return PushResult{}, fmt.Errorf("could not clean up .env: %w", err)
-	}
-
-	// 5. Check for new PLAN.md to re-dispatch
+	// 3. remove docs/PLAN.md
 	if _, err := os.Stat(DefaultIssuePromptPath); err == nil {
-		// PLAN.md exists -> call Publisher.Publish (skip deps + tag) + dispatch to agent
-		res, err := publisher.Publish("chore: sync before re-dispatch", "", true, true, true, true, true, true)
-		if err != nil {
-			return PushResult{}, fmt.Errorf("re-dispatch sync failed: %w", err)
+		if err := os.Remove(DefaultIssuePromptPath); err != nil {
+			return PushResult{}, fmt.Errorf("could not delete %s: %w", DefaultIssuePromptPath, err)
 		}
-
-		res.Summary = "✅ PR merged, 🚀 New plan detected, re-dispatching..."
-		res.Tag = "RE_DISPATCH"
-		return res, nil
 	}
 
 	// No PLAN.md -> call full gopush
-	return publisher.Publish(message, overrideTag, false, false, false, false, false, false)
+	effMsg, effTag, err := ResolvePublishMessage(message, overrideTag, meta)
+	if err != nil {
+		return PushResult{}, err
+	}
+	return publisher.Publish(effMsg, effTag, false, false, false, false, false, false)
 }

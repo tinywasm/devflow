@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"net/url"
@@ -28,27 +29,27 @@ const DevflowOAuthClientID = "Ov23lijHU2vxBCpShn1Q"
 // Deprecated: use SecretGitHubToken with SecretStore
 const githubTokenKey = "github_token"
 
-// GitHubAuth handles GitHub authentication and token management
-type GitHubAuth struct {
+// GitHubOAuth handles GitHub authentication and token management via Device Flow
+type GitHubOAuth struct {
 	log   func(...any)
 	store *SecretStore
 }
 
-// NewGitHubAuth creates a new GitHub authentication handler
-func NewGitHubAuth() *GitHubAuth {
-	return &GitHubAuth{
+// NewGitHubOAuth creates a new GitHub authentication handler
+func NewGitHubOAuth() *GitHubOAuth {
+	return &GitHubOAuth{
 		log:   func(...any) {},
 		store: NewSecretStore(),
 	}
 }
 
 // Name returns the handler name for TUI display.
-func (a *GitHubAuth) Name() string {
+func (a *GitHubOAuth) Name() string {
 	return "GitHub Auth"
 }
 
 // SetLog sets the logger function
-func (a *GitHubAuth) SetLog(fn func(...any)) {
+func (a *GitHubOAuth) SetLog(fn func(...any)) {
 	if fn != nil {
 		a.log = fn
 		a.store.SetLog(fn)
@@ -74,12 +75,12 @@ type tokenResponse struct {
 }
 
 // EnsureGitHubAuth checks if GitHub is authenticated via keyring, and if not, initiates Device Flow
-func (a *GitHubAuth) EnsureGitHubAuth() error {
+func (a *GitHubOAuth) EnsureGitHubAuth() error {
 	token, src, err := a.store.Get(SecretGitHubToken)
 	if err == nil && token != "" {
 		// Verify the token works by configuring gh
 		if a.configureGhWithToken(token) == nil {
-			if _, err := RunCommandSilent("gh", "auth", "status"); err == nil {
+			if _, err := command.Run("gh", "auth", "status"); err == nil {
 				return nil
 			}
 		}
@@ -109,7 +110,7 @@ func (a *GitHubAuth) EnsureGitHubAuth() error {
 }
 
 // DeviceFlowAuth initiates GitHub OAuth Device Flow and returns an access token
-func (a *GitHubAuth) DeviceFlowAuth() (string, error) {
+func (a *GitHubOAuth) DeviceFlowAuth() (string, error) {
 	// Step 1: Request device and user codes
 	codeResp, err := a.requestDeviceCode()
 	if err != nil {
@@ -146,7 +147,7 @@ func (a *GitHubAuth) DeviceFlowAuth() (string, error) {
 }
 
 // requestDeviceCode requests a device code from GitHub
-func (a *GitHubAuth) requestDeviceCode() (*deviceCodeResponse, error) {
+func (a *GitHubOAuth) requestDeviceCode() (*deviceCodeResponse, error) {
 	data := url.Values{}
 	data.Set("client_id", DevflowOAuthClientID)
 	data.Set("scope", "repo read:org delete_repo")
@@ -183,7 +184,7 @@ func (a *GitHubAuth) requestDeviceCode() (*deviceCodeResponse, error) {
 }
 
 // pollForToken polls GitHub for the access token
-func (a *GitHubAuth) pollForToken(deviceCode string, interval, expiresIn int) (string, error) {
+func (a *GitHubOAuth) pollForToken(deviceCode string, interval, expiresIn int) (string, error) {
 	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
 
 	for time.Now().Before(deadline) {
@@ -242,7 +243,7 @@ func (a *GitHubAuth) pollForToken(deviceCode string, interval, expiresIn int) (s
 }
 
 // openBrowser opens a URL in the default browser (cross-platform)
-func (a *GitHubAuth) openBrowser(url string) error {
+func (a *GitHubOAuth) openBrowser(url string) error {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
@@ -260,7 +261,7 @@ func (a *GitHubAuth) openBrowser(url string) error {
 }
 
 // configureGhWithToken configures gh CLI to use the token
-func (a *GitHubAuth) configureGhWithToken(token string) error {
+func (a *GitHubOAuth) configureGhWithToken(token string) error {
 	cmd := exec.Command("gh", "auth", "login", "--with-token")
 	cmd.Stdin = bytes.NewReader([]byte(token))
 	return cmd.Run()

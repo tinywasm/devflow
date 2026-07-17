@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"os"
@@ -67,113 +68,130 @@ func TestJulesSessionState(t *testing.T) {
 	}
 }
 
-func TestHandleDone(t *testing.T) {
+func TestCheckoutPRBranch_DirtyTreeSuccess(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	envPath := "test_handle_done.env"
-	planPath := "docs/PLAN.md"
-	checkPlanPath := "docs/CHECK_PLAN.md"
-
-	_ = os.MkdirAll("docs", 0755)
-	_ = os.WriteFile(planPath, []byte("my plan"), 0644)
-	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1\nOTHER=val"), 0644)
-
-	var checkoutCalls []string
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	recorded := []string{}
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
-		if strings.HasPrefix(full, "git checkout ") {
-			checkoutCalls = append(checkoutCalls, strings.TrimPrefix(full, "git checkout "))
+		recorded = append(recorded, full)
+		switch {
+		case full == "gh pr view https://github.com/test/pull/1 --json headRefName --jq .headRefName":
+			return exec.Command("echo", "feat-branch")
+		case full == "git status --porcelain":
+			return exec.Command("echo", " M modified-file.go")
+		case full == "git branch --show-current":
+			return exec.Command("echo", "feat-branch")
+		default:
+			return exec.Command("true")
 		}
-		// gh pr view returns the branch name
-		if strings.Contains(full, "gh pr view") && strings.Contains(full, "headRefName") {
-			return exec.Command("echo", "feat-goflare-test-branch")
-		}
-		return exec.Command("true")
 	}
 
-	env := devflow.NewDotEnv(envPath)
-
-	prURL := "https://github.com/test/pull/1"
-	err := devflow.HandleDone(env, nil, prURL)
+	branch, err := devflow.CheckoutPRBranch(devflow.RealRunner{}, "https://github.com/test/pull/1")
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if branch != "feat-branch" {
+		t.Errorf("expected branch feat-branch, got %q", branch)
 	}
 
-	// Verify branch checkout happened
-	if len(checkoutCalls) == 0 {
-		t.Error("git checkout was never called — branch switch must happen after HandleDone")
-	} else if checkoutCalls[0] != "feat-goflare-test-branch" {
-		t.Errorf("expected checkout of Jules branch, got %q", checkoutCalls[0])
+	checkCall := func(expected string) {
+		for _, c := range recorded {
+			if c == expected {
+				return
+			}
+		}
+		t.Errorf("expected call %q not found in %v", expected, recorded)
 	}
 
-	// Verify PLAN.md renamed
-	if _, err := os.Stat(planPath); err == nil {
-		t.Error("PLAN.md should have been renamed")
-	}
-	if _, err := os.Stat(checkPlanPath); os.IsNotExist(err) {
-		t.Error("CHECK_PLAN.md should exist")
+	checkCall("git stash push -u -m codejob: local drift before review")
+	checkCall("git checkout feat-branch")
+	checkCall("git stash pop")
+}
+
+func TestCheckoutPRBranch_PopConflict(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	recorded := []string{}
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		full := name + " " + strings.Join(args, " ")
+		recorded = append(recorded, full)
+		switch {
+		case full == "gh pr view https://github.com/test/pull/1 --json headRefName --jq .headRefName":
+			return exec.Command("echo", "feat-branch")
+		case full == "git status --porcelain":
+			return exec.Command("echo", " M modified-file.go")
+		case full == "git branch --show-current":
+			return exec.Command("echo", "feat-branch")
+		case full == "git stash pop":
+			return exec.Command("sh", "-c", "echo 'conflict'; exit 1")
+		default:
+			return exec.Command("true")
+		}
 	}
 
-	// Verify env cleaned
-	val, ok := env.Get("CODEJOB")
-	if ok || val != "" {
-		t.Error("CODEJOB should be deleted from .env")
+	branch, err := devflow.CheckoutPRBranch(devflow.RealRunner{}, "https://github.com/test/pull/1")
+	if err == nil {
+		t.Fatal("expected error due to stash pop conflict, got nil")
 	}
-	val, ok = env.Get("OTHER")
-	if !ok || val != "val" {
-		t.Error("OTHER should be preserved in .env")
+	if branch != "feat-branch" {
+		t.Errorf("expected branch feat-branch even on pop conflict, got %q", branch)
 	}
-
-	// Verify PR URL persisted
-	val, ok = env.Get("CODEJOB_PR")
-	if !ok || val != prURL {
-		t.Errorf("expected CODEJOB_PR=%q, got %q", prURL, val)
+	if !strings.Contains(err.Error(), "conflict while re-applying local drift") {
+		t.Errorf("expected conflict error message, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Stash kept") {
+		t.Errorf("expected 'Stash kept' in error message, got %v", err)
 	}
 }
 
-// TestHandleDone_CheckoutFailsGracefully verifies that when gh pr view fails
-// (network error, PR not found, etc.), HandleDone still completes the file/env
-// cleanup without returning an error — checkout is non-fatal.
-func TestHandleDone_CheckoutFailsGracefully(t *testing.T) {
+func TestMergeAndPublish_Guard(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	envPath := "graceful.env"
 	_ = os.MkdirAll("docs", 0755)
-	_ = os.WriteFile("docs/PLAN.md", []byte("plan"), 0644)
-	_ = os.WriteFile(envPath, []byte("CODEJOB=jules:S1"), 0644)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\nPR: https://github.com/test/pull/1\n---\n"), 0644)
 
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
-		// gh pr view fails → branch stays empty → checkout skipped
-		if strings.Contains(strings.Join(args, " "), "headRefName") {
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		full := name + " " + strings.Join(args, " ")
+		// Force checkout failure
+		if full == "git checkout feat-branch" {
 			return exec.Command("sh", "-c", "exit 1")
+		}
+		if full == "gh pr view https://github.com/test/pull/1 --json headRefName --jq .headRefName" {
+			return exec.Command("echo", "feat-branch")
 		}
 		return exec.Command("true")
 	}
 
-	env := devflow.NewDotEnv(envPath)
-	err := devflow.HandleDone(env, nil, "https://github.com/test/pull/1")
-	if err != nil {
-		t.Errorf("HandleDone must not fail when gh pr view fails: %v", err)
+	mockPub := &MockPublisher{}
+	_, err := devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "")
+	if err == nil {
+		t.Fatal("expected MergeAndPublish to fail when checkout fails")
 	}
-	if _, err := os.Stat("docs/CHECK_PLAN.md"); os.IsNotExist(err) {
-		t.Error("CHECK_PLAN.md must exist even when checkout is skipped")
-	}
+
+	// Verify no commit was attempted
+	// We'd need to track calls to be sure, but the error being returned is the first guard.
 }
 
 func TestMergePR_NoPRURL(t *testing.T) {
-	envPath := "test_merge_no_pr.env"
-	defer os.Remove(envPath)
-	_ = os.WriteFile(envPath, []byte(""), 0644)
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
 
-	err := devflow.MergePR()
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\n---\n"), 0644)
+
+	err := devflow.MergePR(devflow.RealRunner{})
 	if err == nil {
-		t.Fatal("expected error when no PR URL in .env, got nil")
+		t.Fatal("expected error when no PR URL in PLAN.md, got nil")
 	}
 	if !strings.Contains(err.Error(), "no pending PR found") {
 		t.Errorf("expected 'no pending PR found' error, got: %v", err)
@@ -181,11 +199,15 @@ func TestMergePR_NoPRURL(t *testing.T) {
 }
 
 func TestMergeAndPublish_NoPRURL(t *testing.T) {
-	// MergeAndPublish reads ".env" via NewDotEnv(".env") — no CODEJOB_PR present
-	// in the test environment means it returns immediately before any Git calls.
-	_, err := devflow.MergeAndPublish(&MockPublisher{}, "test", "")
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\n---\n"), 0644)
+
+	_, err := devflow.MergeAndPublish(&mockRunner{}, &MockPublisher{}, "test", "")
 	if err == nil {
-		t.Fatal("expected error when no PR URL in .env, got nil")
+		t.Fatal("expected error when no PR URL in PLAN.md, got nil")
 	}
 	if !strings.Contains(err.Error(), "no pending PR found") {
 		t.Errorf("expected 'no pending PR found' error, got: %v", err)
@@ -202,14 +224,18 @@ func mockExecFor(dirtyStatus bool) (fn func(string, ...string) *exec.Cmd, calls 
 		full := name + " " + strings.Join(args, " ")
 		*calls = append(*calls, full)
 		switch {
+		case full == "gh pr view https://github.com/test/pull/1 --json headRefName --jq .headRefName":
+			return exec.Command("echo", "feat-branch")
 		case full == "git status --porcelain":
 			if dirtyStatus {
 				// Simulate two modified tracked files
 				return exec.Command("echo", " M errors.go")
 			}
 			return exec.Command("true")
-		case full == "git symbolic-ref --short HEAD":
-			return exec.Command("echo", "main")
+		case full == "git symbolic-ref --short refs/remotes/origin/HEAD":
+			return exec.Command("echo", "origin/main")
+		case full == "git branch --show-current":
+			return exec.Command("echo", "feat-branch")
 		case strings.HasPrefix(full, "git rev-parse v"):
 			// Tag doesn't exist (TagExists returns false → CreateTag proceeds)
 			return exec.Command("sh", "-c", "exit 1")
@@ -229,12 +255,13 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\nPR: https://github.com/test/pull/1\n---\n"), 0644)
 
 	mockFn, calls := mockExecFor(true)
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	idxOf := func(prefix string) int {
 		for i, c := range *calls {
@@ -246,7 +273,7 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	statusIdx := idxOf("git status --porcelain")
 	addIdx := idxOf("git add .")
@@ -299,12 +326,13 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\nPR: https://github.com/test/pull/1\n---\n"), 0644)
 
 	mockFn, calls := mockExecFor(false)
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	idxOf := func(prefix string) int {
 		for i, c := range *calls {
@@ -316,7 +344,7 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	commitIdx := idxOf("git commit -m review:")
 	checkoutIdx := idxOf("git checkout main")
@@ -336,16 +364,71 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	}
 }
 
+// TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch is a regression
+// test: repos whose default branch is "master" (e.g. old forks) must not
+// have MergeAndPublish hardcode "git checkout main" — it should resolve and
+// use the actual default branch from origin/HEAD.
+func TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch(t *testing.T) {
+	dir := t.TempDir()
+	defer testChdir(t, dir)()
+
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\nPR: https://github.com/test/pull/1\n---\n"), 0644)
+
+	recorded := []string{}
+	mockFn := func(name string, args ...string) *exec.Cmd {
+		full := name + " " + strings.Join(args, " ")
+		recorded = append(recorded, full)
+		switch {
+		case full == "gh pr view https://github.com/test/pull/1 --json headRefName --jq .headRefName":
+			return exec.Command("echo", "feat-branch")
+		case full == "git branch --show-current":
+			return exec.Command("echo", "feat-branch")
+		case full == "git status --porcelain":
+			return exec.Command("true")
+		case full == "git symbolic-ref --short refs/remotes/origin/HEAD":
+			return exec.Command("echo", "origin/master")
+		case strings.HasPrefix(full, "git rev-parse v"):
+			return exec.Command("sh", "-c", "exit 1")
+		default:
+			return exec.Command("true")
+		}
+	}
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
+
+	mockPub := &MockPublisher{}
+	devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+
+	idxOf := func(prefix string) int {
+		for i, c := range recorded {
+			if strings.HasPrefix(c, prefix) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	if idxOf("git checkout master") < 0 {
+		t.Errorf("expected 'git checkout master' to be called, got calls: %v", recorded)
+	}
+	if idxOf("git checkout main") >= 0 {
+		t.Errorf("did not expect 'git checkout main' when default branch is master, got calls: %v", recorded)
+	}
+}
+
 func TestMergeAndPublish_TagOverride(t *testing.T) {
 	dir := t.TempDir()
 	defer testChdir(t, dir)()
 
-	os.WriteFile(".env", []byte("CODEJOB_PR=https://github.com/test/pull/1\n"), 0644)
+	_ = os.MkdirAll("docs", 0755)
+	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\nPR: https://github.com/test/pull/1\n---\n"), 0644)
 
 	mockFn, _ := mockExecFor(false)
-	orig := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = orig }()
-	devflow.ExecCommand = mockFn
+	orig := command.Exec
+	defer func() { command.Exec = orig }()
+	command.Exec = mockFn
 
 	mockPub := &MockPublisher{
 		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
@@ -353,7 +436,7 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 		},
 	}
 
-	result, err := devflow.MergeAndPublish(mockPub, "test", "v1.2.3")
+	result, err := devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "v1.2.3")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

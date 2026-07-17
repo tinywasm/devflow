@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"strconv"
 	"strings"
 )
@@ -22,7 +23,7 @@ type Git struct {
 // NewGit creates a new Git handler and verifies git is available
 func NewGit() (*Git, error) {
 	// Verify git installation
-	if _, err := RunCommandSilent("git", "--version"); err != nil {
+	if _, err := command.Run("git", "--version"); err != nil {
 		return nil, fmt.Errorf("git is not installed or not in PATH: %w", err)
 	}
 
@@ -36,17 +37,17 @@ func NewGit() (*Git, error) {
 // run executes a command in the handler's root directory
 func (g *Git) run(name string, args ...string) (string, error) {
 	if g.rootDir != "" && g.rootDir != "." {
-		return RunCommandInDir(g.rootDir, name, args...)
+		return command.RunInDir(g.rootDir, name, args...)
 	}
-	return RunCommand(name, args...)
+	return command.Run(name, args...)
 }
 
 // runSilent executes a command silently in the handler's root directory
 func (g *Git) runSilent(name string, args ...string) (string, error) {
 	if g.rootDir != "" && g.rootDir != "." {
-		return RunCommandInDir(g.rootDir, name, args...)
+		return command.RunInDir(g.rootDir, name, args...)
 	}
-	return RunCommandSilent(name, args...)
+	return command.Run(name, args...)
 }
 
 // SetRootDir sets the root directory for git operations
@@ -58,6 +59,14 @@ func (g *Git) SetRootDir(path string) {
 // (like updating .gitignore) should be allowed.
 func (g *Git) SetShouldWrite(f func() bool) {
 	g.shouldWrite = f
+}
+
+func (g *Git) ObjectsToPublish(_ PublishContext) (PublishAction, string) {
+	dirty, err := WorkTreeDirtyBeyond(g, publishAllowedDirtyFiles...)
+	if err != nil || !dirty {
+		return ActionNone, "" // error or clean: no objection
+	}
+	return ActionDepsOnly, ObjectionDirtyTree
 }
 
 // SetLog sets the logger function
@@ -283,6 +292,43 @@ func (g *Git) Commit(message string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// CommitPaths adds specific paths and creates a commit.
+// It returns true if a commit was created, false if no changes in those paths.
+// This is safer than Add() + Commit() as it only touches specific files.
+func (g *Git) CommitPaths(message string, paths ...string) (bool, error) {
+	if len(paths) == 0 {
+		return false, nil
+	}
+
+	// 1. Add only specific paths
+	args := append([]string{"add"}, paths...)
+	if _, err := g.run("git", args...); err != nil {
+		return false, fmt.Errorf("git add paths failed: %w", err)
+	}
+
+	// 2. Commit (only if there are staged changes)
+	return g.Commit(message)
+}
+
+// StatusPorcelain returns the output of git status --porcelain
+func (g *Git) StatusPorcelain() (string, error) {
+	out, err := g.runSilent("git", "status", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// DiffShortStat returns the output of git diff HEAD --shortstat
+func (g *Git) DiffShortStat() (string, error) {
+	// git diff HEAD --shortstat shows changes vs HEAD (staged or unstaged)
+	out, err := g.runSilent("git", "diff", "HEAD", "--shortstat")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // GetLatestTag gets the latest tag
@@ -587,11 +633,11 @@ func (g *Git) SetUserConfig(name, email string) error {
 
 // InitRepo initializes a new git repository
 func (g *Git) InitRepo(dir string) error {
-	if _, err := RunCommand("git", "init", dir); err != nil {
+	if _, err := command.Run("git", "init", dir); err != nil {
 		return err
 	}
 
-	if _, err := RunCommandInDir(dir, "git", "branch", "-M", "main"); err != nil {
+	if _, err := command.RunInDir(dir, "git", "branch", "-M", "main"); err != nil {
 		// On fresh init with no commits, this might fail, but git init usually sets up a default branch.
 		// Newer git versions use init.defaultBranch.
 		// If it fails, it might mean there are no commits yet so HEAD doesn't point anywhere meaningful.

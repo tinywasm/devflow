@@ -3,6 +3,7 @@ package devflow
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/tinywasm/command"
 	"io"
 	"os"
 	"path/filepath"
@@ -164,7 +165,7 @@ func (g *Go) CrossCompileWithTag(tmpDir string, cmds []string, targets []CrossTa
 
 			// Use crossBuildArgs for versioning and optimization flags
 			args := crossBuildArgs(tag, cmd, outputPath)
-			buildCmd := ExecCommand("go", args...)
+			buildCmd := command.Exec("go", args...)
 			buildCmd.Dir = repoDir
 			buildCmd.Env = append(os.Environ(),
 				"CGO_ENABLED=0",

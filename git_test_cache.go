@@ -3,6 +3,7 @@ package devflow
 import (
 	"crypto/md5"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,18 +14,20 @@ import (
 // when the code hasn't changed since the last successful test run.
 type TestCache struct {
 	CacheDir string
+	RootDir  string
 }
 
 // NewTestCache creates a new TestCache instance
-func NewTestCache() *TestCache {
+func NewTestCache(rootDir string) *TestCache {
 	return &TestCache{
 		CacheDir: filepath.Join(os.TempDir(), "gotest-cache"),
+		RootDir:  rootDir,
 	}
 }
 
 // GetCacheKey returns a unique key for the current module based on its path
 func (tc *TestCache) GetCacheKey() (string, error) {
-	moduleName, err := getModuleName(".")
+	moduleName, err := getModuleName(tc.RootDir)
 	if err != nil {
 		return "", err
 	}
@@ -46,20 +49,20 @@ func (tc *TestCache) GetCachePath() (string, error) {
 // This uniquely identifies the exact state of the code
 func (tc *TestCache) GetGitState() (string, error) {
 	// Get current commit hash
-	commitHash, err := RunCommandSilent("git", "rev-parse", "HEAD")
+	commitHash, err := command.RunInDir(tc.RootDir, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit hash: %w", err)
 	}
 	commitHash = strings.TrimSpace(commitHash)
 
 	// Get hash of uncommitted changes (if any)
-	diff, err := RunCommandSilent("git", "diff", "HEAD")
+	diff, err := command.RunInDir(tc.RootDir, "git", "diff", "HEAD")
 	if err != nil {
 		diff = ""
 	}
 
 	// Untracked .go files — not covered by git diff HEAD
-	untrackedRaw, err := RunCommandSilent("git", "ls-files", "--others", "--exclude-standard")
+	untrackedRaw, err := command.RunInDir(tc.RootDir, "git", "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		untrackedRaw = ""
 	}

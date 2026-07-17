@@ -17,6 +17,15 @@ gotest [-t seconds] [go test flags]
 **No arguments**: Runs the full test suite (vet, race, cover, wasm, badges)
 **With arguments**: Passes flags to `go test` (fast path, no vet/wasm/badges/cache)
 
+### MCP Tool
+
+`gotest` is also available as a single MCP tool `run_tests` for LLMs:
+
+- **No arguments**: Runs the full suite on the active project root and returns the summary line.
+- **`run="TestName"`**: Runs only tests matching the specified name or pattern.
+
+WASM tests and project root detection are handled automatically.
+
 ### Options
 
 | Flag | Description | Default |
@@ -47,11 +56,36 @@ gotest -bench .     # Run benchmarks
 1. Runs `go vet ./...`
 23. Runs `go test -race -cover ./...` (stdlib tests)
 4. **Exact weighted coverage** using profile merging (`go tool cover`) across all packages.
-5. Auto-detects and runs WASM tests if found (`*Wasm*_test.go`)
+5. Auto-detects and runs WASM tests in a real browser (`wasmbrowsertest`). Detection is by **build tag, not filename**: the WASM suite activates when a package has a test file present in the `GOOS=js GOARCH=wasm` build but absent from the native build — i.e., gated by `//go:build wasm`. The filename is irrelevant.
 6. Detects slowest test (if > 2.0s)
 7. Detects WASM released function calls
 8. Updates README badges
 9. Displays total execution time
+
+### `-tinygo` — compile the WASM suite with TinyGo
+
+```bash
+gotest -tinygo
+```
+
+By default the WASM suite is built with the **Go** toolchain
+(`GOOS=js GOARCH=wasm`), whose backend supports the full standard library. That
+means a green `wasm ✅` says **nothing** about TinyGo compatibility: a package
+TinyGo would reject still passes.
+
+`-tinygo` closes that gap. It runs the suite through
+`wasmbrowsertest -tinygo`, which rebuilds the package with TinyGo (the binary
+`go test -exec` hands over came from the Go compiler, so it cannot prove
+anything) and serves TinyGo's `wasm_exec.js` — the two toolchains emit different
+host imports and their shims are not interchangeable.
+
+Use it on any library that ships to the edge (Cloudflare Workers, `goflare`) or
+to the browser via TinyGo, whenever an import is added or removed.
+
+It is opt-in because it is slow: TinyGo compiles through LLVM, so a run takes
+minutes instead of seconds. It also bypasses the test cache. If TinyGo is not
+installed, the run fails with install instructions
+(`go run github.com/tinywasm/tinygo/cmd/tinygoinstall@latest`).
 
 ### With arguments (fast path):
 
@@ -116,21 +150,24 @@ Shows only failed tests with error details, filters out passing tests. Failed ru
 
 ## Timeout
 
-By default, each package has a **30-second** timeout. If a test hangs or takes too long, Go's test framework kills the package and `gotest` reports the offending test:
+`gotest` uses a **per-test stall watchdog** (default 30s). Unlike Go's native cumulative package timeout, `gotest` kills the process only if a *single* test makes no progress for the specified duration.
 
+If a test stalls:
 ```
-❌ timeout: TestSlowOperation (exceeded 30s)
+❌ timeout: TestSlowOperation stalled >30s (no progress)
 ```
 
 Override with `-t`:
 ```bash
-gotest -t 120       # 120s per package
+gotest -t 120       # 120s per test stall
 ```
 
-If you pass `-timeout` directly (Go's native flag), `gotest` respects it and does not inject its own:
-```bash
-gotest -timeout 2m  # Go-native flag, gotest won't override
+A **backstop timeout** (10x the watchdog limit) is also injected into `go test -timeout` to catch genuine package-level hangs where the watchdog might be bypassed. If hit, it reports:
 ```
+❌ timeout: package exceeded 300s total (backstop)
+```
+
+If you pass `-timeout` directly (Go's native flag), `gotest` still injects its watchdog using that value (or its default if not parseable), but respects your explicit package timeout.
 
 ## Notes
 

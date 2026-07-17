@@ -3,6 +3,7 @@ package devflow
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 )
 
 // SecretRunner abstracts command execution for testability.
@@ -17,13 +18,13 @@ type SecretRunner interface {
 type defaultRunner struct{}
 
 func (dr defaultRunner) Run(name string, args ...string) (string, error) {
-	return RunCommand(name, args...)
+	return command.Run(name, args...)
 }
 func (dr defaultRunner) RunSilent(name string, args ...string) (string, error) {
-	return RunCommandSilent(name, args...)
+	return command.Run(name, args...)
 }
 func (dr defaultRunner) RunWithStdin(input, name string, args ...string) (string, error) {
-	return RunCommandWithStdin(input, name, args...)
+	return command.RunWithStdin(input, name, args...)
 }
 
 func (gh *GitHub) getSecretRunner() SecretRunner {
@@ -37,8 +38,22 @@ func (gh *GitHub) getSecretRunner() SecretRunner {
 // The value is passed via stdin — gh CLI encrypts it with the repo's public key
 // before transmitting it. It does not appear in system ps/logs.
 func (gh *GitHub) SetSecret(repo, name, value string) error {
+	return gh.SetSecretWithScope(repo, name, value, "", "")
+}
+
+// SetSecretWithScope registers a secret either at the repository level or organization level.
+func (gh *GitHub) SetSecretWithScope(repo, name, value, org, visibility string) error {
 	runner := gh.getSecretRunner()
-	// Use --body-file - to read from stdin
+	if org != "" {
+		if visibility == "" {
+			visibility = "all"
+		}
+		_, err := runner.RunWithStdin(value, "gh", "secret", "set", name, "--body-file", "-", "--org", org, "--visibility", visibility)
+		if err != nil {
+			return fmt.Errorf("failed to set secret %s for org %s: %w", name, org, err)
+		}
+		return nil
+	}
 	_, err := runner.RunWithStdin(value, "gh", "secret", "set", name, "--body-file", "-", "--repo", repo)
 	if err != nil {
 		return fmt.Errorf("failed to set secret %s for repo %s: %w", name, repo, err)

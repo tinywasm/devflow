@@ -563,3 +563,51 @@ goroutine 1 [running]:`,
 		})
 	}
 }
+
+func TestParseWasmTestPackages(t *testing.T) {
+	// Columns: import path, len(GoFiles), len(TestGoFiles), len(XTestGoFiles) — as
+	// reported by `go list` under GOOS=js.
+	tests := []struct {
+		name     string
+		goList   string
+		expected []string
+	}{
+		{
+			name: "Two build targets - host-only packages are skipped, not failed",
+			goList: "github.com/tinywasm/goflare 0 2 0\n" + // root: sources are all !wasm
+				"github.com/tinywasm/goflare/cmd/goflare 1 0 0\n" + // a binary, no tests
+				"github.com/tinywasm/goflare/edge 1 0 0\n" + // wasm code, no tests
+				"github.com/tinywasm/goflare/tests 0 0 3\n", // external tests: the only runnable one
+			expected: []string{"github.com/tinywasm/goflare/tests"},
+		},
+		{
+			name:     "Internal tests with sources present are kept",
+			goList:   "github.com/tinywasm/dom 4 2 0\n",
+			expected: []string{"github.com/tinywasm/dom"},
+		},
+		{
+			name:     "Package without tests is skipped",
+			goList:   "github.com/tinywasm/js 3 0 0\n",
+			expected: nil,
+		},
+		{
+			name:     "Malformed lines are ignored",
+			goList:   "no-counts-here\ngithub.com/x/y 1 1\n\ngithub.com/tinywasm/ok 1 1 0\n",
+			expected: []string{"github.com/tinywasm/ok"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := devflow.ParseWasmTestPackages(tt.goList)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("got %v, want %v", got, tt.expected)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("got[%d] = %q, want %q", i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}

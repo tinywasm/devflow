@@ -186,6 +186,27 @@ replace (
 		}
 	})
 
+	t.Run("RemoveReplace_PreservesSelfReferenceLocalReplace", func(t *testing.T) {
+		content := `module test
+require github.com/test/lib v1.0.0
+replace github.com/test/lib => ./
+`
+		os.WriteFile(gomodPath, []byte(content), 0644)
+
+		gm := devflow.NewGoModHandler()
+		gm.SetRootDir(tmp)
+
+		removed := gm.RemoveReplace("github.com/test/lib")
+		if removed {
+			t.Error("expected self-referencing local replace (=> ./) to be preserved, not removed")
+		}
+
+		newContent, _ := os.ReadFile(gomodPath)
+		if !strings.Contains(string(newContent), "replace github.com/test/lib => ./") {
+			t.Error("expected self-referencing replace directive to remain in file")
+		}
+	})
+
 	t.Run("RemoveReplace_EmptyBlock", func(t *testing.T) {
 		content := `module test
 replace (

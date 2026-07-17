@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"encoding/json"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"os/exec"
@@ -46,6 +47,7 @@ func testJulesConfig() devflow.JulesConfig {
 func TestJulesDriverSendSuccess(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(&mockHTTPClient{statusCode: 200, body: `{"id":"S123"}`})
+	d.SetRunner(&mockRunner{})
 
 	result, err := d.Send("Execute the implementation plan described in docs/PLAN.md", "user/repo")
 	if err != nil {
@@ -62,6 +64,7 @@ func TestJulesDriverSendSuccess(t *testing.T) {
 func TestJulesDriverSendNon200(t *testing.T) {
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(&mockHTTPClient{statusCode: 403, body: "forbidden"})
+	d.SetRunner(&mockRunner{})
 
 	_, err := d.Send("Execute the implementation plan described in docs/PLAN.md", "")
 	if err == nil {
@@ -76,6 +79,7 @@ func TestJulesDriverSendUsesProvidedAPIKey(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send("Execute the implementation plan described in docs/PLAN.md", "")
 
@@ -92,6 +96,7 @@ func TestJulesDriverSendUsesReceivedPrompt(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send(customPrompt, "")
 
@@ -117,6 +122,7 @@ func TestJulesDriverSendUsesTitle(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "{}"}
 	d := devflow.NewJulesDriver(testJulesConfig())
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send("Execute the plan", "myorg/myrepo")
 
@@ -135,6 +141,7 @@ func TestJulesDriverSendConfigTitleOverrides(t *testing.T) {
 	cfg.SessionTitle = "custom title"
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	d.Send("Execute the plan", "myorg/myrepo") // title arg should be ignored
 
@@ -199,14 +206,15 @@ func TestJulesDriverSendRetriesWhenSourceNotIndexed(t *testing.T) {
 	}
 	mock := &mockHTTPClientSeq{
 		responses: []seqResponse{
-			{404, "not found"},                    // [0] POST /sessions → 404
-			{200, julesSourcesBody()},             // [1] GET /sources → empty (not indexed yet)
-			{200, julesSourcesBody(sourceID)},     // [2] GET /sources → source appears
-			{200, `{"id":"S999"}`},                // [3] POST /sessions → success
+			{404, "not found"},                // [0] POST /sessions → 404
+			{200, julesSourcesBody()},         // [1] GET /sources → empty (not indexed yet)
+			{200, julesSourcesBody(sourceID)}, // [2] GET /sources → source appears
+			{200, `{"id":"S999"}`},            // [3] POST /sessions → success
 		},
 	}
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	result, err := d.Send("Execute the plan", "user/repo")
 	if err != nil {
@@ -232,6 +240,7 @@ func TestJulesDriverSendReturns404WhenSourceIndexedButStill404(t *testing.T) {
 	}
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	_, err := d.Send("Execute the plan", "")
 	if err == nil {
@@ -253,12 +262,13 @@ func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
 	// All GET /sources calls return an empty list — source never appears.
 	mock := &mockHTTPClientSeq{
 		responses: []seqResponse{
-			{404, "not found"},    // [0] POST /sessions → 404
+			{404, "not found"},        // [0] POST /sessions → 404
 			{200, julesSourcesBody()}, // [1..N] GET /sources → always empty
 		},
 	}
 	d := devflow.NewJulesDriver(cfg)
 	d.SetHTTPClient(mock)
+	d.SetRunner(&mockRunner{})
 
 	_, err := d.Send("Execute the plan", "")
 	if err == nil {
@@ -271,10 +281,10 @@ func TestJulesDriverSendTimesOutIfSourceNeverAppears(t *testing.T) {
 
 func TestJulesDriverResolvesCandidates(t *testing.T) {
 	// Mock ExecCommand to simulate gh repo view and git remote -v
-	origExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = origExec }()
+	origExec := command.Exec
+	defer func() { command.Exec = origExec }()
 
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		full := name + " " + strings.Join(args, " ")
 		if name == "gh" && strings.Contains(full, "repo view") {
 			// Simulate GH returning new repo name
@@ -296,8 +306,8 @@ origin	https://github.com/oldorg/oldrepo.git (push)`)
 	// then fallback (oldorg/oldrepo) to 200.
 	mock := &mockHTTPClientSeq{
 		responses: []seqResponse{
-			{404, "not found"},      // [0] neworg/newrepo -> 404
-			{200, `{"id":"S999"}`},  // [1] oldorg/oldrepo -> 200
+			{404, "not found"},     // [0] neworg/newrepo -> 404
+			{200, `{"id":"S999"}`}, // [1] oldorg/oldrepo -> 200
 		},
 	}
 

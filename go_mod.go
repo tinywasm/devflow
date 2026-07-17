@@ -3,6 +3,7 @@ package devflow
 import (
 	"bufio"
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,12 +18,12 @@ type GoModHandler struct {
 	Modified bool     // track if changes were made
 
 	// Handler fields
-	rootDir          string
-	watcher          FolderWatcher
-	currentPaths     map[string]string // modulePath -> localPath
-	log              func(messages ...any)
-	knownReplaces    map[string]string
-	OnSSRFileChange  func(moduleDir string) // called when ssr.go changes in a watched module
+	rootDir         string
+	watcher         FolderWatcher
+	currentPaths    map[string]string // modulePath -> localPath
+	log             func(messages ...any)
+	knownReplaces   map[string]string
+	OnSSRFileChange func(moduleDir string) // called when ssr.go changes in a watched module
 }
 
 // ReplaceEntry represents a local replace directive found in go.mod
@@ -52,7 +53,11 @@ func (g *GoModHandler) load() error {
 	return nil
 }
 
-// RemoveReplace removes a replace directive for the given module
+// RemoveReplace removes a replace directive for the given module.
+// Local replace directives (target starting with "." or "/", e.g. "=> ./")
+// are preserved: subpackages (tests/, cmd/, etc.) commonly use a self-referencing
+// local replace to pull in the parent module without polluting the root go.mod,
+// and that must survive dependent-module updates.
 // Returns true if a replace was found and removed
 func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	// check if loaded
@@ -89,9 +94,17 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 		}
 
 		// Check for the module in replace
-		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && strings.Contains(trimmed, modulePath) {
-			removed = true
-			continue // skip this line
+		if strings.HasPrefix(trimmed, "replace ") || inReplaceBlock {
+			// Extract module path from line
+			mod, _ := parseReplaceLine(trimmed, inReplaceBlock)
+			if mod == modulePath {
+				if isLocalReplaceTarget(trimmed) {
+					newLines = append(newLines, line)
+					continue
+				}
+				removed = true
+				continue // skip this line
+			}
 		}
 
 		newLines = append(newLines, line)
@@ -104,6 +117,43 @@ func (m *GoModHandler) RemoveReplace(modulePath string) bool {
 	}
 
 	return false
+}
+
+func parseReplaceLine(line string, inBlock bool) (modPath, targetPath string) {
+	s := line
+	if !inBlock {
+		s = strings.TrimPrefix(s, "replace ")
+	}
+	parts := strings.Split(s, "=>")
+	if len(parts) != 2 {
+		return "", ""
+	}
+	modPath = strings.TrimSpace(parts[0])
+	targetPath = strings.TrimSpace(parts[1])
+	if idx := strings.Index(targetPath, "//"); idx != -1 {
+		targetPath = strings.TrimSpace(targetPath[:idx])
+	}
+	return modPath, targetPath
+}
+
+// isLocalReplaceTarget reports whether a replace directive line's target
+// (the part after "=>") is a self-reference to the current directory (e.g.
+// "=> ./"). Subpackages (tests/, cmd/, etc.) commonly declare their own
+// go.mod with a replace like this to pull in the parent module locally
+// without touching the root go.mod; other local paths (e.g. "../lib",
+// pointing at an unrelated sibling checkout) are still eligible for removal.
+func isLocalReplaceTarget(line string) bool {
+	parts := strings.SplitN(line, "=>", 2)
+	if len(parts) != 2 {
+		return false
+	}
+
+	target := strings.TrimSpace(parts[1])
+	if idx := strings.Index(target, "//"); idx != -1 {
+		target = strings.TrimSpace(target[:idx])
+	}
+
+	return filepath.Clean(target) == "."
 }
 
 // GetReplacePaths returns absolute paths from local replace directives.
@@ -134,24 +184,9 @@ func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 		}
 
 		if strings.HasPrefix(trimmed, "replace ") || inReplaceBlock {
-			// Extract part after "replace " if not in block
-			lineContent := trimmed
-			if !inReplaceBlock {
-				lineContent = strings.TrimPrefix(trimmed, "replace ")
-			}
-
-			// Format is usually: module => path
-			parts := strings.Split(lineContent, "=>")
-			if len(parts) != 2 {
+			modPath, localPath := parseReplaceLine(trimmed, inReplaceBlock)
+			if modPath == "" || localPath == "" {
 				continue
-			}
-
-			modPath := strings.TrimSpace(parts[0])
-			localPath := strings.TrimSpace(parts[1])
-
-			// Clean up comments if any
-			if idx := strings.Index(localPath, "//"); idx != -1 {
-				localPath = strings.TrimSpace(localPath[:idx])
 			}
 
 			// Check if localPath is actually a local path or a versioned module.
@@ -179,8 +214,8 @@ func (m *GoModHandler) GetReplacePaths() ([]ReplaceEntry, error) {
 }
 
 // HasOtherReplaces returns true if there are replace directives
-// other than the specified module
-func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
+// other than the specified modules
+func (m *GoModHandler) HasOtherReplaces(exceptModules ...string) bool {
 	// check if loaded
 	if len(m.Lines) == 0 {
 		if err := m.load(); err != nil {
@@ -202,13 +237,80 @@ func (m *GoModHandler) HasOtherReplaces(exceptModule string) bool {
 		}
 
 		if (strings.HasPrefix(trimmed, "replace ") || inReplaceBlock) && trimmed != "" {
-			if exceptModule != "" && strings.Contains(trimmed, exceptModule) {
+			mod, _ := parseReplaceLine(trimmed, inReplaceBlock)
+			isExcept := false
+			for _, ex := range exceptModules {
+				if ex != "" && mod == ex {
+					isExcept = true
+					break
+				}
+			}
+			if isExcept {
 				continue
 			}
 			return true
 		}
 	}
 	return false
+}
+
+// EnsureReplace ensures that a replace directive exists for the given module path
+// pointing to the given local path. Returns true if the file was modified.
+func (m *GoModHandler) EnsureReplace(modulePath, localPath string) bool {
+	// check if loaded
+	if len(m.Lines) == 0 {
+		if err := m.load(); err != nil {
+		}
+	}
+
+	// Check if already exists
+	found := false
+	inReplaceBlock := false
+	for _, line := range m.Lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "replace (") {
+			inReplaceBlock = true
+			continue
+		}
+		if inReplaceBlock && trimmed == ")" {
+			inReplaceBlock = false
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "replace ") || inReplaceBlock {
+			mod, target := parseReplaceLine(trimmed, inReplaceBlock)
+			if mod == modulePath && filepath.Clean(target) == filepath.Clean(localPath) {
+				found = true
+				break
+			}
+		}
+	}
+
+	if found {
+		return false
+	}
+
+	// Add it. If there's a replace block, add it there. Otherwise, add a single-line replace.
+
+	// Try to find a place to insert
+	inserted := false
+	var newLines []string
+	for _, line := range m.Lines {
+		newLines = append(newLines, line)
+		if !inserted && strings.HasPrefix(strings.TrimSpace(line), "replace (") {
+			newLines = append(newLines, "\t"+modulePath+" => "+localPath)
+			inserted = true
+		}
+	}
+
+	if !inserted {
+		// Just append at the end
+		newLines = append(newLines, "", "replace "+modulePath+" => "+localPath)
+	}
+
+	m.Lines = newLines
+	m.Modified = true
+	return true
 }
 
 // Save writes changes back to the file if modified
@@ -244,6 +346,14 @@ func (g *GoModHandler) SetLog(fn func(messages ...any)) {
 
 func (g *GoModHandler) SetOnSSRFileChange(fn func(string)) {
 	g.OnSSRFileChange = fn
+}
+
+func (m *GoModHandler) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
+	m.SetRootDir(ctx.RepoDir)
+	if m.HasOtherReplaces(ctx.ModulePaths...) {
+		return ActionSkip, ObjectionOtherReplaces
+	}
+	return ActionNone, ""
 }
 
 func (g *GoModHandler) Name() string {
@@ -340,7 +450,7 @@ func (g *GoModHandler) reconcilePaths(entries []ReplaceEntry) {
 
 // GetModulePath gets full module path
 func (g *Go) GetModulePath() (string, error) {
-	file, err := os.Open("go.mod")
+	file, err := os.Open(filepath.Join(g.rootDir, "go.mod"))
 	if err != nil {
 		return "", err
 	}
@@ -408,7 +518,7 @@ func (g *Go) Verify() error {
 		return fmt.Errorf("go.mod not found")
 	}
 
-	output, err := RunCommand("go", "mod", "verify")
+	output, err := command.RunInDir(g.rootDir, "go", "mod", "verify")
 	if err == nil {
 		return nil
 	}
@@ -465,7 +575,7 @@ func (g *Go) WaitForVersionAvailable(modulePath, version string) error {
 	}
 
 	for i := 0; i < maxRetries; i++ {
-		_, err := RunCommandSilent("go", "list", "-m", target)
+		_, err := command.Run("go", "list", "-m", target)
 		if err == nil {
 			return nil
 		}
@@ -508,8 +618,10 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			// Results streamed via consoleOutput inside UpdateDependentModule
-			g.UpdateDependentModule(dir, modulePath, version)
+			// Every outcome — success, skip and failure alike — is streamed via
+			// consoleOutput inside UpdateDependentModule, so one line per dependent
+			// always reaches the terminal and the count above stays honest.
+			_, _ = g.UpdateDependentModule(dir, []DepBump{{ModulePath: modulePath, NewVersion: version}}, "")
 		}(depDir)
 	}
 
@@ -517,9 +629,12 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 	return nil
 }
 
-// FindDependentModules searches for modules that have modulePath as dependency
+// FindDependentModules searches for modules that have modulePath as dependency.
+// It excludes modules located inside the current project's root directory.
 func (g *Go) FindDependentModules(modulePath, searchPath string) ([]string, error) {
 	var dependents []string
+
+	absRoot, _ := filepath.Abs(g.rootDir)
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -531,8 +646,16 @@ func (g *Go) FindDependentModules(modulePath, searchPath string) ([]string, erro
 			return nil
 		}
 
+		dir := filepath.Dir(path)
+		absDir, _ := filepath.Abs(dir)
+
+		// Exclude internal submodules
+		if strings.HasPrefix(absDir, absRoot+string(os.PathSeparator)) || absDir == absRoot {
+			return nil
+		}
+
 		if g.HasDependency(path, modulePath) {
-			dependents = append(dependents, filepath.Dir(path))
+			dependents = append(dependents, dir)
 		}
 
 		return nil
@@ -583,12 +706,12 @@ func (g *Go) UpdateModule(moduleDir, dependency, version string) error {
 	}
 
 	target := fmt.Sprintf("%s@%s", dependency, version)
-	_, err = RunCommand("go", "get", "-u", target)
+	_, err = command.Run("go", "get", "-u", target)
 	if err != nil {
 		return fmt.Errorf("go get failed: %w", err)
 	}
 
-	_, err = RunCommand("go", "mod", "tidy")
+	_, err = command.Run("go", "mod", "tidy")
 	if err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
@@ -608,7 +731,7 @@ func (g *Go) ModInit(modulePath, targetDir string) error {
 		return err
 	}
 
-	_, err = RunCommand("go", "mod", "init", modulePath)
+	_, err = command.Run("go", "mod", "init", modulePath)
 	return err
 }
 

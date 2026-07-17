@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
 	"io"
 	"net/http"
 	"strings"
@@ -37,6 +38,7 @@ type JulesDriver struct {
 	http      HTTPClient
 	log       func(...any)
 	sessionID string
+	runner    Runner
 }
 
 // NewJulesDriver creates a JulesDriver. All JulesConfig fields are optional.
@@ -45,6 +47,14 @@ func NewJulesDriver(config JulesConfig) *JulesDriver {
 		config: config,
 		http:   &http.Client{},
 		log:    func(...any) {},
+		runner: RealRunner{},
+	}
+}
+
+// SetRunner replaces the command runner used for the gh session check (for testing).
+func (d *JulesDriver) SetRunner(r Runner) {
+	if r != nil {
+		d.runner = r
 	}
 }
 
@@ -88,6 +98,9 @@ type julesGithubCtx struct {
 // If the source is not yet indexed in Jules (404 on new repos), it polls GET /sources
 // until the source appears or the timeout is exceeded.
 func (d *JulesDriver) Send(prompt, title string) (string, error) {
+	if err := EnsureGHSession(d.runner); err != nil {
+		return "", err
+	}
 	apiKey, err := d.resolveAPIKey()
 	if err != nil {
 		return "", err
@@ -313,7 +326,7 @@ func (d *JulesDriver) resolveBranch() (string, error) {
 //   - HTTPS: https://github.com/owner/repo.git
 //   - SSH:   git@github.com:owner/repo.git
 func getLocalGitOrigin() (owner, repo string, err error) {
-	out, err := RunCommandSilent("git", "remote", "-v")
+	out, err := command.Run("git", "remote", "-v")
 	if err != nil {
 		return "", "", fmt.Errorf("git remote failed: %w", err)
 	}
@@ -393,7 +406,7 @@ func getCandidateOrigins() ([]string, error) {
 
 // autoDetectOwnerRepo uses gh CLI to return the GitHub owner and repo name.
 func autoDetectOwnerRepo() (owner, repo string, err error) {
-	out, err := RunCommandSilent("gh", "repo", "view", "--json", "owner,name")
+	out, err := command.Run("gh", "repo", "view", "--json", "owner,name")
 	if err != nil {
 		return "", "", fmt.Errorf("could not detect GitHub repo (is gh CLI installed?): %w", err)
 	}
@@ -412,7 +425,7 @@ func autoDetectOwnerRepo() (owner, repo string, err error) {
 
 // autoDetectBranch uses git to get the current branch name.
 func autoDetectBranch() (string, error) {
-	branch, err := RunCommandSilent("git", "branch", "--show-current")
+	branch, err := command.Run("git", "branch", "--show-current")
 	if err != nil {
 		return "", fmt.Errorf("could not detect git branch: %w", err)
 	}

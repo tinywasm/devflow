@@ -4,6 +4,7 @@ import "github.com/tinywasm/devflow"
 
 import (
 	"fmt"
+	"github.com/tinywasm/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +58,17 @@ func TestExample(t *testing.T) {}
 	os.WriteFile(dir+"/main_test.go", []byte(testContent), 0644)
 
 	defer testChdir(t, dir)()
+
+	// Mock ExecCommand to make go vet instant — avoids non-deterministic slowness
+	// under load that can push the test past the 30s binary timeout.
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && (args[0] == "vet" || args[0] == "tool") {
+			return exec.Command("true")
+		}
+		return originalExec(name, args...)
+	}
 
 	mockGit := &MockGitClient{}
 	goHandler := newGoHandlerWithMockBackup(t, mockGit)
@@ -244,10 +256,10 @@ func TestGoPush_DependentOutput(t *testing.T) {
 	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module github.com/test/dep\n\nrequire github.com/test/main v0.0.0\n"), 0644)
 
 	// Mock ExecCommand to prevent real go/git/gotest invocations
-	originalExec := devflow.ExecCommand
-	defer func() { devflow.ExecCommand = originalExec }()
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
 
-	devflow.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	command.Exec = func(name string, args ...string) *exec.Cmd {
 		if name == "go" {
 			cmdStr := strings.Join(args, " ")
 			if cmdStr == "version" {
@@ -356,11 +368,11 @@ func TestUpdateDependentModule(t *testing.T) {
 	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	result, err := g.UpdateDependentModule(myappDir, "github.com/test/mylib", "v0.0.1")
+	result, err := g.UpdateDependentModule(myappDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "")
 
 	// We expect a failure at "go get" because the module doesn't exist in registry
 	if err == nil {
-		t.Errorf("Expected error from go get (module not in registry), got result: %s", result)
+		t.Errorf("Expected error from go get (module not in registry), got result: %+v", result)
 	} else if !strings.Contains(err.Error(), "go get failed") {
 		t.Errorf("Expected error to contain 'go get failed', got: %v", err)
 	}
@@ -369,6 +381,67 @@ func TestUpdateDependentModule(t *testing.T) {
 	gomodContent, _ := os.ReadFile(filepath.Join(myappDir, "go.mod"))
 	if strings.Contains(string(gomodContent), "replace github.com/test/mylib") {
 		t.Error("replace directive should have been removed even if go get failed later")
+	}
+}
+
+// TestGoInstall_SubmoduleCmdUsesOwnDir verifies that when a cmd subdirectory
+// has its own go.mod (a separate module), Install() runs `go install .` from
+// that subdirectory instead of `go install ./cmd/<name>` from the root, which
+// would fail with "does not contain package".
+func TestGoInstall_SubmoduleCmdUsesOwnDir(t *testing.T) {
+	type call struct{ args []string }
+	var calls []call
+
+	original := command.Exec
+	defer func() { command.Exec = original }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		if name == "go" && len(args) > 0 && args[0] == "install" {
+			calls = append(calls, call{args: append([]string{name}, args...)})
+			// return success no-op
+			return exec.Command("true")
+		}
+		return original(name, args...)
+	}
+
+	tmpDir := t.TempDir()
+
+	// cmd/regular — part of root module (no go.mod)
+	os.MkdirAll(filepath.Join(tmpDir, "cmd/regular"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "cmd/regular/main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+
+	// cmd/ddlc — separate module (has its own go.mod)
+	os.MkdirAll(filepath.Join(tmpDir, "cmd/ddlc"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "cmd/ddlc/main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "cmd/ddlc/go.mod"), []byte("module github.com/test/ddlc\n\ngo 1.21\n"), 0644)
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
+	g.SetRootDir(tmpDir)
+
+	if err := g.Install("v0.9.18"); err != nil {
+		t.Fatalf("Install returned unexpected error: %v", err)
+	}
+
+	// The submodule cmd must NOT be installed via ./cmd/ddlc from the root
+	for _, c := range calls {
+		for _, arg := range c.args {
+			if arg == "./cmd/ddlc" {
+				t.Errorf("Install used ./cmd/ddlc from root — this fails when cmd has its own go.mod; args: %v", c.args)
+			}
+		}
+	}
+
+	// At least one call must use "." (install from the submodule dir itself)
+	foundDot := false
+	for _, c := range calls {
+		for _, arg := range c.args {
+			if arg == "." {
+				foundDot = true
+			}
+		}
+	}
+	if !foundDot {
+		t.Errorf("Expected at least one 'go install .' call for the submodule cmd; got: %v", calls)
 	}
 }
 
@@ -399,16 +472,20 @@ func TestGoInstall(t *testing.T) {
 
 // MockGitClient for testing
 type MockGitClient struct {
-	checkAccessErr         error
-	pushErr                error
-	latestTag              string
-	createdTag             string
-	pushResult             devflow.PushResult
-	pushWithoutTagsCalled  bool
-	log                    func(...any)
-	AddCalls               int
-	CommitCalls            int
-	LastPushTag            string
+	checkAccessErr        error
+	pushErr               error
+	latestTag             string
+	createdTag            string
+	pushResult            devflow.PushResult
+	pushWithoutTagsCalled bool
+	log                   func(...any)
+	AddCalls              int
+	CommitCalls           int
+	LastPushTag           string
+	LastPushMessage       string
+	statusPorcelainOut    string
+	diffShortStatOut      string
+	CommitPathsCalls      [][]string
 }
 
 func (m *MockGitClient) CheckRemoteAccess() error {
@@ -417,6 +494,7 @@ func (m *MockGitClient) CheckRemoteAccess() error {
 
 func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
 	m.LastPushTag = tag
+	m.LastPushMessage = message
 	if m.checkAccessErr != nil {
 		return devflow.PushResult{}, m.checkAccessErr
 	}
@@ -496,6 +574,52 @@ func (m *MockGitClient) HasPendingChanges() (bool, error) {
 	return true, nil
 }
 
+func (m *MockGitClient) GenerateNextTag() (string, error) {
+	return "v0.0.1", nil
+}
+
+func (m *MockGitClient) StatusPorcelain() (string, error) {
+	return m.statusPorcelainOut, nil
+}
+
+func (m *MockGitClient) CommitPaths(message string, paths ...string) (bool, error) {
+	m.CommitCalls++
+	m.CommitPathsCalls = append(m.CommitPathsCalls, append([]string{message}, paths...))
+	return true, nil
+}
+
+func (m *MockGitClient) DiffShortStat() (string, error) {
+	return m.diffShortStatOut, nil
+}
+
+// TestGoPush_AppendsShortStatBody: the root push keeps the user's title intact
+// and appends the staged `git diff --shortstat` as the commit body (PLAN.md
+// Fase 2) — quantitative context with zero AI and zero typing.
+func TestGoPush_AppendsShortStatBody(t *testing.T) {
+	mockGit := &MockGitClient{
+		latestTag:        "v0.0.0",
+		diffShortStatOut: "3 files changed, 42 insertions(+), 7 deletions(-)",
+	}
+
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
+
+	_, err := goHandler.Push("feat: nueva feature", "v0.0.1", true, true, true, true, false, false, "")
+	if err != nil {
+		t.Fatalf("Push failed: %v", err)
+	}
+
+	if !strings.HasPrefix(mockGit.LastPushMessage, "feat: nueva feature") {
+		t.Errorf("user title must stay first, got: %q", mockGit.LastPushMessage)
+	}
+	if !strings.Contains(mockGit.LastPushMessage, "3 files changed") {
+		t.Errorf("commit message must include the shortstat body, got: %q", mockGit.LastPushMessage)
+	}
+}
+
 func TestGoPush_RemoteAccessFailure(t *testing.T) {
 	dir, cleanup := testCreateGoModule("github.com/test/repo")
 	defer cleanup()
@@ -526,10 +650,10 @@ func TestGoPush_SkipTag_CallsAddBeforeCommit(t *testing.T) {
 	defer testChdir(t, tmpDir)()
 
 	// Create a git repo
-	devflow.RunCommand("git", "init")
-	devflow.RunCommand("git", "config", "user.email", "test@test.com")
-	devflow.RunCommand("git", "config", "user.name", "Test User")
-	devflow.RunCommand("git", "commit", "--allow-empty", "-m", "initial")
+	command.Run("git", "init")
+	command.Run("git", "config", "user.email", "test@test.com")
+	command.Run("git", "config", "user.name", "Test User")
+	command.Run("git", "commit", "--allow-empty", "-m", "initial")
 
 	// Create a mock git client to track Add() and Commit() calls
 	mockGit := &MockGitClient{
@@ -643,30 +767,76 @@ func TestParseVerifyError_UnknownPattern(t *testing.T) {
 	}
 }
 
-func TestHasActiveCodejobSession(t *testing.T) {
+func TestCodejobPhaseOf(t *testing.T) {
 	dir := t.TempDir()
-	envPath := filepath.Join(dir, ".env")
+	planDir := filepath.Join(dir, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	planPath := filepath.Join(planDir, "PLAN.md")
 
-	// No .env → not active
-	if devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected false when .env missing")
+	// No PLAN.md → none
+	if devflow.CodejobPhaseOf(dir) != "" {
+		t.Fatal("expected empty phase when PLAN.md missing")
 	}
 
-	// CODEJOB set → active
-	os.WriteFile(envPath, []byte("CODEJOB=jules:12345\n"), 0644)
-	if !devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected true when CODEJOB is set")
+	// STATUS set to running → PhaseRunning
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: running\n---\n"), 0644)
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseRunning {
+		t.Fatal("expected running phase when STATUS: running")
 	}
 
-	// Only CODEJOB_PR → NOT active (Jules done writing)
-	os.WriteFile(envPath, []byte("CODEJOB_PR=https://github.com/org/repo/pull/1\n"), 0644)
-	if devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected false when only CODEJOB_PR is set")
+	// STATUS set to reviewing → PhaseRunning
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: reviewing\n---\n"), 0644)
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseRunning {
+		t.Fatal("expected running phase when STATUS: reviewing")
 	}
 
-	// Empty CODEJOB → not active
-	os.WriteFile(envPath, []byte("CODEJOB=\n"), 0644)
-	if devflow.HasActiveCodejobSession(dir) {
-		t.Fatal("expected false when CODEJOB is empty")
+	// STATUS set to review → PhaseReview
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: review\n---\n"), 0644)
+	if devflow.CodejobPhaseOf(dir) != devflow.PhaseReview {
+		t.Fatal("expected review phase when STATUS: review")
+	}
+
+	// STATUS set to dispatch (or missing) → ""
+	os.WriteFile(planPath, []byte("---\nPLAN: \"test\"\nSTATUS: dispatch\n---\n"), 0644)
+	if devflow.CodejobPhaseOf(dir) != "" {
+		t.Fatal("expected empty phase when STATUS: dispatch")
+	}
+}
+
+func TestGoPush_BlockedOnRunningPhase(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: \"test\"\nSTATUS: running\n---\n"), 0644)
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
+
+	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "..")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), devflow.ErrPushBlockedActiveCodejob) {
+		t.Errorf("expected error message to contain %q, got %q", devflow.ErrPushBlockedActiveCodejob, err.Error())
+	}
+	if mockGit.CommitCalls > 0 {
+		t.Error("no commit should have been created")
+	}
+}
+
+func TestGoPush_NotBlockedOnReviewPhase(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CODEJOB=jules:review:https://github.com/org/repo/pull/1\n"), 0644)
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
+
+	// push should NOT fail with blocking error (might fail for other mock reasons, but not blocking)
+	_, err := g.Push("feat: test", "", true, true, true, true, true, false, "..")
+	if err != nil && strings.Contains(err.Error(), devflow.ErrPushBlockedActiveCodejob) {
+		t.Errorf("push should not be blocked by CODEJOB_PR, got: %v", err)
 	}
 }

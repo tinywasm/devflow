@@ -3,6 +3,8 @@ package devflow
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/tinywasm/command"
+	"os"
 	"strings"
 )
 
@@ -24,7 +26,7 @@ func NewGitHub(logFn func(...any), auth ...GitHubAuthenticator) (*GitHub, error)
 	}
 
 	// Verify gh installation
-	if _, err := RunCommandSilent("gh", "--version"); err != nil {
+	if _, err := command.Run("gh", "--version"); err != nil {
 		return nil, fmt.Errorf("gh cli is not installed or not in PATH: %w", err)
 	}
 
@@ -35,7 +37,7 @@ func NewGitHub(logFn func(...any), auth ...GitHubAuthenticator) (*GitHub, error)
 		authenticator = auth[0]
 	} else {
 		// Create default authenticator and set logger
-		authenticator = NewGitHubAuth()
+		authenticator = NewGitHubOAuth()
 		authenticator.SetLog(gh.log)
 	}
 	if err := authenticator.EnsureGitHubAuth(); err != nil {
@@ -73,7 +75,7 @@ func (gh *GitHub) CreateRelease(tag string, assets []string, targetRepo string) 
 
 // GetCurrentUser gets the current authenticated user
 func (gh *GitHub) GetCurrentUser() (string, error) {
-	output, err := RunCommandSilent("gh", "api", "user", "--jq", ".login")
+	output, err := command.Run("gh", "api", "user", "--jq", ".login")
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
@@ -112,7 +114,7 @@ func (gh *GitHub) repoInfo(repoRef string) (owner, name, visibility string, err 
 // RepoExists checks if a repository exists
 func (gh *GitHub) RepoExists(owner, name string) (bool, error) {
 	// gh repo view owner/name
-	_, err := RunCommandSilent("gh", "repo", "view", fmt.Sprintf("%s/%s", owner, name))
+	_, err := command.Run("gh", "repo", "view", fmt.Sprintf("%s/%s", owner, name))
 	if err != nil {
 		return false, nil
 	}
@@ -135,7 +137,7 @@ func (gh *GitHub) CreateRepo(owner, name, description, visibility string) error 
 		args = append(args, "--public")
 	}
 
-	_, err := RunCommand("gh", args...)
+	_, err := command.Run("gh", args...)
 	return err
 }
 
@@ -145,7 +147,7 @@ func (gh *GitHub) CreateRepo(owner, name, description, visibility string) error 
 func (gh *GitHub) DeleteRepo(owner, name string) error {
 	repoName := fmt.Sprintf("%s/%s", owner, name)
 	// --yes confirms deletion without prompting
-	_, err := RunCommand("gh", "repo", "delete", repoName, "--yes")
+	_, err := command.Run("gh", "repo", "delete", repoName, "--yes")
 	return err
 }
 
@@ -173,4 +175,41 @@ func (gh *GitHub) GetHelpfulErrorMessage(err error) string {
 		return "Authentication failed. Run 'gh auth login'."
 	}
 	return err.Error()
+}
+
+// EnsureGHSession verifies the gh session and, if expired, restores it non-interactively
+// from the keyring PAT via `gh auth login --with-token`. No-op when the session is healthy.
+// The probe and verification run through runner so tests can inject a double and never
+// touch a real gh CLI; restore itself always uses the real process (only reached when the
+// probe genuinely fails, i.e. never under an injected test Runner that reports success).
+func EnsureGHSession(runner Runner) error {
+	// Skip if in a test environment or headless/CI without a real gh.
+	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" || os.Getenv("CI") == "true" {
+		return nil
+	}
+
+	// Cheap probe that NEVER opens a browser: fails fast if the session is invalid.
+	if _, err := runner.Run("gh", "api", "user", "--jq", ".login"); err == nil {
+		return nil // session healthy
+	}
+
+	auth, err := NewGitHubPATAuth()
+	if err != nil {
+		return err
+	}
+	tok, err := auth.EnsureToken()
+	if err != nil {
+		return err
+	}
+
+	// Restore session non-interactively (token via stdin, never as CLI arg).
+	if out, err := command.RunWithStdin(tok, "gh", "auth", "login", "--with-token"); err != nil {
+		return fmt.Errorf("gh auth restore failed (token invalid/expired?). Rotate with: codejob --reset-gh-token\n%s", strings.TrimSpace(out))
+	}
+
+	// Verify the restored session works.
+	if _, err := runner.Run("gh", "api", "user", "--jq", ".login"); err != nil {
+		return fmt.Errorf("gh session still invalid after restore. Rotate with: codejob --reset-gh-token\n%w", err)
+	}
+	return nil
 }
