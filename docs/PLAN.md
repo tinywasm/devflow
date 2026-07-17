@@ -3,7 +3,8 @@ PLAN: "feat: unify codejob state in PLAN.md frontmatter, agent roles, and the cl
 TAG: v0.5.0
 EXECUTOR: jules
 REVIEWER: none
-STATUS: dispatch
+STATUS: running
+SESSION: 12119983344966392524
 ---
 
 # Plan — Estado único en `docs/PLAN.md`, roles de agente y loop en la nube
