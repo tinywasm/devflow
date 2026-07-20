@@ -8,12 +8,13 @@ require (
 	github.com/tinywasm/command v0.0.2
 	github.com/tinywasm/gorun v0.0.24
 	github.com/tinywasm/markdown v0.0.2
-	github.com/tinywasm/mcp v0.2.0
+	github.com/tinywasm/mcp v0.2.4
 	github.com/tinywasm/model v0.1.0
 	golang.org/x/term v0.40.0
 )
 
 require (
+	github.com/tinywasm/base64 v0.0.4 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.11 // indirect
 	github.com/tinywasm/router v0.1.14 // indirect
