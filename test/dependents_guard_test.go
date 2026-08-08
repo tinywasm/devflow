@@ -340,32 +340,124 @@ func TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched(t *testing.T) {
 	}
 }
 
-func TestUpdateDependentModule_OtherReplacesLeavesRepoUntouched(t *testing.T) {
+func TestUpdateDependentModule_OtherReplacesGoesDepsOnly(t *testing.T) {
 	tmp := t.TempDir()
 	depDir := filepath.Join(tmp, "myapp")
 	os.MkdirAll(depDir, 0755)
 	gomodContent := "module github.com/test/myapp\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\nrequire github.com/test/other v0.0.0\nreplace github.com/test/other => ../other\n"
 	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
 
-	g, _ := devflow.NewGo(&MockGitClient{})
+	var mu sync.Mutex
+	var gitCalls [][]string
+	originalExec := command.Exec
+	defer func() { command.Exec = originalExec }()
+	command.Exec = func(name string, args ...string) *exec.Cmd {
+		joined := strings.Join(args, " ")
+		switch name {
+		case "git":
+			mu.Lock()
+			gitCalls = append(gitCalls, args)
+			mu.Unlock()
+			switch {
+			case strings.HasPrefix(joined, "status --porcelain"):
+				// Clean tree: the only objection in play must be the
+				// unrelated replace, not a dirty working tree.
+				return exec.Command("echo", "")
+			case strings.HasPrefix(joined, "diff"):
+				// go.mod will change once bumped -> "there ARE changes to commit"
+				return exec.Command("false")
+			default:
+				return exec.Command("true")
+			}
+		case "go":
+			if joined == "version" {
+				return exec.Command("echo", "go version go1.20 linux/amd64")
+			}
+			return exec.Command("true") // get / tidy / generate / list
+		case "gotest":
+			return exec.Command("echo", "tests ok")
+		}
+		return originalExec(name, args...)
+	}
+
+	mockGit := &MockGitClient{}
+	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetConsoleOutput(func(string) {})
+	g.SetRetryConfig(time.Millisecond, 1)
 
 	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("other-replaces path must succeed as deps-only, got error: %v", err)
 	}
-
-	if outcome.Status != devflow.CascadeStatusSkipped {
-		t.Errorf("expected status %s, got %s", devflow.CascadeStatusSkipped, outcome.Status)
+	if outcome.Status != devflow.CascadeStatusDepsOnly {
+		t.Errorf("expected status %s, got %+v", devflow.CascadeStatusDepsOnly, outcome)
 	}
 	if outcome.Reason != devflow.ObjectionOtherReplaces {
 		t.Errorf("expected reason %s, got %s", devflow.ObjectionOtherReplaces, outcome.Reason)
 	}
 
-	// Verify go.mod remains untouched
-	newGomod, _ := os.ReadFile(filepath.Join(depDir, "go.mod"))
-	if string(newGomod) != gomodContent {
-		t.Error("go.mod was mutated despite other replaces")
+	mu.Lock()
+	defer mu.Unlock()
+	var sawTagCreation, sawPush bool
+	for _, args := range gitCalls {
+		if len(args) == 0 {
+			continue
+		}
+		if args[0] == "tag" {
+			sawTagCreation = true
+		}
+		if args[0] == "push" {
+			sawPush = true
+			for _, a := range args[1:] {
+				if a == "--tags" {
+					sawTagCreation = true
+				}
+			}
+		}
+	}
+	if sawTagCreation {
+		t.Error("deps-only outcome must never create/push a tag")
+	}
+	if !sawPush {
+		t.Errorf("expected a push of the deps-only commit, git calls: %v", gitCalls)
+	}
+}
+
+func TestUpdateDependentModule_DisplayNameIncludesParentRepo(t *testing.T) {
+	tmp := t.TempDir()
+	repoDir := filepath.Join(tmp, "ssr")
+	depDir := filepath.Join(repoDir, "tests")
+	os.MkdirAll(depDir, 0755)
+	os.MkdirAll(filepath.Join(repoDir, ".git"), 0755) // marks repoDir as the repo root
+	gomodContent := "module github.com/test/ssr/tests\n\ngo 1.20\n\nrequire github.com/test/mylib v0.0.0\n"
+	os.WriteFile(filepath.Join(depDir, "go.mod"), []byte(gomodContent), 0644)
+	planDir := filepath.Join(depDir, "docs")
+	_ = os.MkdirAll(planDir, 0755)
+	_ = os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: running\n---\n"), 0644)
+
+	var lines []string
+	g, _ := devflow.NewGo(&MockGitClient{})
+	g.SetConsoleOutput(func(s string) { lines = append(lines, s) })
+
+	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if outcome.Status != devflow.CascadeStatusSkipped {
+		t.Fatalf("expected status %s, got %s", devflow.CascadeStatusSkipped, outcome.Status)
+	}
+
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "ssr/tests") {
+			found = true
+		}
+		if strings.Contains(l, "📦 tests →") {
+			t.Errorf("display name lost the parent repo, printed the ambiguous form: %q", l)
+		}
+	}
+	if !found {
+		t.Errorf("expected a console line naming %q, got: %v", "ssr/tests", lines)
 	}
 }
 
