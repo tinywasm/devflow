@@ -351,7 +351,7 @@ func (g *GoModHandler) SetOnSSRFileChange(fn func(string)) {
 func (m *GoModHandler) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
 	m.SetRootDir(ctx.RepoDir)
 	if m.HasOtherReplaces(ctx.ModulePaths...) {
-		return ActionSkip, ObjectionOtherReplaces
+		return ActionDepsOnly, ObjectionOtherReplaces
 	}
 	return ActionNone, ""
 }

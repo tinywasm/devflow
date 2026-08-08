@@ -21,7 +21,7 @@ cascade coordinator** (topological order, one commit+tag per module per wave).
 | Root push: user title intact + `--shortstat` body | [`TestGoPush_AppendsShortStatBody`](../../test/go_handler_test.go) |
 | `UpdateDependentModule` carries `rootCause` (4th parameter) | [`TestUpdateDependentModule`](../../test/go_handler_test.go) |
 | Active session protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
-| Other replaces protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_OtherReplacesLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
+| Other replaces (unrelated modules) go deps-only: bump lands, no tag, no propagation | [`TestUpdateDependentModule_OtherReplacesGoesDepsOnly`](../../test/dependents_guard_test.go) |
 | Up-to-date protection: `UpdateDependentModule` does NOT touch the repo at all | [`TestUpdateDependentModule_UpToDateLeavesRepoUntouched`](../../test/dependents_guard_test.go) |
 | `RunCascade` blinda el tag rancio: un nodo saltado o deps-only no propaga nada | [`TestRunCascade_SkippedNodeDoesNotPropagate`](../../test/cascade_test.go) |
 | `Go.Push` bloqueado por sesión `CODEJOB` activa | [`TestGoPush_BlockedOnRunningPhase`](../../test/go_handler_test.go) |
@@ -88,7 +88,7 @@ concern — each existing manager implements `ObjectsToPublish` for its own doma
 
 | Objector (existing manager) | Objects when | Action |
 |---|---|---|
-| `GoModHandler` | `go.mod` has other local `replace`s | `Skip` |
+| `GoModHandler` | `go.mod` has local `replace`s for modules NOT in this wave's bumps | `DepsOnly` |
 | `CodeJob` | active session (phase running or review) | `Skip` |
 | `CodeJob` | a `docs/PLAN.md` is pending in the repo | `DepsOnly` |
 | `Git` | worktree dirty beyond `go.mod`/`go.sum` (`.env`/`.gitignore` ignored) | `DepsOnly` |
@@ -96,14 +96,14 @@ concern — each existing manager implements `ObjectsToPublish` for its own doma
 ```mermaid
 flowchart TD
     N[Node: dependent module<br/>+ bumps from published upstreams] --> NR[resolvePublishAction:<br/>ask GoModHandler / Git / CodeJob objectors<br/>strongest wins Skip &gt; DepsOnly &gt; None]
-    NR --> N1{action == Skip?<br/>session active / other replaces}
+    NR --> N1{action == Skip?<br/>codejob session active}
     N1 -- Yes --> NS1[⏭ repo untouched<br/>nothing mutated, no tests, no propagation]
     N1 -- No --> N3{already up-to-date?}
     N3 -- Yes --> NS1
     N3 -- No --> N2[Remove replace of published deps<br/>go get all bumps + go mod tidy + go generate]
     N2 --> N4[Run gotest]
     N4 -- fail --> NF[❌ revert go.mod/go.sum<br/>report: failed — branch cut]
-    N4 -- pass --> N5{action == DepsOnly?<br/>dirty tree / PLAN.md pending}
+    N4 -- pass --> N5{action == DepsOnly?<br/>dirty tree / PLAN.md pending / other replaces}
     N5 -- Yes --> N6[CommitPaths: ONLY go.mod+go.sum<br/>deps msg + cause, push WITHOUT tag<br/>report: deps-only ⚠ — no propagation]
     N5 -- No --> N7[action == None: commit deps msg + cause<br/>tag + push with tags<br/>report: published ✅]
     N7 --> N8[Published version feeds<br/>next topological level]
@@ -119,7 +119,7 @@ Guard rails:
 - The dirty objector (`Git`) uses `WorkTreeDirtyBeyond` — `.env` and `.gitignore`
   are always ignored, same rule as `HasPendingChanges`
   ([`TestWorkTreeDirtyBeyond`](../../test/dependents_guard_test.go)).
-- **`Skip` nodes (active `CODEJOB` session, other replaces): the repo is NOT
+- **`Skip` nodes (active `CODEJOB` session): the repo is NOT
   touched at all** — no `go.mod` write, no `go get`, no tests. Nothing propagates
   downstream.
 - **A skipped or deps-only node never contributes a version** to the next
@@ -127,6 +127,11 @@ Guard rails:
 - `DepsOnly` nodes run tests as a gate, then commit only `go.mod`/`go.sum` without
   a tag; nothing propagates (no new version). A repo with a pending `docs/PLAN.md`
   absorbs the bump but is not published, since incoming agent work will change it.
+  A repo with a local `replace` for a module OTHER than the ones just published
+  (e.g. actively developing two sibling libraries locally at once) also lands here:
+  the specific bump it was waiting for is applied and tested, but the release is
+  withheld because the repo still depends on unpublished local code elsewhere —
+  the unrelated `replace` itself is left untouched.
 - **Commit message** is deterministic, built by `BuildDepsCommitMessage`
   ([`TestBuildDepsCommitMessage`](../../test/commit_message_test.go)):
   ```
@@ -152,6 +157,7 @@ Guard rails:
 📦 sse → deps only (dirty tree) ⚠
 📦 otherlib → tests failed ❌
 📦 leaflib → skipped (no published upstreams) ⏭
+📦 ssr/tests → updated ✅
 ```
 
 ### Cascade report (end of cascade)

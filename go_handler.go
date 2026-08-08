@@ -403,8 +403,34 @@ func (g *Go) reportFail(depName string, err error) (CascadeOutcome, error) {
 	return CascadeOutcome{}, err
 }
 
+// dependentDisplayName returns a name that disambiguates dependents that live
+// in a subfolder with their own go.mod (e.g. "ssr/tests") from top-level
+// dependents (e.g. "form"). It walks up from depDir to the nearest ".git"
+// directory — the repo root — and returns the path relative to that root's
+// parent. When no repo root is found (e.g. in tests without a real git repo)
+// it falls back to the last path component, matching the previous behavior.
+func dependentDisplayName(depDir string) string {
+	dir := depDir
+	for i := 0; i < 20; i++ {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			parent := filepath.Dir(dir)
+			rel, err := filepath.Rel(parent, depDir)
+			if err == nil {
+				return filepath.ToSlash(rel)
+			}
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return filepath.Base(depDir)
+}
+
 func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause string) (CascadeOutcome, error) {
-	depName := filepath.Base(depDir)
+	depName := dependentDisplayName(depDir)
 
 	// 1. Check if go.mod exists
 	modFile := filepath.Join(depDir, "go.mod")

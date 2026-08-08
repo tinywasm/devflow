@@ -174,13 +174,14 @@ func TestGoModHandler_ObjectsToPublish(t *testing.T) {
 		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
 	}
 
-	// with another replace -> ActionSkip
+	// with another replace unrelated to the module being published -> ActionDepsOnly
+	// (the bump must still land in go.mod; only the tag/propagation is withheld)
 	content2 := content + "replace github.com/other/lib => ../other\n"
 	os.WriteFile(gomodPath, []byte(content2), 0644)
 	m = devflow.NewGoModHandler() // fresh load
 	action, reason = m.ObjectsToPublish(ctx)
-	if action != devflow.ActionSkip {
-		t.Errorf("expected ActionSkip, got %v (%s)", action, reason)
+	if action != devflow.ActionDepsOnly {
+		t.Errorf("expected ActionDepsOnly, got %v (%s)", action, reason)
 	}
 	if reason != devflow.ObjectionOtherReplaces {
 		t.Errorf("expected %q, got %q", devflow.ObjectionOtherReplaces, reason)
