@@ -1,11 +1,15 @@
 package devflow
 
 import (
+	"errors"
 	"fmt"
 	"github.com/tinywasm/command"
 	"strconv"
 	"strings"
 )
+
+// ErrDirtyWorkTree is returned by Pull when the working tree has uncommitted changes.
+var ErrDirtyWorkTree = errors.New("cannot pull: working tree has uncommitted changes")
 
 func isNonFastForwardError(output string) bool {
 	return strings.Contains(output, "non-fast-forward") ||
@@ -464,6 +468,56 @@ func (g *Git) setUpstream(branch string) error {
 		return fmt.Errorf("failed to set upstream: %w", err)
 	}
 	return nil
+}
+
+// Fetch fetches refs from remote without touching the working tree.
+func (g *Git) Fetch() error {
+	_, err := g.run("git", "fetch")
+	return err
+}
+
+// Pull updates the working copy from upstream.
+// Returns ErrDirtyWorkTree if the working tree has uncommitted changes.
+func (g *Git) Pull() error {
+	status, err := g.StatusPorcelain()
+	if err != nil {
+		return err
+	}
+	if status != "" {
+		return ErrDirtyWorkTree
+	}
+	_, err = g.run("git", "pull")
+	return err
+}
+
+func (g *Git) isRepoPresent() bool {
+	out, err := g.runSilent("git", "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(out) == "true"
+}
+
+// Clone clones repoURL into the working copy. If the destination already
+// contains a repository, it is NOT an error: it does nothing and returns
+// alreadyPresent == true, so an unattended publisher can call Clone unconditionally at startup.
+func (g *Git) Clone(repoURL string) (alreadyPresent bool, err error) {
+	if g.isRepoPresent() {
+		return true, nil
+	}
+
+	var cloneErr error
+	if g.rootDir != "" && g.rootDir != "." {
+		_, cloneErr = command.Run("git", "clone", repoURL, g.rootDir)
+	} else {
+		_, cloneErr = command.Run("git", "clone", repoURL, ".")
+	}
+
+	if cloneErr != nil {
+		return false, fmt.Errorf("git clone failed: %w", cloneErr)
+	}
+
+	return false, nil
 }
 
 // pushTag pushes a specific tag

@@ -50,6 +50,9 @@ type GitClient interface {
 	StatusPorcelain() (string, error)
 	DiffShortStat() (string, error)
 	GenerateNextTag() (string, error)
+	Clone(repoURL string) (alreadyPresent bool, err error)
+	Pull() error
+	Fetch() error
 }
 
 // FolderWatcher defines interface for adding/removing directories to watch
