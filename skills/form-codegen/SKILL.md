@@ -12,7 +12,7 @@ MUST end in `Model` — that is how `ormc` discovers it:
 
 ```go
 import (
-    "github.com/tinywasm/form/input"
+    "github.com/tinywasm/tinywasm/input"
     "github.com/tinywasm/model"
 )
 
@@ -38,7 +38,7 @@ var ProductModel = model.Definition{
 - **Form-only DTOs** (login, filters, …): NO `DB` metadata — same pattern,
   just no table.
 - **UI binding**: `Widget: input.Email()` etc. (typed expression from
-  `tinywasm/form/input`). A field without `Widget` gets NO input in forms.
+  `tinywasm/tinywasm/input`). A field without `Widget` gets NO input in forms.
 
 Then generate:
 
@@ -74,8 +74,8 @@ generated files — they are overwritten on every run.**
 |---|---|---|
 | **model** | `Definition`, `Field`, `Fielder`, `Widget` iface, `Permitted`, `ValidateFields`, typed codec contracts | nothing else |
 | **orm / ormc** | DB mapping + THE code generator (Definition → struct + methods) | model |
-| **form** | `form.New(parentID, &Generated{})` — schema-driven form; SSR + reactive render | model, dom, form/input |
-| **form/input** | Concrete widgets with validation (`Email`, `Password`, `Phone`, `Text`, `Number`, `Checkbox`, `Textarea`, …) | model |
+| **form** | `form.New(parentID, &Generated{})` — schema-driven form; SSR + reactive render | model, dom, tinywasm/input |
+| **tinywasm/input** | Concrete widgets with validation (`Email`, `Password`, `Phone`, `Text`, `Number`, `Checkbox`, `Textarea`, …) | model |
 | **json** | Zero-reflection codec over generated `Encode/DecodeFields` | model |
 | **dom** | Pure HTML layout elements + signals. **NO form functions** (no `Input()`, `Form()`, …) | — |
 
@@ -104,4 +104,4 @@ before persistence).
 
 A project may define custom widgets (same `model.Widget` contract) and use
 them in its Definitions like any `input.Xxx()`. They live with the consumer;
-stdlib widgets live in `tinywasm/form/input`.
+stdlib widgets live in `tinywasm/tinywasm/input`.
