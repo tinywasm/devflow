@@ -505,6 +505,49 @@ func TestGitClone_IdempotentAndRootDir(t *testing.T) {
 	}
 }
 
+// TestGitClone_EmptyDirNestedInUnrelatedRepo guards against detecting
+// "already present" via the parent directory's repo instead of rootDir's own
+// .git — an empty rootDir must always be cloned into, regardless of what
+// git repo (if any) contains it.
+func TestGitClone_EmptyDirNestedInUnrelatedRepo(t *testing.T) {
+	srcDir := t.TempDir()
+	exec.Command("git", "init", "--bare", srcDir).Run()
+
+	seedDir := t.TempDir()
+	exec.Command("git", "clone", srcDir, seedDir).Run()
+	os.WriteFile(filepath.Join(seedDir, "file.txt"), []byte("hello"), 0644)
+	exec.Command("git", "-C", seedDir, "add", ".").Run()
+	exec.Command("git", "-C", seedDir, "commit", "-m", "initial").Run()
+	exec.Command("git", "-C", seedDir, "push", "origin", "HEAD").Run()
+
+	// unrelated parent repo, with an empty subdirectory that has no .git of its own
+	parentDir := t.TempDir()
+	exec.Command("git", "init", parentDir).Run()
+	targetDir := filepath.Join(parentDir, "sub", "target_repo")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	git, err := devflow.NewGit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	git.SetRootDir(targetDir)
+
+	alreadyPresent, err := git.Clone(srcDir)
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+	if alreadyPresent {
+		t.Fatal("Expected alreadyPresent to be false: targetDir has no .git of its own")
+	}
+
+	content, err := os.ReadFile(filepath.Join(targetDir, "file.txt"))
+	if err != nil || string(content) != "hello" {
+		t.Fatalf("Expected file.txt content 'hello', got %q, err: %v", string(content), err)
+	}
+}
+
 func TestGitPull_CleanAndDirty(t *testing.T) {
 	// Setup remote bare repo
 	remoteDir := t.TempDir()

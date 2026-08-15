@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tinywasm/command"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -490,12 +492,17 @@ func (g *Git) Pull() error {
 	return err
 }
 
+// isRepoPresent reports whether rootDir itself already contains a .git entry.
+// It must not use "git rev-parse --is-inside-work-tree": that walks up to
+// parent directories, so an empty rootDir nested inside an unrelated repo
+// would be misreported as already cloned.
 func (g *Git) isRepoPresent() bool {
-	out, err := g.runSilent("git", "rev-parse", "--is-inside-work-tree")
-	if err != nil {
-		return false
+	dir := g.rootDir
+	if dir == "" {
+		dir = "."
 	}
-	return strings.TrimSpace(out) == "true"
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // Clone clones repoURL into the working copy. If the destination already
