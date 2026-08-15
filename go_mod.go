@@ -543,6 +543,8 @@ func ParseVerifyError(output string) (string, bool) {
 			return fmt.Sprintf("checksum mismatch for %s — run `go clean -modcache` and retry", mod), true
 		case strings.Contains(line, "missing go.sum entry"):
 			return "go.sum is out of sync — run `go mod tidy`", true
+		case strings.Contains(line, "updates to go.mod needed"):
+			return "go.mod is out of sync — run `go mod tidy`", true
 		}
 	}
 	return "", false
