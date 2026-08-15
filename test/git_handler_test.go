@@ -3,8 +3,10 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -454,5 +456,190 @@ func TestGenerateNextTagWithOutOfOrderTags(t *testing.T) {
 	}
 	if tag != "v0.1.1" {
 		t.Errorf("Expected v0.1.1, got %s", tag)
+	}
+}
+
+func TestGitClone_IdempotentAndRootDir(t *testing.T) {
+	// 1. Create a bare source repository with a commit
+	srcDir := t.TempDir()
+	exec.Command("git", "init", "--bare", srcDir).Run()
+
+	// Seed the bare repo with a commit via a temporary clone
+	seedDir := t.TempDir()
+	exec.Command("git", "clone", srcDir, seedDir).Run()
+	os.WriteFile(filepath.Join(seedDir, "file.txt"), []byte("hello"), 0644)
+	exec.Command("git", "-C", seedDir, "add", ".").Run()
+	exec.Command("git", "-C", seedDir, "commit", "-m", "initial").Run()
+	exec.Command("git", "-C", seedDir, "push", "origin", "HEAD").Run()
+
+	// 2. Clone into a target directory using SetRootDir
+	targetDir := filepath.Join(t.TempDir(), "target_repo")
+	git, err := devflow.NewGit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	git.SetRootDir(targetDir)
+
+	// First clone -> should clone and return alreadyPresent == false
+	alreadyPresent, err := git.Clone(srcDir)
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+	if alreadyPresent {
+		t.Error("Expected alreadyPresent to be false on first clone")
+	}
+
+	// Verify file exists
+	content, err := os.ReadFile(filepath.Join(targetDir, "file.txt"))
+	if err != nil || string(content) != "hello" {
+		t.Fatalf("Expected file.txt content 'hello', got %q, err: %v", string(content), err)
+	}
+
+	// Second clone -> should be idempotent, return alreadyPresent == true, err == nil, without modifying working tree
+	alreadyPresent, err = git.Clone(srcDir)
+	if err != nil {
+		t.Fatalf("Second clone failed: %v", err)
+	}
+	if !alreadyPresent {
+		t.Error("Expected alreadyPresent to be true on second clone")
+	}
+}
+
+// TestGitClone_EmptyDirNestedInUnrelatedRepo guards against detecting
+// "already present" via the parent directory's repo instead of rootDir's own
+// .git — an empty rootDir must always be cloned into, regardless of what
+// git repo (if any) contains it.
+func TestGitClone_EmptyDirNestedInUnrelatedRepo(t *testing.T) {
+	srcDir := t.TempDir()
+	exec.Command("git", "init", "--bare", srcDir).Run()
+
+	seedDir := t.TempDir()
+	exec.Command("git", "clone", srcDir, seedDir).Run()
+	os.WriteFile(filepath.Join(seedDir, "file.txt"), []byte("hello"), 0644)
+	exec.Command("git", "-C", seedDir, "add", ".").Run()
+	exec.Command("git", "-C", seedDir, "commit", "-m", "initial").Run()
+	exec.Command("git", "-C", seedDir, "push", "origin", "HEAD").Run()
+
+	// unrelated parent repo, with an empty subdirectory that has no .git of its own
+	parentDir := t.TempDir()
+	exec.Command("git", "init", parentDir).Run()
+	targetDir := filepath.Join(parentDir, "sub", "target_repo")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	git, err := devflow.NewGit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	git.SetRootDir(targetDir)
+
+	alreadyPresent, err := git.Clone(srcDir)
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+	if alreadyPresent {
+		t.Fatal("Expected alreadyPresent to be false: targetDir has no .git of its own")
+	}
+
+	content, err := os.ReadFile(filepath.Join(targetDir, "file.txt"))
+	if err != nil || string(content) != "hello" {
+		t.Fatalf("Expected file.txt content 'hello', got %q, err: %v", string(content), err)
+	}
+}
+
+func TestGitPull_CleanAndDirty(t *testing.T) {
+	// Setup remote bare repo
+	remoteDir := t.TempDir()
+	exec.Command("git", "init", "--bare", remoteDir).Run()
+
+	// Setup local repo
+	localDir, cleanup := testCreateGitRepo()
+	defer cleanup()
+	defer testChdir(t, localDir)()
+
+	exec.Command("git", "remote", "add", "origin", remoteDir).Run()
+	os.WriteFile("README.md", []byte("# initial"), 0644)
+	exec.Command("git", "add", ".").Run()
+	exec.Command("git", "commit", "-m", "init").Run()
+	exec.Command("git", "push", "-u", "origin", "HEAD").Run()
+
+	// Push a new commit to remote from a secondary clone
+	secDir := t.TempDir()
+	exec.Command("git", "clone", remoteDir, secDir).Run()
+	os.WriteFile(filepath.Join(secDir, "remote_file.txt"), []byte("from remote"), 0644)
+	exec.Command("git", "-C", secDir, "add", ".").Run()
+	exec.Command("git", "-C", secDir, "commit", "-m", "remote commit").Run()
+	exec.Command("git", "-C", secDir, "push", "origin", "HEAD").Run()
+
+	git, _ := devflow.NewGit()
+
+	// Case A: Dirty worktree -> Pull must fail with ErrDirtyWorkTree and leave worktree intact
+	os.WriteFile("local_dirty.txt", []byte("uncommitted"), 0644)
+	err := git.Pull()
+	if err == nil {
+		t.Fatal("Expected Pull to fail on dirty worktree, got nil")
+	}
+	if !errors.Is(err, devflow.ErrDirtyWorkTree) {
+		t.Errorf("Expected ErrDirtyWorkTree, got: %v", err)
+	}
+	// Verify remote_file.txt was not pulled during dirty pull
+	if _, err := os.Stat("remote_file.txt"); !os.IsNotExist(err) {
+		t.Error("Expected remote_file.txt to not exist after dirty pull")
+	}
+
+	// Case B: Clean worktree -> Pull succeeds and updates worktree
+	os.Remove("local_dirty.txt")
+	err = git.Pull()
+	if err != nil {
+		t.Fatalf("Pull failed on clean worktree: %v", err)
+	}
+	content, err := os.ReadFile("remote_file.txt")
+	if err != nil || string(content) != "from remote" {
+		t.Errorf("Expected remote_file.txt 'from remote', got %q, err: %v", string(content), err)
+	}
+}
+
+func TestGitFetch(t *testing.T) {
+	// Setup remote bare repo
+	remoteDir := t.TempDir()
+	exec.Command("git", "init", "--bare", remoteDir).Run()
+
+	// Setup local repo
+	localDir, cleanup := testCreateGitRepo()
+	defer cleanup()
+	defer testChdir(t, localDir)()
+
+	exec.Command("git", "remote", "add", "origin", remoteDir).Run()
+	os.WriteFile("README.md", []byte("# initial"), 0644)
+	exec.Command("git", "add", ".").Run()
+	exec.Command("git", "commit", "-m", "init").Run()
+	exec.Command("git", "push", "-u", "origin", "HEAD").Run()
+
+	// Push a new commit to remote from a secondary clone
+	secDir := t.TempDir()
+	exec.Command("git", "clone", remoteDir, secDir).Run()
+	os.WriteFile(filepath.Join(secDir, "remote_file.txt"), []byte("from remote"), 0644)
+	exec.Command("git", "-C", secDir, "add", ".").Run()
+	exec.Command("git", "-C", secDir, "commit", "-m", "remote commit").Run()
+	exec.Command("git", "-C", secDir, "push", "origin", "HEAD").Run()
+
+	git, _ := devflow.NewGit()
+
+	// Call Fetch
+	err := git.Fetch()
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+
+	// Working tree must NOT be updated (remote_file.txt should not exist)
+	if _, err := os.Stat("remote_file.txt"); !os.IsNotExist(err) {
+		t.Error("Working tree was modified by Fetch; remote_file.txt should not exist yet")
+	}
+
+	// Remote tracking ref should have the new commit
+	out, err := exec.Command("git", "log", "-1", "--pretty=%B", "@{u}").Output()
+	if err != nil || !strings.Contains(string(out), "remote commit") {
+		t.Errorf("Expected fetch to update remote ref, got commit msg %q, err: %v", string(out), err)
 	}
 }

@@ -2,8 +2,9 @@
 PLAN: "feat: Git.Clone/Pull/Fetch — devflow no sabe traer un repo, solo empujarlo"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 10362815475255617808
+PR: https://github.com/tinywasm/devflow/pull/42
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.

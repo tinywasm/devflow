@@ -592,6 +592,18 @@ func (m *MockGitClient) DiffShortStat() (string, error) {
 	return m.diffShortStatOut, nil
 }
 
+func (m *MockGitClient) Clone(repoURL string) (bool, error) {
+	return false, nil
+}
+
+func (m *MockGitClient) Pull() error {
+	return nil
+}
+
+func (m *MockGitClient) Fetch() error {
+	return nil
+}
+
 // TestGoPush_AppendsShortStatBody: the root push keeps the user's title intact
 // and appends the staged `git diff --shortstat` as the commit body (PLAN.md
 // Fase 2) — quantitative context with zero AI and zero typing.
