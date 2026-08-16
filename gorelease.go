@@ -4,14 +4,15 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"io"
 	"os"
 	"path/filepath"
 )
 
-// ReleaseOnly creates a GitHub Release with cross-platform binaries for an existing tag.
+// ReleaseOnly creates a gitmod.GitHub Release with cross-platform binaries for an existing tag.
 // If tag is empty, it uses the latest tag from git.GetLatestTag().
-func (g *Go) ReleaseOnly(tag string, gh *GitHub) error {
+func (g *Go) ReleaseOnly(tag string, gh *gitmod.GitHub) error {
 	// 1. Resolve tag first
 	if tag == "" {
 		var err error
@@ -88,10 +89,10 @@ func (g *Go) ReleaseOnly(tag string, gh *GitHub) error {
 	f.Close()
 	assets = append(assets, checksumsPath)
 
-	// 6. Create GitHub Release
+	// 6. Create gitmod.GitHub Release
 	url, err := gh.CreateRelease(tag, assets, target)
 	if err != nil {
-		return fmt.Errorf("failed to create GitHub release: %w", err)
+		return fmt.Errorf("failed to create gitmod.GitHub release: %w", err)
 	}
 
 	g.consoleOutput(fmt.Sprintf("✅ Release → %s", url))
@@ -109,8 +110,8 @@ func DefaultTargets() []CrossTarget {
 	}
 }
 
-func (g *Go) resolvePublishTarget(folderName string, gh *GitHub) (string, error) {
-	owner, _, visibility, err := gh.repoInfo("")
+func (g *Go) resolvePublishTarget(folderName string, gh *gitmod.GitHub) (string, error) {
+	owner, _, visibility, err := gh.RepoInfo("")
 	if err != nil {
 		// Visibility undetermined, fall back to origin
 		return "", nil
@@ -122,7 +123,7 @@ func (g *Go) resolvePublishTarget(folderName string, gh *GitHub) (string, error)
 
 	// Origin is private -> candidate = owner/folderName
 	candidate := owner + "/" + folderName
-	_, _, candidateVisibility, err := gh.repoInfo(candidate)
+	_, _, candidateVisibility, err := gh.RepoInfo(candidate)
 	if err != nil {
 		return "", fmt.Errorf("origin is private, but derived repo %s does not exist or is not accessible. A public repository is required for distribution: %w", candidate, err)
 	}

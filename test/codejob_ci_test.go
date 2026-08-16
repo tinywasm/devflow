@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +48,7 @@ func TestAuth_EnvVarThenKeyring(t *testing.T) {
 		t.Errorf("expected env key, got %q", key)
 	}
 
-	patAuth, err := devflow.NewGitHubPATAuth()
+	patAuth, err := gitmod.NewGitHubPATAuth()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +209,7 @@ func TestInitAction_SecretScope(t *testing.T) {
 		return exec.Command("echo", "ok")
 	}
 
-	gh, err := devflow.NewGitHub(func(args ...any) {}, devflow.NewMockGitHubAuth())
+	gh, err := gitmod.NewGitHub(func(args ...any) {}, gitmod.NewMockGitHubAuth())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,11 +273,11 @@ type mockPublisher struct {
 	tag       string
 }
 
-func (m *mockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
+func (m *mockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (gitmod.PushResult, error) {
 	m.published = true
 	m.message = message
 	m.tag = tag
-	return devflow.PushResult{Tag: "v0.5.0", Summary: "Mock published v0.5.0"}, nil
+	return gitmod.PushResult{Tag: "v0.5.0", Summary: "Mock published v0.5.0"}, nil
 }
 
 func TestCI_Publish_TagOnly(t *testing.T) {

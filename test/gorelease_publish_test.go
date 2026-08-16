@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"errors"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/tinywasm/devflow"
 )
 
-// scriptedRunner implements devflow.SecretRunner and returns different outputs
+// scriptedRunner implements gitmod.SecretRunner and returns different outputs
 // depending on the command issued. It records every call so tests can inspect
 // the final `gh release create` invocation.
 //
@@ -79,8 +80,8 @@ func repoViewTarget(args []string) string {
 }
 
 // newGitHubWithRunner builds a *GitHub with an injected SecretRunner.
-func newGitHubWithRunner(r devflow.SecretRunner) *devflow.GitHub {
-	gh := &devflow.GitHub{}
+func newGitHubWithRunner(r gitmod.SecretRunner) *gitmod.GitHub {
+	gh := &gitmod.GitHub{}
 	gh.SecretRunner = r
 	return gh
 }

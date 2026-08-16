@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"io"
 	"net/http"
 	"strings"
@@ -38,7 +39,7 @@ type JulesDriver struct {
 	http      HTTPClient
 	log       func(...any)
 	sessionID string
-	runner    Runner
+	runner    gitmod.Runner
 }
 
 // NewJulesDriver creates a JulesDriver. All JulesConfig fields are optional.
@@ -47,12 +48,12 @@ func NewJulesDriver(config JulesConfig) *JulesDriver {
 		config: config,
 		http:   &http.Client{},
 		log:    func(...any) {},
-		runner: RealRunner{},
+		runner: gitmod.RealRunner{},
 	}
 }
 
 // SetRunner replaces the command runner used for the gh session check (for testing).
-func (d *JulesDriver) SetRunner(r Runner) {
+func (d *JulesDriver) SetRunner(r gitmod.Runner) {
 	if r != nil {
 		d.runner = r
 	}
@@ -98,7 +99,7 @@ type julesGithubCtx struct {
 // If the source is not yet indexed in Jules (404 on new repos), it polls GET /sources
 // until the source appears or the timeout is exceeded.
 func (d *JulesDriver) Send(prompt, title string) (string, error) {
-	if err := EnsureGHSession(d.runner); err != nil {
+	if err := gitmod.EnsureGHSession(d.runner); err != nil {
 		return "", err
 	}
 	apiKey, err := d.resolveAPIKey()

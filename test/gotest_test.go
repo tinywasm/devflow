@@ -4,12 +4,13 @@ import "github.com/tinywasm/devflow"
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"strings"
 	"testing"
 )
 
 func TestGo_SetLog(t *testing.T) {
-	git, _ := devflow.NewGit()
+	git, _ := gitmod.NewGit()
 	g, _ := devflow.NewGo(git)
 
 	// Test that SetLog works
@@ -27,7 +28,7 @@ func TestGo_SetLog(t *testing.T) {
 }
 
 func TestGo_NewGo(t *testing.T) {
-	git, _ := devflow.NewGit()
+	git, _ := gitmod.NewGit()
 	g, _ := devflow.NewGo(git)
 
 	if g == nil {

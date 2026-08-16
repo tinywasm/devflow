@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +88,7 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 	path := writeTempFile(t, "---\nPLAN: test\n---\nsome plan")
 	published := false
 	mockPub := &MockPublisher{
-		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
+		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (gitmod.PushResult, error) {
 			published = true
 			if !stag || !sd || !sb {
 				t.Errorf("expected skipTag, skipDependents, skipBackup to be true")
@@ -95,7 +96,7 @@ func TestCodeJob_Send_PublishesBeforeDispatch(t *testing.T) {
 			if !sv {
 				t.Errorf("expected skipVerify to be true for codejob dispatch")
 			}
-			return devflow.PushResult{}, nil
+			return gitmod.PushResult{}, nil
 		},
 	}
 	d := &mockDriver{name: "mock", result: "ok"}
@@ -117,9 +118,9 @@ func TestCodeJob_Send_PublishSilently(t *testing.T) {
 	path := writeTempFile(t, "---\nPLAN: test\n---\nsome plan")
 	publishCalled := false
 	mockPub := &MockPublisher{
-		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (devflow.PushResult, error) {
+		PublishFn: func(m, tag string, st, sr, sd, sb, stag, sv bool) (gitmod.PushResult, error) {
 			publishCalled = true
-			return devflow.PushResult{Summary: "Pushed ✅ v1.2.3"}, nil
+			return gitmod.PushResult{Summary: "Pushed ✅ v1.2.3"}, nil
 		},
 	}
 	var logged []string
@@ -143,12 +144,12 @@ func TestCodeJob_Send_PublishSilently(t *testing.T) {
 
 func TestCodeJob_ObjectsToPublish(t *testing.T) {
 	tmp := t.TempDir()
-	ctx := devflow.PublishContext{RepoDir: tmp}
+	ctx := gitmod.PublishContext{RepoDir: tmp}
 	cj := devflow.CodeJob{}
 
 	// nothing -> ActionNone
 	action, reason := cj.ObjectsToPublish(ctx)
-	if action != devflow.ActionNone {
+	if action != gitmod.ActionNone {
 		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
 	}
 
@@ -157,21 +158,21 @@ func TestCodeJob_ObjectsToPublish(t *testing.T) {
 	_ = os.MkdirAll(planDir, 0755)
 	_ = os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: running\n---\n"), 0644)
 	action, reason = cj.ObjectsToPublish(ctx)
-	if action != devflow.ActionSkip {
+	if action != gitmod.ActionSkip {
 		t.Errorf("expected ActionSkip, got %v (%s)", action, reason)
 	}
-	if reason != devflow.ObjectionCodejobSession {
-		t.Errorf("expected %q, got %q", devflow.ObjectionCodejobSession, reason)
+	if reason != gitmod.ObjectionCodejobSession {
+		t.Errorf("expected %q, got %q", gitmod.ObjectionCodejobSession, reason)
 	}
 
 	// PLAN.md with STATUS: dispatch -> ActionDepsOnly
 	_ = os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: dispatch\n---\n"), 0644)
 	action, reason = cj.ObjectsToPublish(ctx)
-	if action != devflow.ActionDepsOnly {
+	if action != gitmod.ActionDepsOnly {
 		t.Errorf("expected ActionDepsOnly, got %v (%s)", action, reason)
 	}
-	if reason != devflow.ObjectionPlanPending {
-		t.Errorf("expected %q, got %q", devflow.ObjectionPlanPending, reason)
+	if reason != gitmod.ObjectionPlanPending {
+		t.Errorf("expected %q, got %q", gitmod.ObjectionPlanPending, reason)
 	}
 }
 
@@ -181,7 +182,7 @@ func TestCodeJob_ObjectsToPublish(t *testing.T) {
 // would land inside that PR. Go.Push, by contrast, only blocks on running.
 func TestCodejobObjector_SkipsOnRunningAndReview(t *testing.T) {
 	tmp := t.TempDir()
-	ctx := devflow.PublishContext{RepoDir: tmp}
+	ctx := gitmod.PublishContext{RepoDir: tmp}
 	cj := devflow.CodeJob{}
 
 	planDir := filepath.Join(tmp, "docs")
@@ -189,20 +190,20 @@ func TestCodejobObjector_SkipsOnRunningAndReview(t *testing.T) {
 
 	os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: running\n---\n"), 0644)
 	action, reason := cj.ObjectsToPublish(ctx)
-	if action != devflow.ActionSkip {
+	if action != gitmod.ActionSkip {
 		t.Errorf("running phase: expected ActionSkip, got %v (%s)", action, reason)
 	}
-	if reason != devflow.ObjectionCodejobSession {
-		t.Errorf("running phase: expected %q, got %q", devflow.ObjectionCodejobSession, reason)
+	if reason != gitmod.ObjectionCodejobSession {
+		t.Errorf("running phase: expected %q, got %q", gitmod.ObjectionCodejobSession, reason)
 	}
 
 	os.WriteFile(filepath.Join(planDir, "PLAN.md"), []byte("---\nPLAN: test\nSTATUS: review\n---\n"), 0644)
 	action, reason = cj.ObjectsToPublish(ctx)
-	if action != devflow.ActionSkip {
+	if action != gitmod.ActionSkip {
 		t.Errorf("review phase: expected ActionSkip, got %v (%s)", action, reason)
 	}
-	if reason != devflow.ObjectionCodejobSession {
-		t.Errorf("review phase: expected %q, got %q", devflow.ObjectionCodejobSession, reason)
+	if reason != gitmod.ObjectionCodejobSession {
+		t.Errorf("review phase: expected %q, got %q", gitmod.ObjectionCodejobSession, reason)
 	}
 }
 
@@ -210,11 +211,11 @@ func TestCodejobObjector_SkipsOnRunningAndReview(t *testing.T) {
 // when there is no CODEJOB state and no pending plan.
 func TestCodejobObjector_NoObjectionWhenNoState(t *testing.T) {
 	tmp := t.TempDir()
-	ctx := devflow.PublishContext{RepoDir: tmp}
+	ctx := gitmod.PublishContext{RepoDir: tmp}
 	cj := devflow.CodeJob{}
 
 	action, reason := cj.ObjectsToPublish(ctx)
-	if action != devflow.ActionNone {
+	if action != gitmod.ActionNone {
 		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
 	}
 }

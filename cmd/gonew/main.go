@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 
 	"github.com/tinywasm/devflow"
@@ -27,7 +28,7 @@ func main() {
 }
 
 func handleCreate(opts devflow.GoNewCLIOpts) {
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -38,7 +39,7 @@ func handleCreate(opts devflow.GoNewCLIOpts) {
 	var githubFuture *devflow.Future
 	if !opts.LocalOnly {
 		githubFuture = devflow.NewFuture(func() (any, error) {
-			return devflow.NewGitHub(log)
+			return gitmod.NewGitHub(log)
 		})
 	}
 
@@ -67,7 +68,7 @@ func handleCreate(opts devflow.GoNewCLIOpts) {
 }
 
 func handleAddRemote(opts devflow.AddRemoteCLIOpts) {
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -76,7 +77,7 @@ func handleAddRemote(opts devflow.AddRemoteCLIOpts) {
 	log := func(args ...any) { fmt.Println(args...) }
 
 	githubFuture := devflow.NewFuture(func() (any, error) {
-		return devflow.NewGitHub(log)
+		return gitmod.NewGitHub(log)
 	})
 
 	goHandler, err := devflow.NewGo(git)

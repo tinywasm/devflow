@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"sort"
@@ -38,7 +39,7 @@ type CascadeReport struct {
 }
 
 // CascadeProcessFn is the signature for the function that processes a single node
-type CascadeProcessFn func(node CascadeNode, bumps []DepBump, rootCause string) (CascadeOutcome, error)
+type CascadeProcessFn func(node CascadeNode, bumps []gitmod.DepBump, rootCause string) (CascadeOutcome, error)
 
 // cascadeProcessFn stores the current processor
 var cascadeProcessFn CascadeProcessFn
@@ -223,10 +224,10 @@ func (g *Go) RunCascade(rootModule, rootVersion, rootCause, searchPath string) C
 
 	for _, node := range nodes {
 		// Collect bumps available for this node
-		var bumps []DepBump
+		var bumps []gitmod.DepBump
 		for _, dep := range node.DependsOn {
 			if ver, ok := publishedVersions[dep]; ok && ver != "" {
-				bumps = append(bumps, DepBump{ModulePath: dep, NewVersion: ver})
+				bumps = append(bumps, gitmod.DepBump{ModulePath: dep, NewVersion: ver})
 			}
 		}
 
@@ -258,7 +259,7 @@ func (g *Go) RunCascade(rootModule, rootVersion, rootCause, searchPath string) C
 	return report
 }
 
-func (g *Go) defaultCascadeProcessor(node CascadeNode, bumps []DepBump, rootCause string) (CascadeOutcome, error) {
+func (g *Go) defaultCascadeProcessor(node CascadeNode, bumps []gitmod.DepBump, rootCause string) (CascadeOutcome, error) {
 	return g.UpdateDependentModule(node.Dir, bumps, rootCause)
 }
 

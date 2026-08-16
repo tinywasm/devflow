@@ -3,6 +3,7 @@ package devflow
 import (
 	_ "embed"
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 )
@@ -44,7 +45,7 @@ func InitCodejobAction(force bool, org, visibility string) error {
 		return fmt.Errorf("failed to retrieve JULES_API_KEY: %w", err)
 	}
 
-	patAuth, err := NewGitHubPATAuth()
+	patAuth, err := gitmod.NewGitHubPATAuth()
 	if err != nil {
 		return fmt.Errorf("failed to initialize GitHubPATAuth: %w", err)
 	}
@@ -60,7 +61,7 @@ func InitCodejobAction(force bool, org, visibility string) error {
 	}
 	fullRepo := owner + "/" + repo
 
-	gh, err := NewGitHub(func(args ...any) {}, patAuth)
+	gh, err := gitmod.NewGitHub(func(args ...any) {}, patAuth)
 	if err != nil {
 		return fmt.Errorf("failed to initialize GitHub client: %w", err)
 	}

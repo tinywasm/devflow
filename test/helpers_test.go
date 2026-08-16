@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,18 +91,18 @@ func testCreateGoModule(moduleName string) (dir string, cleanup func()) {
 
 // MockPublisher for testing
 type MockPublisher struct {
-	PublishFn func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error)
+	PublishFn func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (gitmod.PushResult, error)
 }
 
-func (m *MockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
+func (m *MockPublisher) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (gitmod.PushResult, error) {
 	if m.PublishFn != nil {
 		return m.PublishFn(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify)
 	}
-	return devflow.PushResult{Summary: "Mock published"}, nil
+	return gitmod.PushResult{Summary: "Mock published"}, nil
 }
 
 // newGoHandlerWithMockBackup creates a Go handler with a no-op backup mock.
-func newGoHandlerWithMockBackup(t *testing.T, git devflow.GitClient) *devflow.Go {
+func newGoHandlerWithMockBackup(t *testing.T, git gitmod.GitClient) *devflow.Go {
 	t.Helper()
 	h, err := devflow.NewGo(git)
 	if err != nil {

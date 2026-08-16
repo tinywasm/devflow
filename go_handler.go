@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	gitmod "github.com/tinywasm/git"
 	"github.com/tinywasm/gorun"
 )
 
@@ -20,14 +21,14 @@ type CrossTarget struct{ GOOS, GOARCH string }
 // Go handler for Go operations
 type Go struct {
 	rootDir               string
-	git                   GitClient // Interface for better testing
+	git                   gitmod.GitClient // Interface for better testing
 	log                   func(...any)
 	consoleOutput         func(string) // output for ConsoleFilter (fmt.Println by default)
 	backup                BackupRunner
 	retryDelay            time.Duration
 	retryAttempts         int
 	crossCompileFn        func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
-	extraPublishObjectors []PublishObjector
+	extraPublishObjectors []gitmod.PublishObjector
 	useTinygo             bool
 }
 
@@ -66,61 +67,6 @@ func CodejobPhaseOf(dir string) CodejobPhase {
 	}
 }
 
-// WorkTreeDirtyBeyond returns true if the git worktree has changes beyond the allowed files.
-// It ignores .env and .gitignore files automatically.
-func WorkTreeDirtyBeyond(git GitClient, allowed ...string) (bool, error) {
-	out, err := git.StatusPorcelain()
-	if err != nil {
-		return false, err
-	}
-
-	if out == "" {
-		return false, nil
-	}
-
-	lines := strings.Split(out, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if len(line) < 3 {
-			continue
-		}
-
-		// git status --porcelain output:
-		// XY PATH
-		// XY is 2 characters
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		file := strings.TrimSpace(parts[1])
-		// If the file is quoted, unquote it (simplistic version)
-		file = strings.Trim(file, "\"")
-		if file == "" {
-			continue
-		}
-
-		// Always ignore .env and .gitignore
-		if file == ".env" || file == ".gitignore" {
-			continue
-		}
-
-		// Check if it's in the allowed list
-		isAllowed := false
-		for _, a := range allowed {
-			if file == a {
-				isAllowed = true
-				break
-			}
-		}
-
-		if !isAllowed {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
 // CascadeStatus constants represent the possible outcomes of a module update in a cascade.
 const (
 	CascadeStatusPublished = "published"
@@ -130,7 +76,7 @@ const (
 )
 
 // NewGo creates a new Go handler and verifies Go installation
-func NewGo(gitHandler GitClient) (*Go, error) {
+func NewGo(gitHandler gitmod.GitClient) (*Go, error) {
 	// Verify go installation
 	if _, err := command.Run("go", "version"); err != nil {
 		return nil, fmt.Errorf("go is not installed or not in PATH: %w", err)
@@ -182,10 +128,10 @@ func (g *Go) SetConsoleOutput(fn func(string)) {
 }
 
 // SetPublishObjectors replaces the extra publish objectors.
-func (g *Go) SetPublishObjectors(objs ...PublishObjector) { g.extraPublishObjectors = objs }
+func (g *Go) SetPublishObjectors(objs ...gitmod.PublishObjector) { g.extraPublishObjectors = objs }
 
 // AddPublishObjector appends an extra publish objector.
-func (g *Go) AddPublishObjector(obj PublishObjector) {
+func (g *Go) AddPublishObjector(obj gitmod.PublishObjector) {
 	g.extraPublishObjectors = append(g.extraPublishObjectors, obj)
 }
 
@@ -200,7 +146,7 @@ func (g *Go) GetLog() func(...any) {
 }
 
 // GetGit returns the git client
-func (g *Go) GetGit() GitClient {
+func (g *Go) GetGit() gitmod.GitClient {
 	return g.git
 }
 
@@ -219,18 +165,18 @@ const ErrPushBlockedActiveCodejob = "gopush blocked: active codejob session (COD
 //	skipBackup: If true, skips backup
 //	skipTag: If true, skips tag generation and pushes without tags
 //	searchPath: Path to search for dependent modules (default: "..")
-func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool, searchPath string) (PushResult, error) {
+func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool, searchPath string) (gitmod.PushResult, error) {
 	// Validate message
-	if err := ValidateCommitMessage(message); err != nil {
-		return PushResult{}, err
+	if err := gitmod.ValidateCommitMessage(message); err != nil {
+		return gitmod.PushResult{}, err
 	}
-	message = FormatCommitMessage(message)
+	message = gitmod.FormatCommitMessage(message)
 
 	// Block push only during 'running' phase. During 'review' phase,
 	// MergeAndPublish calls Push to close the loop, so blocking 'review'
 	// would self-block codejob.
 	if CodejobPhaseOf(g.rootDir) == PhaseRunning {
-		return PushResult{}, errors.New(ErrPushBlockedActiveCodejob)
+		return gitmod.PushResult{}, errors.New(ErrPushBlockedActiveCodejob)
 	}
 
 	if searchPath == "" {
@@ -242,16 +188,16 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	// 0. Early exit if nothing to push
 	hasPending, _ := g.git.HasPendingChanges()
 	if !hasPending {
-		return PushResult{Summary: "Nothing to push"}, nil
+		return gitmod.PushResult{Summary: "Nothing to push"}, nil
 	}
 
 	// UNIVERSAL: If not a Go project, skip Go-specific steps
 	if !g.ModExists() {
-		var res PushResult
+		var res gitmod.PushResult
 		var err error
 		if skipTag {
 			if err := g.git.Add(); err != nil {
-				return PushResult{}, fmt.Errorf("git add failed: %w", err)
+				return gitmod.PushResult{}, fmt.Errorf("git add failed: %w", err)
 			}
 			committed, _ := g.git.Commit(message)
 			pulled, pushErr := g.git.PushWithoutTags()
@@ -278,7 +224,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	// 1. Verify go.mod (skip when dispatching to an agent that will fix the repo)
 	if !skipVerify {
 		if err := g.Verify(); err != nil {
-			return PushResult{}, fmt.Errorf("go mod verify failed: %w", err)
+			return gitmod.PushResult{}, fmt.Errorf("go mod verify failed: %w", err)
 		}
 	}
 
@@ -286,7 +232,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	if !skipTests {
 		testSummary, err := g.Test([]string{}, skipRace, 0, false, false) // Empty slice = full test suite, 0 = default timeout, false = allow cache, false = runAll
 		if err != nil {
-			return PushResult{}, fmt.Errorf("tests failed: %w", err)
+			return gitmod.PushResult{}, fmt.Errorf("tests failed: %w", err)
 		}
 		summary = append(summary, testSummary)
 	} else {
@@ -294,22 +240,22 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	}
 
 	// 3. Prepare internal submodules and execute git push workflow
-	var pushResult PushResult
+	var pushResult gitmod.PushResult
 	var err error
 
 	modulePath, _ := g.GetModulePath()
 
 	if skipTag {
 		if err := g.git.Add(); err != nil {
-			return PushResult{}, fmt.Errorf("git add failed: %w", err)
+			return gitmod.PushResult{}, fmt.Errorf("git add failed: %w", err)
 		}
 		committed, commitErr := g.git.Commit(message)
 		if commitErr != nil {
-			return PushResult{}, fmt.Errorf("git commit failed: %w", commitErr)
+			return gitmod.PushResult{}, fmt.Errorf("git commit failed: %w", commitErr)
 		}
 		pulled, pushErr := g.git.PushWithoutTags()
 		if pushErr != nil {
-			return PushResult{}, fmt.Errorf("push failed: %w", pushErr)
+			return gitmod.PushResult{}, fmt.Errorf("push failed: %w", pushErr)
 		}
 		pushResult.Summary = "Pushed ✅"
 		if pulled {
@@ -344,7 +290,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 
 		pushResult, err = g.git.Push(message, tag)
 		if err != nil {
-			return PushResult{}, fmt.Errorf("push workflow failed: %w", err)
+			return gitmod.PushResult{}, fmt.Errorf("push workflow failed: %w", err)
 		}
 	}
 	summary = append(summary, pushResult.Summary)
@@ -363,7 +309,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 	modulePath, err = g.GetModulePath()
 	if err != nil {
 		summary = append(summary, fmt.Sprintf("Warning: could not get module path: %v", err))
-		return PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil
+		return gitmod.PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil
 	}
 
 	// 6. Update dependent modules (only if we have a valid tag)
@@ -382,11 +328,11 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 		}
 	}
 
-	return PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil
+	return gitmod.PushResult{Summary: strings.Join(summary, ", "), Tag: createdTag}, nil
 }
 
 // Publish satisfies the Publisher interface
-func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (PushResult, error) {
+func (g *Go) Publish(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (gitmod.PushResult, error) {
 	return g.Push(message, tag, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify, "..")
 }
 
@@ -429,7 +375,7 @@ func dependentDisplayName(depDir string) string {
 	return filepath.Base(depDir)
 }
 
-func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause string) (CascadeOutcome, error) {
+func (g *Go) UpdateDependentModule(depDir string, bumps []gitmod.DepBump, rootCause string) (CascadeOutcome, error) {
 	depName := dependentDisplayName(depDir)
 
 	// 1. Check if go.mod exists
@@ -442,7 +388,7 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 	gomod := NewGoModHandler()
 	gomod.SetRootDir(depDir)
 
-	git, err := NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		return g.reportFail(depName, fmt.Errorf("git init failed: %w", err))
 	}
@@ -453,11 +399,11 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 		modulePaths = append(modulePaths, b.ModulePath)
 	}
 
-	objectors := append([]PublishObjector{gomod, git, CodeJob{}}, g.extraPublishObjectors...)
-	ctx := PublishContext{RepoDir: depDir, ModulePaths: modulePaths}
-	action, reason := ResolvePublishAction(objectors, ctx)
+	objectors := append([]gitmod.PublishObjector{gomod, git, CodeJob{}}, g.extraPublishObjectors...)
+	ctx := gitmod.PublishContext{RepoDir: depDir, ModulePaths: modulePaths}
+	action, reason := gitmod.ResolvePublishAction(objectors, ctx)
 
-	if action == ActionSkip {
+	if action == gitmod.ActionSkip {
 		g.consoleOutput(fmt.Sprintf("📦 %s → skip (%s) ⏭", depName, reason))
 		return CascadeOutcome{Status: CascadeStatusSkipped, Reason: reason}, nil
 	}
@@ -476,7 +422,7 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 		canRemove := gomod.RemoveReplace(bump.ModulePath)
 		currentVer, err := g.GetCurrentVersion(depDir, bump.ModulePath)
 		if err == nil {
-			if CompareVersions(currentVer, bump.NewVersion) < 0 || canRemove {
+			if gitmod.CompareVersions(currentVer, bump.NewVersion) < 0 || canRemove {
 				anyChange = true
 			}
 		} else {
@@ -525,9 +471,9 @@ func (g *Go) UpdateDependentModule(depDir string, bumps []DepBump, rootCause str
 	}
 	depHandler.SetRootDir(depDir)
 
-	commitMsg := BuildDepsCommitMessage(bumps, rootCause)
+	commitMsg := gitmod.BuildDepsCommitMessage(bumps, rootCause)
 
-	if action == ActionDepsOnly {
+	if action == gitmod.ActionDepsOnly {
 		committed, err := git.CommitPaths(commitMsg, "go.mod", "go.sum")
 		if err != nil {
 			return g.reportFail(depName, fmt.Errorf("deps-only commit failed: %w", err))

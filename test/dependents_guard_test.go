@@ -12,6 +12,7 @@ package devflow_test
 
 import (
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,7 @@ import (
 
 // testInitRepoWithCommit creates a real git repo with an initial commit
 // containing go.mod, go.sum and app.go.
-func testInitRepoWithCommit(t *testing.T) (dir string, git *devflow.Git) {
+func testInitRepoWithCommit(t *testing.T) (dir string, git *gitmod.Git) {
 	t.Helper()
 	dir, cleanup := testCreateGitRepo()
 	t.Cleanup(cleanup)
@@ -36,7 +37,7 @@ func testInitRepoWithCommit(t *testing.T) (dir string, git *devflow.Git) {
 	exec.Command("git", "-C", dir, "add", ".").Run()
 	exec.Command("git", "-C", dir, "commit", "-m", "initial").Run()
 
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		t.Fatalf("NewGit: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestWorkTreeDirtyBeyond(t *testing.T) {
 	dir, git := testInitRepoWithCommit(t)
 
 	// Clean tree → not dirty
-	dirty, err := devflow.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
+	dirty, err := gitmod.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
 	if err != nil {
 		t.Fatalf("WorkTreeDirtyBeyond: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestWorkTreeDirtyBeyond(t *testing.T) {
 	// Only go.mod/go.sum modified → NOT dirty beyond allowed
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/test/app\n\ngo 1.21\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "go.sum"), []byte("x\n"), 0644)
-	dirty, err = devflow.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
+	dirty, err = gitmod.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
 	if err != nil {
 		t.Fatalf("WorkTreeDirtyBeyond: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestWorkTreeDirtyBeyond(t *testing.T) {
 	// .env and .gitignore are always ignored (same rule as HasPendingChanges)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte("KEY=1\n"), 0644)
 	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".env\n"), 0644)
-	dirty, err = devflow.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
+	dirty, err = gitmod.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
 	if err != nil {
 		t.Fatalf("WorkTreeDirtyBeyond: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestWorkTreeDirtyBeyond(t *testing.T) {
 
 	// An unrelated WIP file → dirty
 	os.WriteFile(filepath.Join(dir, "wip.go"), []byte("package app\n"), 0644)
-	dirty, err = devflow.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
+	dirty, err = gitmod.WorkTreeDirtyBeyond(git, "go.mod", "go.sum")
 	if err != nil {
 		t.Fatalf("WorkTreeDirtyBeyond: %v", err)
 	}
@@ -240,7 +241,7 @@ func TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum(t *testing.T) {
 	g.SetConsoleOutput(func(string) {})
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: nueva API de rutas")
+	outcome, err := g.UpdateDependentModule(depDir, []gitmod.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: nueva API de rutas")
 	if err != nil {
 		t.Fatalf("dirty-tree path must succeed as deps-only, got error: %v", err)
 	}
@@ -295,10 +296,10 @@ func TestUpdateDependentModule_DirtyTreeCommitsOnlyGoModAndSum(t *testing.T) {
 	if !sawPush {
 		t.Errorf("expected a push of the deps-only commit, git calls: %v", gitCalls)
 	}
-	if !strings.HasPrefix(commitMsg, devflow.DepsCommitPrefix) {
-		t.Errorf("commit message must start with %q, got: %q", devflow.DepsCommitPrefix, commitMsg)
+	if !strings.HasPrefix(commitMsg, gitmod.DepsCommitPrefix) {
+		t.Errorf("commit message must start with %q, got: %q", gitmod.DepsCommitPrefix, commitMsg)
 	}
-	if !strings.Contains(commitMsg, devflow.CauseLinePrefix+"feat: nueva API de rutas") {
+	if !strings.Contains(commitMsg, gitmod.CauseLinePrefix+"feat: nueva API de rutas") {
 		t.Errorf("commit message must propagate the root cause line, got: %q", commitMsg)
 	}
 
@@ -321,7 +322,7 @@ func TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched(t *testing.T) {
 	g, _ := devflow.NewGo(&MockGitClient{})
 	g.SetConsoleOutput(func(string) {})
 
-	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	outcome, err := g.UpdateDependentModule(depDir, []gitmod.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -329,8 +330,8 @@ func TestUpdateDependentModule_ActiveSessionLeavesRepoUntouched(t *testing.T) {
 	if outcome.Status != devflow.CascadeStatusSkipped {
 		t.Errorf("expected status %s, got %s", devflow.CascadeStatusSkipped, outcome.Status)
 	}
-	if outcome.Reason != devflow.ObjectionCodejobSession {
-		t.Errorf("expected reason %s, got %s", devflow.ObjectionCodejobSession, outcome.Reason)
+	if outcome.Reason != gitmod.ObjectionCodejobSession {
+		t.Errorf("expected reason %s, got %s", gitmod.ObjectionCodejobSession, outcome.Reason)
 	}
 
 	// Verify go.mod remains untouched
@@ -385,15 +386,15 @@ func TestUpdateDependentModule_OtherReplacesGoesDepsOnly(t *testing.T) {
 	g.SetConsoleOutput(func(string) {})
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	outcome, err := g.UpdateDependentModule(depDir, []gitmod.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
 	if err != nil {
 		t.Fatalf("other-replaces path must succeed as deps-only, got error: %v", err)
 	}
 	if outcome.Status != devflow.CascadeStatusDepsOnly {
 		t.Errorf("expected status %s, got %+v", devflow.CascadeStatusDepsOnly, outcome)
 	}
-	if outcome.Reason != devflow.ObjectionOtherReplaces {
-		t.Errorf("expected reason %s, got %s", devflow.ObjectionOtherReplaces, outcome.Reason)
+	if outcome.Reason != gitmod.ObjectionOtherReplaces {
+		t.Errorf("expected reason %s, got %s", gitmod.ObjectionOtherReplaces, outcome.Reason)
 	}
 
 	mu.Lock()
@@ -439,7 +440,7 @@ func TestUpdateDependentModule_DisplayNameIncludesParentRepo(t *testing.T) {
 	g, _ := devflow.NewGo(&MockGitClient{})
 	g.SetConsoleOutput(func(s string) { lines = append(lines, s) })
 
-	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	outcome, err := g.UpdateDependentModule(depDir, []gitmod.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -485,7 +486,7 @@ func TestUpdateDependentModule_UpToDateLeavesRepoUntouched(t *testing.T) {
 		return exec.Command("true")
 	}
 
-	outcome, err := g.UpdateDependentModule(depDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
+	outcome, err := g.UpdateDependentModule(depDir, []gitmod.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "feat: test")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -523,7 +524,7 @@ func TestUpdateDependentModule_MultiDependencyUnblocked(t *testing.T) {
 		return exec.Command("true")
 	}
 
-	bumps := []devflow.DepBump{
+	bumps := []gitmod.DepBump{
 		{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"},
 		{ModulePath: "github.com/test/other", NewVersion: "v0.0.1"},
 	}
@@ -534,7 +535,7 @@ func TestUpdateDependentModule_MultiDependencyUnblocked(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if outcome.Status == devflow.CascadeStatusSkipped && outcome.Reason == devflow.ObjectionOtherReplaces {
+	if outcome.Status == devflow.CascadeStatusSkipped && outcome.Reason == gitmod.ObjectionOtherReplaces {
 		t.Fatal("should not be blocked by replaces that are part of the wave")
 	}
 }

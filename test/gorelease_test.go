@@ -3,6 +3,7 @@ package devflow_test
 import (
 	"errors"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -245,7 +246,7 @@ func TestReleaseOnly_Errors(t *testing.T) {
 		defer testChdir(t, dir)()
 
 		goHandler, _ := devflow.NewGo(&MockGitClient{})
-		err := goHandler.ReleaseOnly("v1.0.0", &devflow.GitHub{})
+		err := goHandler.ReleaseOnly("v1.0.0", &gitmod.GitHub{})
 		if err == nil || !strings.Contains(err.Error(), "no cmd/ found") {
 			t.Errorf("Expected 'no cmd/ found' error, got %v", err)
 		}
@@ -258,7 +259,7 @@ func TestReleaseOnly_Errors(t *testing.T) {
 
 		mockGit := &MockGitClient{latestTag: ""} // No tags
 		goHandler, _ := devflow.NewGo(mockGit)
-		err := goHandler.ReleaseOnly("", &devflow.GitHub{})
+		err := goHandler.ReleaseOnly("", &gitmod.GitHub{})
 		if err == nil || !strings.Contains(err.Error(), "no tags found") {
 			t.Errorf("Expected 'no tags found' error, got %v", err)
 		}
@@ -278,7 +279,7 @@ func TestReleaseOnly_Errors(t *testing.T) {
 			return nil, errors.New("compile error")
 		})
 
-		err := goHandler.ReleaseOnly("", &devflow.GitHub{})
+		err := goHandler.ReleaseOnly("", &gitmod.GitHub{})
 		if err == nil {
 			t.Fatal("Expected error")
 		}

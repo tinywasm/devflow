@@ -2,6 +2,7 @@ package devflow_test
 
 import (
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"io"
 	"net/http"
 	"os"
@@ -90,7 +91,7 @@ func TestCheckoutPRBranch_DirtyTreeSuccess(t *testing.T) {
 		}
 	}
 
-	branch, err := devflow.CheckoutPRBranch(devflow.RealRunner{}, "https://github.com/test/pull/1")
+	branch, err := devflow.CheckoutPRBranch(gitmod.RealRunner{}, "https://github.com/test/pull/1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestCheckoutPRBranch_PopConflict(t *testing.T) {
 		}
 	}
 
-	branch, err := devflow.CheckoutPRBranch(devflow.RealRunner{}, "https://github.com/test/pull/1")
+	branch, err := devflow.CheckoutPRBranch(gitmod.RealRunner{}, "https://github.com/test/pull/1")
 	if err == nil {
 		t.Fatal("expected error due to stash pop conflict, got nil")
 	}
@@ -173,7 +174,7 @@ func TestMergeAndPublish_Guard(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	_, err := devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "")
+	_, err := devflow.MergeAndPublish(gitmod.RealRunner{}, mockPub, "test", "")
 	if err == nil {
 		t.Fatal("expected MergeAndPublish to fail when checkout fails")
 	}
@@ -189,7 +190,7 @@ func TestMergePR_NoPRURL(t *testing.T) {
 	_ = os.MkdirAll("docs", 0755)
 	_ = os.WriteFile("docs/PLAN.md", []byte("---\nPLAN: test\n---\n"), 0644)
 
-	err := devflow.MergePR(devflow.RealRunner{})
+	err := devflow.MergePR(gitmod.RealRunner{})
 	if err == nil {
 		t.Fatal("expected error when no PR URL in PLAN.md, got nil")
 	}
@@ -273,7 +274,7 @@ func TestMergeAndPublish_DirtyStateCommitsBeforeMerge(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(gitmod.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	statusIdx := idxOf("git status --porcelain")
 	addIdx := idxOf("git add .")
@@ -344,7 +345,7 @@ func TestMergeAndPublish_CleanStateSkipsPreCommit(t *testing.T) {
 	}
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(gitmod.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	commitIdx := idxOf("git commit -m review:")
 	checkoutIdx := idxOf("git checkout main")
@@ -399,7 +400,7 @@ func TestMergeAndPublish_UsesMasterWhenThatsTheDefaultBranch(t *testing.T) {
 	command.Exec = mockFn
 
 	mockPub := &MockPublisher{}
-	devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
+	devflow.MergeAndPublish(gitmod.RealRunner{}, mockPub, "test", "") //nolint: the result is not relevant; we test the call sequence
 
 	idxOf := func(prefix string) int {
 		for i, c := range recorded {
@@ -431,12 +432,12 @@ func TestMergeAndPublish_TagOverride(t *testing.T) {
 	command.Exec = mockFn
 
 	mockPub := &MockPublisher{
-		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (devflow.PushResult, error) {
-			return devflow.PushResult{Tag: tag, Summary: "Mock published " + tag}, nil
+		PublishFn: func(message, tag string, skipTests, skipRace, skipDependents, skipBackup, skipTag, skipVerify bool) (gitmod.PushResult, error) {
+			return gitmod.PushResult{Tag: tag, Summary: "Mock published " + tag}, nil
 		},
 	}
 
-	result, err := devflow.MergeAndPublish(devflow.RealRunner{}, mockPub, "test", "v1.2.3")
+	result, err := devflow.MergeAndPublish(gitmod.RealRunner{}, mockPub, "test", "v1.2.3")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

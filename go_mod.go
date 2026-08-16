@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -348,12 +349,12 @@ func (g *GoModHandler) SetOnSSRFileChange(fn func(string)) {
 	g.OnSSRFileChange = fn
 }
 
-func (m *GoModHandler) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
+func (m *GoModHandler) ObjectsToPublish(ctx gitmod.PublishContext) (gitmod.PublishAction, string) {
 	m.SetRootDir(ctx.RepoDir)
 	if m.HasOtherReplaces(ctx.ModulePaths...) {
-		return ActionDepsOnly, ObjectionOtherReplaces
+		return gitmod.ActionDepsOnly, gitmod.ObjectionOtherReplaces
 	}
-	return ActionNone, ""
+	return gitmod.ActionNone, ""
 }
 
 func (g *GoModHandler) Name() string {
@@ -623,7 +624,7 @@ func (g *Go) UpdateDependents(modulePath, version, searchPath string) error {
 			// Every outcome — success, skip and failure alike — is streamed via
 			// consoleOutput inside UpdateDependentModule, so one line per dependent
 			// always reaches the terminal and the count above stays honest.
-			_, _ = g.UpdateDependentModule(dir, []DepBump{{ModulePath: modulePath, NewVersion: version}}, "")
+			_, _ = g.UpdateDependentModule(dir, []gitmod.DepBump{{ModulePath: modulePath, NewVersion: version}}, "")
 		}(depDir)
 	}
 

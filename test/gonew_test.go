@@ -5,6 +5,7 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,7 +98,7 @@ func TestGoNewCreateLocalOnly(t *testing.T) {
 	// Mock Git config
 	// We can set it globally or locally?
 	// NewGit checks if git is installed.
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		t.Skip("git not installed")
 	}
@@ -169,7 +170,7 @@ func TestGoNewWithCustomOwner(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		t.Skip("git not installed")
 	}

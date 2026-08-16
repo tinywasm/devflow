@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,7 +39,7 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 
 	// Check cache only for full suite runs
 	if !hasCustomArgs && !noCache {
-		cache := NewTestCache(g.rootDir)
+		cache := gitmod.NewTestCache(g.rootDir)
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
 		}
@@ -57,7 +58,7 @@ func (g *Go) Test(customArgs []string, skipRace bool, timeoutSec int, noCache bo
 func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, noCache bool, runAll bool) (string, error) {
 	// Check cache - if code hasn't changed since last successful test, return cached result
 	if !noCache {
-		cache := NewTestCache(g.rootDir)
+		cache := gitmod.NewTestCache(g.rootDir)
 		if cache.IsCacheValid() {
 			return cache.GetCachedMessage(), nil
 		}
@@ -432,7 +433,7 @@ func (g *Go) runFullTestSuite(moduleName string, skipRace bool, timeoutSec int, 
 
 	// Save test cache on success (for gopush optimization)
 	// We save even if noCache=true, because this was a valid run
-	cache := NewTestCache(g.rootDir)
+	cache := gitmod.NewTestCache(g.rootDir)
 	if err := cache.SaveCache(summary); err != nil {
 		g.log("Warning: failed to save test cache:", err)
 	}

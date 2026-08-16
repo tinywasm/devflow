@@ -2,6 +2,7 @@ package devflow
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ type CodeJob struct {
 	log       func(...any)
 	publisher Publisher
 	releaseFn func(tag string) error
-	runner    Runner
+	runner    gitmod.Runner
 }
 
 // NewCodeJob creates a CodeJob with the given ordered drivers.
@@ -48,7 +49,7 @@ func NewCodeJob(drivers ...CodeJobDriver) *CodeJob {
 	return &CodeJob{
 		drivers: drivers,
 		log:     func(...any) {},
-		runner:  RealRunner{},
+		runner:  gitmod.RealRunner{},
 	}
 }
 
@@ -60,25 +61,25 @@ func (c *CodeJob) SetLog(fn func(...any)) {
 }
 
 // SetRunner sets the command runner (mainly for testing).
-func (c *CodeJob) SetRunner(r Runner) {
+func (c *CodeJob) SetRunner(r gitmod.Runner) {
 	if r != nil {
 		c.runner = r
 	}
 }
 
 // ObjectsToPublish implements PublishObjector. It is stateless.
-func (CodeJob) ObjectsToPublish(ctx PublishContext) (PublishAction, string) {
+func (CodeJob) ObjectsToPublish(ctx gitmod.PublishContext) (gitmod.PublishAction, string) {
 	// Skip if a session is active (running or review).
 	// Running: agent is working, do not touch.
 	// Review: local tree is on PR branch, deps updates would commit into the PR.
 	phase := CodejobPhaseOf(ctx.RepoDir)
 	if phase == PhaseRunning || phase == PhaseReview {
-		return ActionSkip, ObjectionCodejobSession
+		return gitmod.ActionSkip, gitmod.ObjectionCodejobSession
 	}
 	if _, err := os.Stat(filepath.Join(ctx.RepoDir, DefaultIssuePromptPath)); err == nil {
-		return ActionDepsOnly, ObjectionPlanPending
+		return gitmod.ActionDepsOnly, gitmod.ObjectionPlanPending
 	}
-	return ActionNone, ""
+	return gitmod.ActionNone, ""
 }
 
 // SetPublisher injects a Publisher for close-loop operations.
@@ -232,7 +233,7 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 				if in == "" {
 					return false, fmt.Errorf("API key cannot be empty")
 				}
-				kr, err := NewKeyring()
+				kr, err := gitmod.NewKeyring()
 				if err != nil {
 					return false, fmt.Errorf("could not initialize keyring: %w", err)
 				}
@@ -249,7 +250,7 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 // driver in order until one succeeds. Returns an error if the file is missing,
 // empty, the publish fails, or all drivers fail.
 func (c *CodeJob) Send(issuePromptPath string) (string, error) {
-	if err := EnsureGHSession(c.runner); err != nil {
+	if err := gitmod.EnsureGHSession(c.runner); err != nil {
 		return "", err
 	}
 
@@ -375,7 +376,7 @@ func (c *CodeJob) RunCI(phase string) error {
 			return fmt.Errorf("cannot verdict: STATUS is %q (expected reviewing)", meta.Status)
 		}
 
-		// Read review state via Runner (e.g. gh pr view <PR> --json reviews --jq ".reviews")
+		// Read review state via gitmod.Runner (e.g. gh pr view <PR> --json reviews --jq ".reviews")
 		reviewsJSON, err := c.runner.Run("gh", "pr", "view", meta.PR, "--json", "reviews", "--jq", ".reviews")
 		if err != nil {
 			return fmt.Errorf("failed to fetch reviews: %w", err)

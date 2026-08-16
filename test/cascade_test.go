@@ -15,6 +15,7 @@ package devflow_test
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,9 +167,9 @@ func TestRunCascade_ChainPropagatesBumpsAndCause(t *testing.T) {
 	g := newCascadeHandler(t, mainDir)
 
 	var mu sync.Mutex
-	calls := map[string][]devflow.DepBump{}
+	calls := map[string][]gitmod.DepBump{}
 	causes := map[string]string{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []gitmod.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		calls[node.ModulePath] = bumps
@@ -222,8 +223,8 @@ func TestRunCascade_DiamondProcessesNodeOnceWithAllBumps(t *testing.T) {
 
 	var mu sync.Mutex
 	callCount := map[string]int{}
-	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
+	calls := map[string][]gitmod.DepBump{}
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []gitmod.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		callCount[node.ModulePath]++
@@ -265,8 +266,8 @@ func TestRunCascade_FailureCutsOnlyItsBranch(t *testing.T) {
 	g := newCascadeHandler(t, mainDir)
 
 	var mu sync.Mutex
-	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
+	calls := map[string][]gitmod.DepBump{}
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []gitmod.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		calls[node.ModulePath] = bumps
 		mu.Unlock()
@@ -324,8 +325,8 @@ func TestRunCascade_DepsOnlyNodeDoesNotPropagate(t *testing.T) {
 	g := newCascadeHandler(t, mainDir)
 
 	var mu sync.Mutex
-	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
+	calls := map[string][]gitmod.DepBump{}
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []gitmod.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		calls[node.ModulePath] = bumps
 		mu.Unlock()
@@ -365,8 +366,8 @@ func TestRunCascade_SkippedNodeDoesNotPropagate(t *testing.T) {
 	g := newCascadeHandler(t, mainDir)
 
 	var mu sync.Mutex
-	calls := map[string][]devflow.DepBump{}
-	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []devflow.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
+	calls := map[string][]gitmod.DepBump{}
+	g.SetCascadeProcessFn(func(node devflow.CascadeNode, bumps []gitmod.DepBump, rootCause string) (devflow.CascadeOutcome, error) {
 		mu.Lock()
 		calls[node.ModulePath] = bumps
 		mu.Unlock()

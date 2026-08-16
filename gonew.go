@@ -3,6 +3,7 @@ package devflow
 import (
 	"fmt"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 // GoNew orchestrator
 type GoNew struct {
-	git    GitClient
+	git    gitmod.GitClient
 	github *Future
 	goH    *Go
 	log    func(...any)
@@ -28,7 +29,7 @@ type NewProjectOptions struct {
 }
 
 // NewGoNew creates orchestrator (all handlers must be initialized)
-func NewGoNew(git GitClient, github *Future, goHandler *Go) *GoNew {
+func NewGoNew(git gitmod.GitClient, github *Future, goHandler *Go) *GoNew {
 	return &GoNew{
 		git:    git,
 		github: github,
@@ -116,7 +117,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		gh := res.(GitHubClient)
+		gh := res.(gitmod.GitHubClient)
 
 		ghUser, err = gh.GetCurrentUser()
 		if err != nil && !opts.LocalOnly {
@@ -138,7 +139,7 @@ func (gn *GoNew) Create(opts NewProjectOptions) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		gh := res.(GitHubClient)
+		gh := res.(gitmod.GitHubClient)
 
 		if ghUser == "" {
 			ghUser, err = gh.GetCurrentUser()
@@ -320,7 +321,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 		if err != nil {
 			return "", err
 		}
-		gh := res.(GitHubClient)
+		gh := res.(gitmod.GitHubClient)
 
 		ghUser, err = gh.GetCurrentUser()
 		if err != nil {
@@ -332,7 +333,7 @@ func (gn *GoNew) AddRemote(projectPath, visibility, owner string) (string, error
 	if err != nil {
 		return "", err
 	}
-	gh := res.(GitHubClient)
+	gh := res.(gitmod.GitHubClient)
 
 	exists, err := gh.RepoExists(ghUser, repoName)
 	if err == nil && exists {

@@ -1,9 +1,8 @@
 package devflow_test
 
-import "github.com/tinywasm/devflow"
-
 import (
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,7 +127,7 @@ func TestAsyncUpdateFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	git, _ := devflow.NewGit()
+	git, _ := gitmod.NewGit()
 	g := newGoHandlerWithMockBackup(t, git)
 
 	// Speed up tests by reducing retry delay

@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ func TestInternalSubmoduleHandling(t *testing.T) {
 	os.WriteFile(filepath.Join(subDir, "go.mod"), []byte(subModContent), 0644)
 	os.WriteFile(filepath.Join(subDir, "main.go"), []byte("package sub\n"), 0644)
 
-	git, _ := devflow.NewGit()
+	git, _ := gitmod.NewGit()
 	git.SetRootDir(tmpDir)
 
 	gh, _ := devflow.NewGo(git)

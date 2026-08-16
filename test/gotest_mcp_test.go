@@ -3,6 +3,7 @@ package devflow_test
 import (
 	"context"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os/exec"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestGoTestProvider(t *testing.T) {
 	dir, cleanup := testCreateGoModule("example.com/mcptest")
 	defer cleanup()
 
-	git, _ := devflow.NewGit()
+	git, _ := gitmod.NewGit()
 	g, _ := devflow.NewGo(git)
 	g.SetRootDir(dir)
 

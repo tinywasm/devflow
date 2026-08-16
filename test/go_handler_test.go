@@ -5,6 +5,7 @@ import "github.com/tinywasm/devflow"
 import (
 	"fmt"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -196,7 +197,7 @@ func TestExample(t *testing.T) {}
 
 func TestGoPush_NoGoMod(t *testing.T) {
 	mockGit := &MockGitClient{
-		pushResult: devflow.PushResult{Summary: "Git push ok"},
+		pushResult: gitmod.PushResult{Summary: "Git push ok"},
 	}
 
 	// Temp dir WITHOUT go.mod
@@ -368,7 +369,7 @@ func TestUpdateDependentModule(t *testing.T) {
 	g := newGoHandlerWithMockBackup(t, mockGit)
 	g.SetRetryConfig(time.Millisecond, 1)
 
-	result, err := g.UpdateDependentModule(myappDir, []devflow.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "")
+	result, err := g.UpdateDependentModule(myappDir, []gitmod.DepBump{{ModulePath: "github.com/test/mylib", NewVersion: "v0.0.1"}}, "")
 
 	// We expect a failure at "go get" because the module doesn't exist in registry
 	if err == nil {
@@ -476,7 +477,7 @@ type MockGitClient struct {
 	pushErr               error
 	latestTag             string
 	createdTag            string
-	pushResult            devflow.PushResult
+	pushResult            gitmod.PushResult
 	pushWithoutTagsCalled bool
 	log                   func(...any)
 	AddCalls              int
@@ -492,14 +493,14 @@ func (m *MockGitClient) CheckRemoteAccess() error {
 	return m.checkAccessErr
 }
 
-func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
+func (m *MockGitClient) Push(message, tag string) (gitmod.PushResult, error) {
 	m.LastPushTag = tag
 	m.LastPushMessage = message
 	if m.checkAccessErr != nil {
-		return devflow.PushResult{}, m.checkAccessErr
+		return gitmod.PushResult{}, m.checkAccessErr
 	}
 	if m.pushErr != nil {
-		return devflow.PushResult{}, m.pushErr
+		return gitmod.PushResult{}, m.pushErr
 	}
 	if m.pushResult.Summary != "" || m.pushResult.Tag != "" {
 		return m.pushResult, nil
@@ -511,7 +512,7 @@ func (m *MockGitClient) Push(message, tag string) (devflow.PushResult, error) {
 	if tag != "" {
 		resultTag = tag
 	}
-	return devflow.PushResult{
+	return gitmod.PushResult{
 		Summary: "Mock push ok",
 		Tag:     resultTag,
 	}, nil
@@ -704,7 +705,7 @@ func TestGoPush_SkipVerify_DoesNotCallVerify(t *testing.T) {
 	defer testChdir(t, dir)()
 
 	mockGit := &MockGitClient{
-		pushResult: devflow.PushResult{Summary: "Mock push ok", Tag: "v0.0.1"},
+		pushResult: gitmod.PushResult{Summary: "Mock push ok", Tag: "v0.0.1"},
 		latestTag:  "v0.0.0",
 	}
 

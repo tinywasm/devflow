@@ -3,6 +3,7 @@ package devflow_test
 import (
 	"context"
 	"github.com/tinywasm/command"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +56,7 @@ func TestGotest_BadgesOnlyOnSuccess(t *testing.T) {
 		t.Fatalf("Failed to write failing test: %v", err)
 	}
 
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		t.Fatalf("Failed to create git handler: %v", err)
 	}

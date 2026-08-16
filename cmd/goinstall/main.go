@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 
 	"github.com/tinywasm/devflow"
 )
 
 func main() {
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)

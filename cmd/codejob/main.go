@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"strings"
 
@@ -16,7 +17,7 @@ func main() {
 	}
 
 	if opts.IsResetGHToken {
-		auth, err := devflow.NewGitHubPATAuth()
+		auth, err := gitmod.NewGitHubPATAuth()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
@@ -42,7 +43,7 @@ func main() {
 		return
 	}
 
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
@@ -60,13 +61,13 @@ func main() {
 
 	// Ensure gh session is valid before creating the GitHub handler
 	// to prevent the interactive device flow from triggering early.
-	if err := devflow.EnsureGHSession(devflow.RealRunner{}); err != nil {
+	if err := gitmod.EnsureGHSession(gitmod.RealRunner{}); err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub session error:", err)
 		os.Exit(1)
 	}
 
-	patAuth, _ := devflow.NewGitHubPATAuth()
-	gh, err := devflow.NewGitHub(log, patAuth)
+	patAuth, _ := gitmod.NewGitHubPATAuth()
+	gh, err := gitmod.NewGitHub(log, patAuth)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub error:", err)
 		os.Exit(1)

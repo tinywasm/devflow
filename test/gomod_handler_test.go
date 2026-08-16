@@ -3,6 +3,7 @@ package devflow_test
 import "github.com/tinywasm/devflow"
 
 import (
+	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
 	"testing"
@@ -166,11 +167,11 @@ func TestGoModHandler_ObjectsToPublish(t *testing.T) {
 	os.WriteFile(gomodPath, []byte(content), 0644)
 
 	m := devflow.NewGoModHandler()
-	ctx := devflow.PublishContext{RepoDir: tmp, ModulePaths: []string{"github.com/foo/bar"}}
+	ctx := gitmod.PublishContext{RepoDir: tmp, ModulePaths: []string{"github.com/foo/bar"}}
 
 	// with only the expected replace -> ActionNone
 	action, reason := m.ObjectsToPublish(ctx)
-	if action != devflow.ActionNone {
+	if action != gitmod.ActionNone {
 		t.Errorf("expected ActionNone, got %v (%s)", action, reason)
 	}
 
@@ -180,10 +181,10 @@ func TestGoModHandler_ObjectsToPublish(t *testing.T) {
 	os.WriteFile(gomodPath, []byte(content2), 0644)
 	m = devflow.NewGoModHandler() // fresh load
 	action, reason = m.ObjectsToPublish(ctx)
-	if action != devflow.ActionDepsOnly {
+	if action != gitmod.ActionDepsOnly {
 		t.Errorf("expected ActionDepsOnly, got %v (%s)", action, reason)
 	}
-	if reason != devflow.ObjectionOtherReplaces {
-		t.Errorf("expected %q, got %q", devflow.ObjectionOtherReplaces, reason)
+	if reason != gitmod.ObjectionOtherReplaces {
+		t.Errorf("expected %q, got %q", gitmod.ObjectionOtherReplaces, reason)
 	}
 }

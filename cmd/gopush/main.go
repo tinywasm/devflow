@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	gitmod "github.com/tinywasm/git"
 	"os"
 
 	"github.com/tinywasm/devflow"
@@ -55,13 +56,13 @@ Flags:
 		os.Exit(0)
 	}
 
-	git, err := devflow.NewGit()
+	git, err := gitmod.NewGit()
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
 
-	auth := devflow.NewGitHubOAuth()
+	auth := gitmod.NewGitHubOAuth()
 	git.SetAuthRetrier(auth)
 
 	goHandler, err := devflow.NewGo(git)
