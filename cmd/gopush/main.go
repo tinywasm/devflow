@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/tinywasm/devflow"
+	"github.com/tinywasm/keyring"
 )
 
 func main() {
@@ -63,6 +64,12 @@ Flags:
 	}
 
 	auth := gitmod.NewGitHubOAuth()
+	kr, err := keyring.NewKeyring("devflow")
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+	auth.SetStore(kr)
 	git.SetAuthRetrier(auth)
 
 	goHandler, err := devflow.NewGo(git)

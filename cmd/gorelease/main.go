@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/tinywasm/devflow"
+	"github.com/tinywasm/keyring"
 )
 
 func main() {
@@ -49,6 +50,12 @@ Examples:
 	}
 
 	auth := gitmod.NewGitHubOAuth()
+	kr, err := keyring.NewKeyring("devflow")
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+	auth.SetStore(kr)
 	git.SetAuthRetrier(auth)
 
 	goHandler, err := devflow.NewGo(git)
@@ -61,7 +68,7 @@ Examples:
 	goHandler.SetLog(log)
 	goHandler.SetConsoleOutput(func(s string) { fmt.Println(s) })
 
-	gh, err := gitmod.NewGitHub(log)
+	gh, err := gitmod.NewGitHub(log, kr)
 	if err != nil {
 		fmt.Println("GitHub error:", err)
 		os.Exit(1)

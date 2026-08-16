@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	"fmt"
 	gitmod "github.com/tinywasm/git"
 	"os"
 	"os/exec"
@@ -11,6 +12,29 @@ import (
 	"github.com/tinywasm/command"
 	"github.com/tinywasm/devflow"
 )
+
+// memStore is an in-memory gitmod.SecretStore for tests.
+type memStore map[string]string
+
+var _ gitmod.SecretStore = (memStore)(nil)
+
+func (m memStore) Set(key, value string) error {
+	m[key] = value
+	return nil
+}
+
+func (m memStore) Get(key string) (string, error) {
+	v, ok := m[key]
+	if !ok {
+		return "", fmt.Errorf("no value for key %q", key)
+	}
+	return v, nil
+}
+
+func (m memStore) Delete(key string) error {
+	delete(m, key)
+	return nil
+}
 
 type mockRunner struct {
 	calls  []string
@@ -48,10 +72,7 @@ func TestAuth_EnvVarThenKeyring(t *testing.T) {
 		t.Errorf("expected env key, got %q", key)
 	}
 
-	patAuth, err := gitmod.NewGitHubPATAuth()
-	if err != nil {
-		t.Fatal(err)
-	}
+	patAuth := gitmod.NewGitHubPATAuth(memStore{})
 	tok, err := patAuth.EnsureToken()
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +230,7 @@ func TestInitAction_SecretScope(t *testing.T) {
 		return exec.Command("echo", "ok")
 	}
 
-	gh, err := gitmod.NewGitHub(func(args ...any) {}, gitmod.NewMockGitHubAuth())
+	gh, err := gitmod.NewGitHub(func(args ...any) {}, nil, gitmod.NewMockGitHubAuth())
 	if err != nil {
 		t.Fatal(err)
 	}

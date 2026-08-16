@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tinywasm/devflow"
+	"github.com/tinywasm/keyring"
 )
 
 func main() {
@@ -17,12 +18,12 @@ func main() {
 	}
 
 	if opts.IsResetGHToken {
-		auth, err := gitmod.NewGitHubPATAuth()
+		kr, err := keyring.NewKeyring("devflow")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
-		if err := auth.Reset(); err != nil {
+		if err := gitmod.NewGitHubPATAuth(kr).Reset(); err != nil {
 			fmt.Fprintln(os.Stderr, "Error resetting GitHub token:", err)
 			os.Exit(1)
 		}
@@ -61,13 +62,13 @@ func main() {
 
 	// Ensure gh session is valid before creating the GitHub handler
 	// to prevent the interactive device flow from triggering early.
-	if err := gitmod.EnsureGHSession(gitmod.RealRunner{}); err != nil {
+	if err := gitmod.EnsureGHSession(gitmod.RealRunner{}, keyring.OpenKeyring("devflow")); err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub session error:", err)
 		os.Exit(1)
 	}
 
-	patAuth, _ := gitmod.NewGitHubPATAuth()
-	gh, err := gitmod.NewGitHub(log, patAuth)
+	patAuth := gitmod.NewGitHubPATAuth(keyring.OpenKeyring("devflow"))
+	gh, err := gitmod.NewGitHub(log, nil, patAuth)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub error:", err)
 		os.Exit(1)

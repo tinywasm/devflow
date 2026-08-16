@@ -2,10 +2,10 @@ package devflow
 
 import (
 	"fmt"
-	gitmod "github.com/tinywasm/git"
 	"os"
 	"strings"
 
+	"github.com/tinywasm/keyring"
 	"golang.org/x/term"
 )
 
@@ -20,15 +20,14 @@ func termLink(text, url string) string {
 // JulesAuth manages the Jules API key via the system keyring.
 // On first use it prompts the user to enter the key and stores it securely.
 type JulesAuth struct {
-	kr  *gitmod.Keyring
+	kr  *keyring.Keyring
 	log func(...any)
 }
 
-// NewJulesAuth creates a JulesAuth with an initialized keyring.
+// NewJulesAuth creates a JulesAuth over the "devflow" keyring service.
 func NewJulesAuth() (*JulesAuth, error) {
-	kr, _ := gitmod.NewKeyring()
 	return &JulesAuth{
-		kr:  kr,
+		kr:  keyring.OpenKeyring("devflow"),
 		log: func(...any) {},
 	}, nil
 }

@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/tinywasm/keyring"
 )
 
 // JulesSessionState polls the Jules API for session status.
@@ -175,7 +177,7 @@ func resolveDefaultBranch(runner gitmod.Runner) string {
 
 // MergeAndPublish merges the Jules PR, pulls the merged commit, and publishes via gopush.
 func MergeAndPublish(runner gitmod.Runner, publisher Publisher, message, overrideTag string) (gitmod.PushResult, error) {
-	if err := gitmod.EnsureGHSession(runner); err != nil {
+	if err := gitmod.EnsureGHSession(runner, keyring.OpenKeyring("devflow")); err != nil {
 		return gitmod.PushResult{}, err
 	}
 	meta, err := ReadPlanMeta(DefaultIssuePromptPath)

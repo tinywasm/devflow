@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tinywasm/keyring"
 )
 
 // HTTPClient defines the interface for HTTP operations (injectable for tests).
@@ -99,7 +101,7 @@ type julesGithubCtx struct {
 // If the source is not yet indexed in Jules (404 on new repos), it polls GET /sources
 // until the source appears or the timeout is exceeded.
 func (d *JulesDriver) Send(prompt, title string) (string, error) {
-	if err := gitmod.EnsureGHSession(d.runner); err != nil {
+	if err := gitmod.EnsureGHSession(d.runner, keyring.OpenKeyring("devflow")); err != nil {
 		return "", err
 	}
 	apiKey, err := d.resolveAPIKey()

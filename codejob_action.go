@@ -6,6 +6,8 @@ import (
 	gitmod "github.com/tinywasm/git"
 	"os"
 	"path/filepath"
+
+	"github.com/tinywasm/keyring"
 )
 
 //go:embed templates/codejob.yml
@@ -45,10 +47,7 @@ func InitCodejobAction(force bool, org, visibility string) error {
 		return fmt.Errorf("failed to retrieve JULES_API_KEY: %w", err)
 	}
 
-	patAuth, err := gitmod.NewGitHubPATAuth()
-	if err != nil {
-		return fmt.Errorf("failed to initialize GitHubPATAuth: %w", err)
-	}
+	patAuth := gitmod.NewGitHubPATAuth(keyring.OpenKeyring("devflow"))
 	ghToken, err := patAuth.EnsureToken()
 	if err != nil {
 		return fmt.Errorf("failed to retrieve GH_TOKEN: %w", err)
@@ -61,7 +60,7 @@ func InitCodejobAction(force bool, org, visibility string) error {
 	}
 	fullRepo := owner + "/" + repo
 
-	gh, err := gitmod.NewGitHub(func(args ...any) {}, patAuth)
+	gh, err := gitmod.NewGitHub(func(args ...any) {}, nil, patAuth)
 	if err != nil {
 		return fmt.Errorf("failed to initialize GitHub client: %w", err)
 	}

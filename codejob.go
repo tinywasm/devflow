@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tinywasm/context"
+	"github.com/tinywasm/keyring"
 	"github.com/tinywasm/wizard"
 	"golang.org/x/term"
 )
@@ -233,7 +234,7 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 				if in == "" {
 					return false, fmt.Errorf("API key cannot be empty")
 				}
-				kr, err := gitmod.NewKeyring()
+				kr, err := keyring.NewKeyring("devflow")
 				if err != nil {
 					return false, fmt.Errorf("could not initialize keyring: %w", err)
 				}
@@ -250,7 +251,7 @@ func (c *CodeJob) GetSteps() []*wizard.Step {
 // driver in order until one succeeds. Returns an error if the file is missing,
 // empty, the publish fails, or all drivers fail.
 func (c *CodeJob) Send(issuePromptPath string) (string, error) {
-	if err := gitmod.EnsureGHSession(c.runner); err != nil {
+	if err := gitmod.EnsureGHSession(c.runner, keyring.OpenKeyring("devflow")); err != nil {
 		return "", err
 	}
 

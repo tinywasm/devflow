@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/tinywasm/devflow"
+	"github.com/tinywasm/keyring"
 )
 
 func main() {
@@ -39,7 +40,11 @@ func handleCreate(opts devflow.GoNewCLIOpts) {
 	var githubFuture *devflow.Future
 	if !opts.LocalOnly {
 		githubFuture = devflow.NewFuture(func() (any, error) {
-			return gitmod.NewGitHub(log)
+			kr, err := keyring.NewKeyring("devflow")
+			if err != nil {
+				return nil, err
+			}
+			return gitmod.NewGitHub(log, kr)
 		})
 	}
 
@@ -77,7 +82,11 @@ func handleAddRemote(opts devflow.AddRemoteCLIOpts) {
 	log := func(args ...any) { fmt.Println(args...) }
 
 	githubFuture := devflow.NewFuture(func() (any, error) {
-		return gitmod.NewGitHub(log)
+		kr, err := keyring.NewKeyring("devflow")
+		if err != nil {
+			return nil, err
+		}
+		return gitmod.NewGitHub(log, kr)
 	})
 
 	goHandler, err := devflow.NewGo(git)
