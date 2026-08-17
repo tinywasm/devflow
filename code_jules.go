@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinywasm/keyring"
+	keyring "github.com/tinywasm/keyring/auto"
 )
 
 // HTTPClient defines the interface for HTTP operations (injectable for tests).

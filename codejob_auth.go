@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tinywasm/keyring"
+	keyring "github.com/tinywasm/keyring/auto"
 	"golang.org/x/term"
 )
 

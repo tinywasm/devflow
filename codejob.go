@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/tinywasm/context"
-	"github.com/tinywasm/keyring"
+	keyring "github.com/tinywasm/keyring/auto"
 	"github.com/tinywasm/wizard"
 	"golang.org/x/term"
 )

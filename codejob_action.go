@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tinywasm/keyring"
+	keyring "github.com/tinywasm/keyring/auto"
 )
 
 //go:embed templates/codejob.yml

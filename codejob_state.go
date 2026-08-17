@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinywasm/keyring"
+	keyring "github.com/tinywasm/keyring/auto"
 )
 
 // JulesSessionState polls the Jules API for session status.

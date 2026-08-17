@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/tinywasm/devflow"
-	"github.com/tinywasm/keyring"
+	keyring "github.com/tinywasm/keyring/auto"
 )
 
 func main() {
