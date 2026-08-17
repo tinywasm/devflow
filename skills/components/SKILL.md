@@ -99,7 +99,7 @@ func (c *MyComponent) IconSvg() map[string]string {
 `IconSvg()` MUST be in `ssr.go`. SVG strings must never reach the WASM binary.
 All paths/shapes MUST use `fill="currentColor"` or `stroke="currentColor"` — never hardcode colors in SVG.
 
-`RenderCSS()` ships component-scoped CSS only — it goes to `assetmin`'s `middle` slot. Components MUST NOT declare a `RootCSS()` function: theme `:root` tokens are global state owned by the app or `tinywasm/dom`'s default theme. A third-party `RootCSS()` is silently ignored by `assetmin` with a warning (single-override rule).
+`RenderCSS()` ships component-scoped CSS only — it goes to `sitec`'s `middle` slot. Components MUST NOT declare a `RootCSS()` function: theme `:root` tokens are global state owned by the app or `tinywasm/dom`'s default theme. A third-party `RootCSS()` is silently ignored by `sitec` with a warning (single-override rule).
 
 **Icon chain: `IconSvg()` → sprite inline en HTML → `<svg><use href="#id">` en `Render()` → CSS controla color/tamaño.**
 
@@ -128,7 +128,7 @@ En `mycomponent.css`, solo apariencia — nunca referenciar el sprite por URL:
 - A component MUST NOT define `:root { … }` — that block is owned by the app's `RootCSS()` (or `tinywasm/dom`'s default fallback). Components only consume tokens, never declare them.
 - No form-related CSS — use `tinywasm/form` for that.
 
-Theme tokens are defined in `tinywasm/dom/theme.css` and injected into `<head>` by `assetmin` via `dom.RootCSS()`. Available tokens:
+Theme tokens are defined in `tinywasm/dom/theme.css` and injected into `<head>` by `sitec` via `dom.RootCSS()`. Available tokens:
 ```
 --color-primary, --color-secondary, --color-tertiary, --color-quaternary
 --color-gray, --color-selection, --color-hover, --color-success, --color-error
