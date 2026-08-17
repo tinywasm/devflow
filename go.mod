@@ -22,7 +22,7 @@ require (
 	github.com/tinywasm/router v0.1.14 // indirect
 	github.com/tinywasm/time v0.5.0 // indirect
 	github.com/tinywasm/unixid v0.2.24 // indirect
-	github.com/tinywasm/webauthn v0.1.0 // indirect
+	github.com/tinywasm/webauthn v0.1.1 // indirect
 )
 
 require (
