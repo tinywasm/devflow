@@ -19,7 +19,7 @@ require (
 	github.com/tinywasm/dbus v0.1.0 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.17 // indirect
-	github.com/tinywasm/router v0.1.14 // indirect
+	github.com/tinywasm/router v0.1.22 // indirect
 	github.com/tinywasm/time v0.5.0 // indirect
 	github.com/tinywasm/unixid v0.2.24 // indirect
 	github.com/tinywasm/webauthn v0.1.1 // indirect
