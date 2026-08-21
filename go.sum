@@ -1,7 +1,7 @@
 github.com/tinywasm/await v0.1.0 h1:keCHZSRPohCGLv+Tm/ovZUwi9oZZX3G3QgUomsNgsxM=
 github.com/tinywasm/await v0.1.0/go.mod h1:7Z60wpqsTfOhy8zVE4kd86ZrFZ97e9Vx4E69Xwgeca8=
-github.com/tinywasm/base64 v0.0.4 h1:i7EHJSaK5yzeQxhv9gT5Dy/PjnolRvwUq5a8+3D7DFs=
-github.com/tinywasm/base64 v0.0.4/go.mod h1:p6s8iOD4F6s6smO80R3bYd8ZGZQxXCBt+5KxFQ4vCHU=
+github.com/tinywasm/base64 v0.0.5 h1:OuRGCuJrUzqo15jtotxs9PKL0mLuZmRHL6heUFaZZE4=
+github.com/tinywasm/base64 v0.0.5/go.mod h1:p6s8iOD4F6s6smO80R3bYd8ZGZQxXCBt+5KxFQ4vCHU=
 github.com/tinywasm/command v0.0.2 h1:VDeUUghEatrK4bMgv3MJlswpVZMybvxwB5YTyisfp7o=
 github.com/tinywasm/command v0.0.2/go.mod h1:biTSjIwxhPoOoyZ7iR8qt59qW1FD5QHCYfsLPlWYwkA=
 github.com/tinywasm/context v0.0.18 h1:uKeiAFo6L/PikGSbUu+xcyELGoa4kXomDNwJOlhxrUE=

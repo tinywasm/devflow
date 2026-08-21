@@ -15,7 +15,7 @@ require (
 
 require (
 	github.com/tinywasm/await v0.1.0 // indirect
-	github.com/tinywasm/base64 v0.0.4 // indirect
+	github.com/tinywasm/base64 v0.0.5 // indirect
 	github.com/tinywasm/dbus v0.1.0 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.17 // indirect
