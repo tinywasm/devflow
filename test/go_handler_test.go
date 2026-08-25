@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -487,6 +488,7 @@ type MockGitClient struct {
 	statusPorcelainOut    string
 	diffShortStatOut      string
 	CommitPathsCalls      [][]string
+	nextTagOverride       string
 }
 
 func (m *MockGitClient) CheckRemoteAccess() error {
@@ -576,6 +578,9 @@ func (m *MockGitClient) HasPendingChanges() (bool, error) {
 }
 
 func (m *MockGitClient) GenerateNextTag() (string, error) {
+	if m.nextTagOverride != "" {
+		return m.nextTagOverride, nil
+	}
 	return "v0.0.1", nil
 }
 
@@ -603,6 +608,25 @@ func (m *MockGitClient) Pull() error {
 
 func (m *MockGitClient) Fetch() error {
 	return nil
+}
+
+// IncrementTag mirrors the real gitmod.Git.IncrementTag: bumps the last
+// dot-separated numeric segment by one. Needed once GitClient's interface
+// grows this method — see sumdb_test.go.
+func (m *MockGitClient) IncrementTag(tag string) (string, error) {
+	if tag == "" {
+		return "v0.0.1", nil
+	}
+	parts := strings.Split(tag, ".")
+	if len(parts) < 3 {
+		return "", fmt.Errorf("invalid tag format: %s", tag)
+	}
+	last, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return "", fmt.Errorf("invalid tag number: %s", parts[len(parts)-1])
+	}
+	parts[len(parts)-1] = strconv.Itoa(last + 1)
+	return strings.Join(parts, "."), nil
 }
 
 // TestGoPush_AppendsShortStatBody: the root push keeps the user's title intact
