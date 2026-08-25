@@ -2,8 +2,9 @@
 PLAN: "fix: refuse to tag a version already burned in the public Go checksum database"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 13339701160524980215
+PR: https://github.com/tinywasm/devflow/pull/43
 ---
 
 > Este plan se despacha vía el flujo CodeJob. Ver skill: agents-workflow.
