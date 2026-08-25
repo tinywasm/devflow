@@ -1,6 +1,7 @@
 package devflow_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -101,5 +102,55 @@ func TestPush_SumDBClientNilPreservesCurrentBehavior(t *testing.T) {
 	}
 	if result.Tag != "v0.0.4" {
 		t.Errorf("tag: got %q, want %q (no SumDBClient configured — nothing should change)", result.Tag, "v0.0.4")
+	}
+}
+
+type errorSumDB struct {
+	err error
+}
+
+func (e *errorSumDB) Lookup(modulePath, version string) (bool, error) {
+	return false, e.err
+}
+
+// TestPush_SumDBLookupError_FailsOpen proves that when sumdb lookup fails
+// (e.g., network down), Push fails open (logs the error and proceeds with the requested tag).
+func TestPush_SumDBLookupError_FailsOpen(t *testing.T) {
+	dir, cleanup := testCreateGoModule("github.com/test/repo")
+	defer cleanup()
+	defer testChdir(t, dir)()
+
+	mockGit := &MockGitClient{}
+	goHandler := newGoHandlerWithMockBackup(t, mockGit)
+
+	var logged []string
+	goHandler.SetLog(func(args ...any) {
+		var parts []string
+		for _, a := range args {
+			parts = append(parts, strings.TrimSpace(fmt.Sprint(a)))
+		}
+		logged = append(logged, strings.Join(parts, " "))
+	})
+
+	sumdb := &errorSumDB{err: fmt.Errorf("network connection refused")}
+	goHandler.SetSumDBClient(sumdb)
+
+	result, err := goHandler.Push("fix: something", "v0.0.4", true, true, true, true, false, true, "")
+	if err != nil {
+		t.Fatalf("Push failed when sumdb lookup returned an error: %v", err)
+	}
+	if result.Tag != "v0.0.4" {
+		t.Errorf("tag: got %q, want %q (should fail open on sumdb lookup error)", result.Tag, "v0.0.4")
+	}
+
+	foundLog := false
+	for _, l := range logged {
+		if strings.Contains(l, "sumdb check skipped:") && strings.Contains(l, "network connection refused") {
+			foundLog = true
+			break
+		}
+	}
+	if !foundLog {
+		t.Errorf("expected log to contain sumdb skip warning, got: %v", logged)
 	}
 }
