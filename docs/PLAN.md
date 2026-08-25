@@ -171,13 +171,17 @@ pushResult, err = g.git.Push(message, resolvedTag)
 //     would be its own kind of surprise.
 //
 // A lookup error (network down, sum.golang.org unreachable) is treated as
-// "unknown, not burned" — see "Pregunta abierta" below before implementing
-// this part as-is.
+// "unknown, not burned" — fails OPEN, not closed. Decided 2026-08-25: see
+// "Decisión: fallar abierto" below for the justification. It surfaces
+// through g.log (the same logger SetLog already wires — no new logging
+// mechanism) so a repeated pattern of lookup failures is visible without
+// blocking any single publish.
 func (g *Go) resolveCleanTag(modulePath, candidate string) (string, error) {
 	if candidate != "" {
 		burned, err := g.sumdb.Lookup(modulePath, candidate)
 		if err != nil {
-			return candidate, nil // see open question
+			g.log("sumdb check skipped:", err)
+			return candidate, nil
 		}
 		if burned {
 			return "", fmt.Errorf(
@@ -195,7 +199,8 @@ func (g *Go) resolveCleanTag(modulePath, candidate string) (string, error) {
 	for attempts := 0; attempts < 100; attempts++ {
 		burned, err := g.sumdb.Lookup(modulePath, tag)
 		if err != nil {
-			return tag, nil // see open question
+			g.log("sumdb check skipped:", err)
+			return tag, nil
 		}
 		if !burned {
 			return tag, nil
@@ -217,26 +222,48 @@ plan es que este incidente no vuelva a pasar, así que la protección debe
 estar activa por defecto en el camino real de publicación, no detrás de un
 flag opt-in que nadie active.
 
-## Pregunta abierta — decidir antes de implementar
+## Decisión: fallar abierto (2026-08-25)
 
 **¿Qué hacer si el lookup a `sum.golang.org` falla (red caída, timeout)?**
+Se elige **fallar abierto** — un error de red no bloquea el push, se trata
+como "no se pudo confirmar, se asume libre" (logueado vía `g.log`, ver
+pseudocódigo arriba — no en silencio). Justificación:
 
-- **Opción A (la que el pseudocódigo arriba asume): fallar abierto.** Un
-  error de red no bloquea el push — se trata como "no se pudo confirmar,
-  se asume libre". Nunca se pierde la capacidad de publicar por una caída
-  transitoria de un servicio externo.
-- **Opción B: fallar cerrado.** Un error de red SÍ bloquea el push. Más
-  estricto — nunca se publica sin la confirmación positiva de que la
-  versión está limpia — pero convierte una caída de `sum.golang.org` en un
-  incidente de publicación propio.
+1. **Frecuencia de uso.** `gopush` se invoca constantemente — es el
+   mecanismo de publicación continua del ecosistema, no una ceremonia
+   deliberada y poco frecuente. Fallar cerrado ataría *cada* publicación de
+   *cualquier* repo a la disponibilidad de un servicio de terceros que no
+   es infraestructura propia (`sum.golang.org`, operado por Google). Un
+   hipo de red, un rate-limit, y nadie puede publicar nada hasta que ese
+   servicio externo responda.
+2. **Esta verificación es defensa en profundidad, no la defensa
+   primaria.** `CreateTag` ya rechaza un tag que existe localmente, y
+   `Push` ya valida `tag > latestTag`. El incidente ocurrió porque **no
+   existía ninguna verificación**, no porque una existente fallara
+   silenciosamente. La nueva capa captura casi todo el valor con solo
+   funcionar en el camino normal; bloquear *además* cuando la red falla
+   añade poco margen de seguridad a cambio de mucho costo de
+   disponibilidad.
+3. **Asimetría de severidad.** Fallar abierto + coincidencia (poco
+   probable) de que la versión sí estaba quemada: se repite el incidente
+   original — molesto, pero diagnosticable y reparable sin pérdida de
+   datos, tal como se demostró en la práctica el 2026-08-25. Fallar
+   cerrado + un hipo de red (mucho más probable dado el volumen de uso):
+   se bloquea la publicación de *todo* el ecosistema por la caída de un
+   servicio que nadie aquí controla.
+4. **Precedente del propio Go.** `GOPRIVATE`/`GONOSUMCHECK`/
+   `GOFLAGS=-insecure` existen porque el equipo de Go ya reconoció que
+   bloquear duro por indisponibilidad del sumdb es mala experiencia — se
+   falla duro ante un conflicto *confirmado*, nunca ante la *imposibilidad
+   de confirmar*. Este diseño sigue el mismo principio.
 
-Este plan no decide por el mantenedor — es exactamente el tipo de
-trade-off (disponibilidad vs. certeza) que **CONSTRUCTION_HARNESS.md**
-pide no resolver unilateralmente. Confirmar la opción antes de escribir el
-código de producción; el test `TestPush_ExplicitTagBurnedInSumDB_Fails` en
+El test `TestPush_ExplicitTagBurnedInSumDB_Fails` en
 `tinywasm/devflow/test/sumdb_test.go` (ya escrito, ver más abajo) no se ve
 afectado por esta decisión — solo prueba el caso "lookup exitoso, versión
-quemada".
+quemada". Si se quiere cobertura explícita del caso "lookup falla", es un
+test adicional natural para quien ejecute este plan: `sumdb.Lookup` que
+devuelve `error`, y afirmar que `Push` procede igual (con el tag original)
+y que `g.log` recibió el mensaje — no bloqueante para el resto del plan.
 
 ## TDD — el test ya existe, en rojo
 
@@ -280,14 +307,13 @@ tinywasm/git/interface.go        // modificar: +SumDBClient, +IncrementTag en Gi
 tinywasm/git/sumdb.go            // nuevo: HTTPSumDB
 tinywasm/devflow/go_handler.go   // modificar: campo sumdb, SetSumDBClient, resolveCleanTag, uso en Push
 tinywasm/devflow/cmd/gopush/main.go // modificar: activar por defecto
-tinywasm/devflow/test/sumdb_test.go // YA EXISTE — no tocar salvo que la Opción A/B elegida requiera un test adicional para el caso de error de red
+tinywasm/devflow/test/sumdb_test.go // YA EXISTE — no tocar; un test opcional para "lookup falla" es libre de agregarse aparte, ver "Decisión: fallar abierto"
 ```
 
 ## Criterios de aceptación
 
 - [ ] `go test ./...` en `tinywasm/git` y `tinywasm/devflow` — todo verde,
-      incluyendo `sumdb_test.go` sin modificarlo (salvo un test adicional
-      para la decisión de red, si aplica).
+      incluyendo `sumdb_test.go` sin modificarlo.
 - [ ] `gopush` real (`cmd/gopush`), al publicar una versión ya quemada
       manualmente en un repo de prueba, se niega con el mensaje de
       `resolveCleanTag` — probado manualmente una vez, no en CI (requiere
