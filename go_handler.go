@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +30,7 @@ type Go struct {
 	crossCompileFn        func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
 	extraPublishObjectors []gitmod.PublishObjector
 	useTinygo             bool
-	sumdb                 SumDBClient
+	sumdb                 gitmod.SumDBClient
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.
@@ -127,27 +126,8 @@ func (g *Go) SetBackup(b BackupRunner) {
 // SetSumDBClient enables the public-checksum-database guard before
 // tagging. nil (never called) preserves the exact behavior this package
 // had before this option existed.
-func (g *Go) SetSumDBClient(c SumDBClient) {
+func (g *Go) SetSumDBClient(c gitmod.SumDBClient) {
 	g.sumdb = c
-}
-
-func (g *Go) incrementTag(tag string) (string, error) {
-	if inc, ok := g.git.(interface{ IncrementTag(string) (string, error) }); ok {
-		return inc.IncrementTag(tag)
-	}
-	if tag == "" {
-		return "v0.0.1", nil
-	}
-	parts := strings.Split(tag, ".")
-	if len(parts) < 3 {
-		return "", fmt.Errorf("invalid tag format: %s", tag)
-	}
-	last, err := strconv.Atoi(parts[len(parts)-1])
-	if err != nil {
-		return "", fmt.Errorf("invalid tag number: %s", parts[len(parts)-1])
-	}
-	parts[len(parts)-1] = strconv.Itoa(last + 1)
-	return strings.Join(parts, "."), nil
 }
 
 // resolveCleanTag returns a version for modulePath free of public
@@ -194,7 +174,7 @@ func (g *Go) resolveCleanTag(modulePath, candidate string) (string, error) {
 			return tag, nil
 		}
 		var incErr error
-		tag, incErr = g.incrementTag(tag)
+		tag, incErr = g.git.IncrementTag(tag)
 		if incErr != nil {
 			return "", incErr
 		}

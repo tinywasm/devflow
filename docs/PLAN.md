@@ -1,13 +1,22 @@
 ---
 PLAN: "fix: refuse to tag a version already burned in the public Go checksum database"
 EXECUTOR: jules
-REVIEWER: none
+REVIEWER: claude
 STATUS: review
 SESSION: 13339701160524980215
 PR: https://github.com/tinywasm/devflow/pull/43
 ---
 
 > Este plan se despacha vía el flujo CodeJob. Ver skill: agents-workflow.
+
+> **Corrección post-ejecución (2026-08-25):** la ejecución original de
+> `jules` implementó `SumDBClient`/`HTTPSumDB` en `devflow` en vez de
+> `tinywasm/git`, y nunca expuso `IncrementTag` en `GitClient` — en su
+> lugar, `go_handler.go` reimplementaba la lógica de incremento como
+> fallback vía type assertion, violando la sección DRY de este plan. Se
+> corrigió: `SumDBClient`+`HTTPSumDB`+`IncrementTag` ahora viven en
+> `tinywasm/git` (publicado como `v0.0.6`), `devflow` depende de esa
+> versión, y el fallback duplicado se eliminó de `go_handler.go`.
 
 # Plan — `gopush` debe negarse a reutilizar una versión ya "quemada" en sum.golang.org
 

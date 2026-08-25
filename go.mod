@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/tinywasm/command v0.0.2
-	github.com/tinywasm/git v0.0.5
+	github.com/tinywasm/git v0.0.6
 	github.com/tinywasm/gorun v0.0.24
 	github.com/tinywasm/keyring v0.2.0
 	github.com/tinywasm/markdown v0.0.2
