@@ -30,6 +30,7 @@ type Go struct {
 	crossCompileFn        func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
 	extraPublishObjectors []gitmod.PublishObjector
 	useTinygo             bool
+	sumdb                 gitmod.SumDBClient
 }
 
 // GoVersion reads the Go version from the go.mod file in the current directory.
@@ -120,6 +121,65 @@ func (g *Go) SetLog(fn func(...any)) {
 // SetBackup replaces the backup runner (used in tests to inject a mock).
 func (g *Go) SetBackup(b BackupRunner) {
 	g.backup = b
+}
+
+// SetSumDBClient enables the public-checksum-database guard before
+// tagging. nil (never called) preserves the exact behavior this package
+// had before this option existed.
+func (g *Go) SetSumDBClient(c gitmod.SumDBClient) {
+	g.sumdb = c
+}
+
+// resolveCleanTag returns a version for modulePath free of public
+// checksum-db conflicts.
+//
+//   - candidate == "" (auto-generate): resolves via g.git.GenerateNextTag(),
+//     then keeps incrementing (g.git.IncrementTag) past any version already
+//     burned — no caller intent is being overridden, any higher number
+//     satisfies "give me the next version".
+//   - candidate != "" (explicit): if THAT exact version is burned, FAILS
+//     loudly instead of silently substituting a different one — silently
+//     moving v0.0.4 to v0.0.5 when the caller asked for v0.0.4 specifically
+//     would be its own kind of surprise.
+//
+// A lookup error (network down, sum.golang.org unreachable) is treated as
+// "unknown, not burned" — fails OPEN, not closed.
+func (g *Go) resolveCleanTag(modulePath, candidate string) (string, error) {
+	if candidate != "" {
+		burned, err := g.sumdb.Lookup(modulePath, candidate)
+		if err != nil {
+			g.log("sumdb check skipped:", err)
+			return candidate, nil
+		}
+		if burned {
+			return "", fmt.Errorf(
+				"tag %s for %s is already indexed in the public Go checksum database "+
+					"with possibly different content — pick a different version",
+				candidate, modulePath)
+		}
+		return candidate, nil
+	}
+
+	tag, err := g.git.GenerateNextTag()
+	if err != nil {
+		return "", err
+	}
+	for attempts := 0; attempts < 100; attempts++ {
+		burned, err := g.sumdb.Lookup(modulePath, tag)
+		if err != nil {
+			g.log("sumdb check skipped:", err)
+			return tag, nil
+		}
+		if !burned {
+			return tag, nil
+		}
+		var incErr error
+		tag, incErr = g.git.IncrementTag(tag)
+		if incErr != nil {
+			return "", incErr
+		}
+	}
+	return "", fmt.Errorf("could not find a tag for %s free of public checksum-db conflicts after 100 attempts", modulePath)
 }
 
 // SetConsoleOutput sets the function for console output (used by ConsoleFilter)
@@ -265,8 +325,17 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 			pushResult.Summary = "No changes to commit"
 		}
 	} else {
+		resolvedTag := tag
+		if g.sumdb != nil && modulePath != "" {
+			var err error
+			resolvedTag, err = g.resolveCleanTag(modulePath, tag)
+			if err != nil {
+				return gitmod.PushResult{}, err
+			}
+		}
+
 		// Hoist tag computation so we can sync internal submodules BEFORE commit
-		nextTag := tag
+		nextTag := resolvedTag
 		if nextTag == "" && g.git != nil {
 			var err error
 			nextTag, err = g.git.GenerateNextTag()
@@ -288,7 +357,7 @@ func (g *Go) Push(message, tag string, skipTests, skipRace, skipDependents, skip
 			}
 		}
 
-		pushResult, err = g.git.Push(message, tag)
+		pushResult, err = g.git.Push(message, resolvedTag)
 		if err != nil {
 			return gitmod.PushResult{}, fmt.Errorf("push workflow failed: %w", err)
 		}

@@ -611,8 +611,8 @@ func (m *MockGitClient) Fetch() error {
 }
 
 // IncrementTag mirrors the real gitmod.Git.IncrementTag: bumps the last
-// dot-separated numeric segment by one. Needed once GitClient's interface
-// grows this method — see sumdb_test.go.
+// dot-separated numeric segment by one. Required by gitmod.GitClient —
+// see sumdb_test.go.
 func (m *MockGitClient) IncrementTag(tag string) (string, error) {
 	if tag == "" {
 		return "v0.0.1", nil

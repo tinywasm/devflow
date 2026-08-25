@@ -77,6 +77,7 @@ Flags:
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
+	goHandler.SetSumDBClient(&gitmod.HTTPSumDB{})
 
 	// Run Push with parsed options
 	summary, err := goHandler.Push(message, tag, false, skipRace, noCascade, false, false, false, "..")
