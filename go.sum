@@ -18,8 +18,8 @@ github.com/tinywasm/gorun v0.0.24 h1:qduMrpcw0nf65nx8Fi2duBWN7pCIwXxePPa9KL0rmWM
 github.com/tinywasm/gorun v0.0.24/go.mod h1:9pApF2ZoaH/km6kGBVxL5WlStOoLwEZiV1uG4R4qeKo=
 github.com/tinywasm/json v0.5.23 h1:mhD385PI5oMxhOvXU+0lApfMmiq7e739WUtvs20hneI=
 github.com/tinywasm/json v0.5.23/go.mod h1:Fvggb9gLu5IuAFfmLlPTg2oGI++790mqWzQquJSU22s=
-github.com/tinywasm/keyring v0.2.0 h1:+H8KTweamnfWk5ojFumy3q6j9tjlXp7mcGkCzXP8H7o=
-github.com/tinywasm/keyring v0.2.0/go.mod h1:mU5CZ7491EgpWTay/WntgWGPxwK5OqgmrFOhJ+xPwoE=
+github.com/tinywasm/keyring v0.2.3 h1:OOTvCG7MeGiZPv+q1PlKhpzX2OTAK0xHSa6+NQP563o=
+github.com/tinywasm/keyring v0.2.3/go.mod h1:s8R7gFsG4hQbnSGXuDwwENeqXf9APgeDozIfhQQEb0c=
 github.com/tinywasm/markdown v0.0.2 h1:dSt9UQPeZgaaPE30gjGYhh/UBxMKGJN+yJyUUz/BgNA=
 github.com/tinywasm/markdown v0.0.2/go.mod h1:0SAcxF8xzuudJ3DrYl3mDISgwQmYzXeR7al0cLjZP1M=
 github.com/tinywasm/mcp v0.2.17 h1:OPQJh8Zx4h2G6b6ZfCYajPzma6Th1C1Wqj/GOi+vq2w=
