@@ -12,7 +12,6 @@ Complete Go development automation: project init, testing, versioning, updates, 
 - **[gorelease](docs/GORELEASE.md)** - Publish Go module + create GitHub Release with cross-platform binaries
 - **[devbackup](docs/DEVBACKUP.md)** - Configure and execute automated backups
 - **[badges](docs/BADGES.md)** - Generate SVG badges for README (test status, coverage, etc.)
-- **[devllm](docs/LLMSKILL.md)** - Sync LLM configuration files from master template
 - **[goinstall](docs/GOINSTALL.md)** - Install all devflow commands at once
 - **[codejob](docs/CODEJOB.md)** - Send coding tasks to AI agents (Jules, etc.)
 
