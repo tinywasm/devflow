@@ -28,6 +28,6 @@ require (
 require (
 	github.com/tinywasm/context v0.0.18
 	github.com/tinywasm/fmt v0.25.7 // indirect
-	github.com/tinywasm/wizard v0.0.22
+	github.com/tinywasm/wizard v0.0.28
 	golang.org/x/sys v0.47.0 // indirect
 )
