@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tinywasm/devflow"
+	"github.com/tinywasm/gorelease"
 	keyring "github.com/tinywasm/keyring/auto"
 )
 
@@ -80,8 +81,15 @@ func main() {
 
 	// Inject the release function if -release flag is used
 	if opts.IsRelease {
+		rel, err := gorelease.New(git)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+		rel.SetLog(log)
+		rel.SetConsoleOutput(func(s string) { fmt.Println(s) })
 		job.SetReleaser(func(releaseTag string) error {
-			return goHandler.ReleaseOnly(releaseTag, gh)
+			return rel.ReleaseOnly(releaseTag, gh)
 		})
 	}
 

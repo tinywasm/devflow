@@ -102,17 +102,3 @@ func ParseCodeJobArgs(args []string) (message, tag string, isHelp, isRelease, is
 	opts := ParseCodeJobFlags(args)
 	return opts.Message, opts.Tag, opts.IsHelp, opts.IsRelease, opts.IsResetGHToken
 }
-
-// ParseReleaseArgs parses gorelease CLI: gorelease [tag]
-// Returns tag (may be empty) and isHelp.
-func ParseReleaseArgs(args []string) (tag string, isHelp bool) {
-	if len(args) > 1 {
-		arg := strings.ToLower(args[1])
-		switch arg {
-		case "help", "-help", "--help", "h", "-h", "?", "-?":
-			return "", true
-		}
-		tag = args[1]
-	}
-	return
-}

@@ -15,9 +15,6 @@ import (
 	"github.com/tinywasm/gorun"
 )
 
-// CrossTarget represents a compilation target platform
-type CrossTarget struct{ GOOS, GOARCH string }
-
 // Go handler for Go operations
 type Go struct {
 	rootDir               string
@@ -27,7 +24,6 @@ type Go struct {
 	backup                BackupRunner
 	retryDelay            time.Duration
 	retryAttempts         int
-	crossCompileFn        func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)
 	extraPublishObjectors []gitmod.PublishObjector
 	useTinygo             bool
 	sumdb                 gitmod.SumDBClient
@@ -193,11 +189,6 @@ func (g *Go) SetPublishObjectors(objs ...gitmod.PublishObjector) { g.extraPublis
 // AddPublishObjector appends an extra publish objector.
 func (g *Go) AddPublishObjector(obj gitmod.PublishObjector) {
 	g.extraPublishObjectors = append(g.extraPublishObjectors, obj)
-}
-
-// SetCrossCompileFn sets a custom cross-compile function for testing
-func (g *Go) SetCrossCompileFn(fn func(tmpDir string, cmds []string, targets []CrossTarget, repoDir string) ([]string, error)) {
-	g.crossCompileFn = fn
 }
 
 // GetLog returns the logger function

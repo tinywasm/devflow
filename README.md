@@ -9,7 +9,6 @@ Complete Go development automation: project init, testing, versioning, updates, 
 - **[gonew](docs/GONEW.md)** - Initialize new Go projects
 - **[gotest](docs/GOTEST.md)** - Run tests, vet, race detection, coverage and badges
 - **[gopush](docs/GOPUSH.md)** - Automated publish workflow: test + push + update dependents
-- **[gorelease](docs/GORELEASE.md)** - Publish Go module + create GitHub Release with cross-platform binaries
 - **[devbackup](docs/DEVBACKUP.md)** - Configure and execute automated backups
 - **[badges](docs/BADGES.md)** - Generate SVG badges for README (test status, coverage, etc.)
 - **[goinstall](docs/GOINSTALL.md)** - Install all devflow commands at once
